@@ -130,9 +130,13 @@
 - [x] **Telemetry aggregator** — New `src/runtime/telemetry.ts` with `collectSnapshot()` that collects a unified `TelemetrySnapshot` from all system modules: health status (5 checks), spending (today/month/all-time with model breakdowns), session analytics (total/avg tokens, delegations), workflow metrics (runs/success rate per workflow), and storage counts (sessions, journals, weekly, primitives). Per-section skip options via `TelemetryOptions` for performance. `formatDashboard()` renders a human-readable multi-section dashboard string. Graceful degradation — each section fails independently. 17 new tests.
 - [x] **CLI dashboard** — New `harness dashboard` command shows a unified dashboard of health, costs, sessions, workflows, and storage in one view. `--json` flag outputs raw JSON snapshot for programmatic use. `--watch` flag refreshes every N seconds (default 5) with screen-clear for live monitoring. `--interval <seconds>` configures watch refresh rate. Integrates with all existing telemetry modules.
 
+## Completed (Loop 23)
+
+- [x] **Config-driven guardrails** — New `src/runtime/guardrails.ts` with `checkGuardrails()` that enforces both rate limits and budget before every LLM call. New `rate_limits` config section (`per_minute`, `per_hour`, `per_day`) and `budget` config section (`daily_limit_usd`, `monthly_limit_usd`, `enforce`). `buildRateLimits()` converts config into `RateLimit[]` rules. Rate limit checks run first, budget checks second. When blocked, throws descriptive error with `retry_after_ms` for rate limits or budget-exceeded message for budgets. `budget.enforce: false` makes budget alerts informational only. Wired into `createHarness()` — both `run()` and `stream()` check guardrails before LLM call. Blocked calls recorded as failures in health metrics. 18 new tests.
+
 ## All Plan Items Complete
 
-All items from the original fix plan have been implemented across 22 loops.
+All items from the original fix plan have been implemented across 23 loops.
 
 ## Architecture Notes
 
@@ -170,6 +174,7 @@ All items from the original fix plan have been implemented across 22 loops.
 - File-based concurrency locking with fail-open semantics, stale detection, PID liveness
 - Health monitoring with 5-check system, cost integration, and CLI dashboard
 - Unified telemetry aggregator with dashboard CLI, JSON export, and live watch mode
+- Config-driven guardrails: rate limiting + budget enforcement before every LLM call
 
 ### Known Limitations
 - Token estimation is 1:4 char ratio — good enough but not precise

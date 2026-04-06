@@ -79,6 +79,22 @@ export const HarnessConfigSchema = z.object({
   extensions: z.object({
     directories: z.array(z.string()).default([]),
   }).passthrough().default({ directories: [] }),
+  rate_limits: z.object({
+    /** Max LLM calls per minute (default: unlimited) */
+    per_minute: z.number().int().positive().optional(),
+    /** Max LLM calls per hour (default: unlimited) */
+    per_hour: z.number().int().positive().optional(),
+    /** Max LLM calls per day (default: unlimited) */
+    per_day: z.number().int().positive().optional(),
+  }).passthrough().default({}),
+  budget: z.object({
+    /** Max daily spend in USD (default: unlimited) */
+    daily_limit_usd: z.number().positive().optional(),
+    /** Max monthly spend in USD (default: unlimited) */
+    monthly_limit_usd: z.number().positive().optional(),
+    /** Block runs when budget exceeded (default: true) */
+    enforce: z.boolean().default(true),
+  }).passthrough().default({ enforce: true }),
 }).passthrough();
 
 export type HarnessConfig = z.infer<typeof HarnessConfigSchema>;
@@ -94,6 +110,8 @@ export const CONFIG_DEFAULTS: HarnessConfig = {
   memory: { session_retention_days: 7, journal_retention_days: 365 },
   channels: { primary: 'cli' },
   extensions: { directories: [] },
+  rate_limits: {},
+  budget: { enforce: true },
 };
 
 export const CORE_PRIMITIVE_DIRS = ['rules', 'instincts', 'skills', 'playbooks', 'workflows', 'tools', 'agents'] as const;

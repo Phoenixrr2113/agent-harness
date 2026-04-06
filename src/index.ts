@@ -65,3 +65,5 @@ export { loadHealth, saveHealth, recordSuccess, recordFailure, recordBoot, getHe
 export type { HealthCheck, HealthMetrics, HealthStatus } from './runtime/health.js';
 export { collectSnapshot, formatDashboard } from './runtime/telemetry.js';
 export type { TelemetrySnapshot, TelemetryOptions } from './runtime/telemetry.js';
+export { checkGuardrails, buildRateLimits } from './runtime/guardrails.js';
+export type { GuardrailResult } from './runtime/guardrails.js';

@@ -17,6 +17,7 @@ import { loadState, saveState } from '../runtime/state.js';
 import { createSessionId, writeSession, type SessionRecord } from '../runtime/sessions.js';
 import { recordCost } from '../runtime/cost-tracker.js';
 import { recordSuccess, recordFailure, recordBoot } from '../runtime/health.js';
+import { checkGuardrails } from '../runtime/guardrails.js';
 
 export function createHarness(options: CreateHarnessOptions): HarnessAgent {
   const dir = resolve(options.dir);
@@ -86,6 +87,17 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
 
     async run(prompt: string): Promise<AgentRunResult> {
       if (!booted) await agent.boot();
+
+      // Check guardrails (rate limits + budget) before LLM call
+      const guard = checkGuardrails(dir, config);
+      if (!guard.allowed) {
+        const error = new Error(`Guardrail blocked: ${guard.reason}`);
+        recordFailure(dir, error.message);
+        if (hooks.onError) {
+          await hooks.onError({ agent, error, prompt });
+        }
+        throw error;
+      }
 
       const sessionId = createSessionId();
       const started = new Date().toISOString();
@@ -157,6 +169,14 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
 
     async *stream(prompt: string): AsyncIterable<string> {
       if (!booted) await agent.boot();
+
+      // Check guardrails (rate limits + budget) before LLM call
+      const guard = checkGuardrails(dir, config);
+      if (!guard.allowed) {
+        const error = new Error(`Guardrail blocked: ${guard.reason}`);
+        recordFailure(dir, error.message);
+        throw error;
+      }
 
       const sessionId = createSessionId();
       const started = new Date().toISOString();
