@@ -115,9 +115,14 @@
 - [x] **Lifecycle hooks** — New `HarnessHooks` interface in `src/core/types.ts` with `onBoot`, `onSessionEnd`, `onError`, `onStateChange`, `onShutdown` async callbacks. Wired into `createHarness()`: `onBoot` fires after context load, `onStateChange` on mode transitions (idle→active, active→idle), `onSessionEnd` after each run with session ID and result, `onError` wraps generate failures (re-throws after hook), `onShutdown` fires before mode reset. Fully optional — no hooks = no overhead. 8 new hook tests.
 - [x] **Role-specific starter templates** — New `templates/assistant/` (personal assistant: task management, research, drafting, 14-day session retention) and `templates/code-reviewer/` (code review agent: review process, feedback severity levels, 15k scratchpad budget, 30-day retention). Each template includes CORE.md, SYSTEM.md, config.yaml with `{{AGENT_NAME}}` substitution. 5 new template scaffold tests. `listTemplates()` returns all available templates.
 
+## Completed (Loop 20)
+
+- [x] **Rate limiter** — New `src/runtime/rate-limiter.ts` with sliding window rate limiting. `RateLimit` defines key/max_requests/window_ms. `checkRateLimit()` checks without recording, `tryAcquire()` atomically checks and records if allowed, `recordEvent()` records directly. `getUsage()` for current window stats, `clearRateLimits()` for cleanup. Persists to `memory/rate-limits.json` with 10k event cap and automatic 1-hour pruning. `retry_after_ms` calculated from oldest event in window. CLI: `harness ratelimit status <key>`, `harness ratelimit clear`. 12 new tests.
+- [x] **Cost tracker** — New `src/runtime/cost-tracker.ts` with per-model pricing and budget alerts. Default pricing for Claude (Sonnet/Opus/Haiku), GPT-4o, GPT-4o-mini, local models. `calculateCost()` computes USD from tokens using per-million pricing. `recordCost()` auto-calculates or accepts explicit cost. `getSpending()` aggregates by date range with model/provider breakdowns. `checkBudget()` checks daily/monthly limits with configurable alert threshold (default 80%). Wired into `createHarness()` — both `run()` and `stream()` automatically record costs. Persists to `memory/costs.json` with 5k entry cap. CLI: `harness costs show` (with `--from`/`--to`), `harness costs budget` (with `--daily`/`--monthly`), `harness costs clear`. 19 new tests.
+
 ## All Plan Items Complete
 
-All items from the original fix plan have been implemented across 19 loops.
+All items from the original fix plan have been implemented across 20 loops.
 
 ## Architecture Notes
 
@@ -150,6 +155,8 @@ All items from the original fix plan have been implemented across 19 loops.
 - Session analytics with aggregated stats, model usage, and date range queries
 - Lifecycle hooks for programmatic API (boot, session, error, state change, shutdown)
 - Role-specific templates (assistant, code-reviewer) with domain-appropriate defaults
+- Sliding window rate limiter with per-key enforcement and retry-after calculation
+- Cost tracker with auto-pricing, budget alerts, and daily/monthly spending limits
 
 ### Known Limitations
 - Token estimation is 1:4 char ratio — good enough but not precise

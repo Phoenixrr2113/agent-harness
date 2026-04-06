@@ -55,3 +55,7 @@ export { buildDependencyGraph, getGraphStats } from './runtime/graph.js';
 export type { DependencyGraph, GraphNode, GraphEdge, GraphStats } from './runtime/graph.js';
 export { getSessionAnalytics, getSessionsInRange } from './runtime/analytics.js';
 export type { SessionData, SessionAnalytics } from './runtime/analytics.js';
+export { checkRateLimit, recordEvent, tryAcquire, getUsage, clearRateLimits, loadRateLimits, saveRateLimits } from './runtime/rate-limiter.js';
+export type { RateEvent, RateLimit, RateLimitCheck, RateLimitStore } from './runtime/rate-limiter.js';
+export { calculateCost, recordCost, getSpending, checkBudget, clearCosts, findPricing, loadCosts, saveCosts } from './runtime/cost-tracker.js';
+export type { ModelPricing, CostEntry, BudgetConfig, BudgetStatus, SpendingSummary, CostStore } from './runtime/cost-tracker.js';

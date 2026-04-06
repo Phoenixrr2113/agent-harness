@@ -1677,4 +1677,181 @@ program
     }
   });
 
+// --- COSTS (spending tracker) ---
+const costsCmd = program
+  .command('costs')
+  .description('View and manage API spending');
+
+costsCmd
+  .command('show')
+  .description('Show spending summary (default: today)')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--from <date>', 'Start date (YYYY-MM-DD)')
+  .option('--to <date>', 'End date (YYYY-MM-DD)')
+  .action(async (opts: { dir: string; from?: string; to?: string }) => {
+    const { getSpending } = await import('../runtime/cost-tracker.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const summary = getSpending(dir, opts.from, opts.to);
+    const label = opts.from || opts.to
+      ? `${opts.from ?? 'start'} to ${opts.to ?? 'now'}`
+      : 'today';
+
+    if (summary.entries === 0) {
+      console.log(`\nNo spending recorded for ${label}.\n`);
+      return;
+    }
+
+    console.log(`\nSpending — ${label}\n`);
+    console.log(`  Total: $${summary.total_cost_usd.toFixed(6)}`);
+    console.log(`  Entries: ${summary.entries}`);
+    console.log(`  Tokens: ${summary.total_input_tokens.toLocaleString()} in / ${summary.total_output_tokens.toLocaleString()} out`);
+
+    const models = Object.entries(summary.by_model);
+    if (models.length > 0) {
+      console.log(`\n  By model:`);
+      for (const [model, data] of models.sort((a, b) => b[1].cost_usd - a[1].cost_usd)) {
+        console.log(`    ${model}: $${data.cost_usd.toFixed(6)} (${data.count} calls)`);
+      }
+    }
+
+    const providers = Object.entries(summary.by_provider);
+    if (providers.length > 0) {
+      console.log(`\n  By provider:`);
+      for (const [provider, data] of providers.sort((a, b) => b[1].cost_usd - a[1].cost_usd)) {
+        console.log(`    ${provider}: $${data.cost_usd.toFixed(6)} (${data.count} calls)`);
+      }
+    }
+    console.log();
+  });
+
+costsCmd
+  .command('budget')
+  .description('Check spending against budget limits')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--daily <usd>', 'Daily budget limit in USD')
+  .option('--monthly <usd>', 'Monthly budget limit in USD')
+  .action(async (opts: { dir: string; daily?: string; monthly?: string }) => {
+    const { checkBudget } = await import('../runtime/cost-tracker.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const dailyLimit = opts.daily ? parseFloat(opts.daily) : undefined;
+    const monthlyLimit = opts.monthly ? parseFloat(opts.monthly) : undefined;
+
+    if (dailyLimit === undefined && monthlyLimit === undefined) {
+      console.error('Error: Specify at least --daily or --monthly budget limit.');
+      process.exit(1);
+    }
+
+    const status = checkBudget(dir, {
+      daily_limit_usd: dailyLimit,
+      monthly_limit_usd: monthlyLimit,
+    });
+
+    console.log('\nBudget Status\n');
+
+    if (status.daily_limit_usd !== null) {
+      const pct = status.daily_pct !== null ? ` (${status.daily_pct.toFixed(1)}%)` : '';
+      console.log(`  Daily:   $${status.daily_spent_usd.toFixed(6)} / $${status.daily_limit_usd.toFixed(2)}${pct}`);
+      if (status.daily_remaining_usd !== null) {
+        console.log(`    Remaining: $${status.daily_remaining_usd.toFixed(6)}`);
+      }
+    }
+
+    if (status.monthly_limit_usd !== null) {
+      const pct = status.monthly_pct !== null ? ` (${status.monthly_pct.toFixed(1)}%)` : '';
+      console.log(`  Monthly: $${status.monthly_spent_usd.toFixed(6)} / $${status.monthly_limit_usd.toFixed(2)}${pct}`);
+      if (status.monthly_remaining_usd !== null) {
+        console.log(`    Remaining: $${status.monthly_remaining_usd.toFixed(6)}`);
+      }
+    }
+
+    if (status.alerts.length > 0) {
+      console.log('\n  Alerts:');
+      for (const alert of status.alerts) {
+        console.log(`    ⚠ ${alert}`);
+      }
+    }
+    console.log();
+
+    // Exit 1 if any budget exceeded
+    if (status.alerts.some((a) => a.includes('exceeded'))) {
+      process.exit(1);
+    }
+  });
+
+costsCmd
+  .command('clear')
+  .description('Clear all cost records')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--model <id>', 'Clear only entries for this model')
+  .action(async (opts: { dir: string; model?: string }) => {
+    const { clearCosts } = await import('../runtime/cost-tracker.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const removed = clearCosts(dir, opts.model);
+    if (opts.model) {
+      console.log(`Cleared ${removed} cost entry(ies) for model "${opts.model}".`);
+    } else {
+      console.log(`Cleared ${removed} total cost entry(ies).`);
+    }
+  });
+
+// --- RATELIMIT (rate limit management) ---
+const rateLimitCmd = program
+  .command('ratelimit')
+  .description('View and manage rate limit state');
+
+rateLimitCmd
+  .command('status')
+  .description('Show current rate limit usage for a key')
+  .argument('<key>', 'Rate limit key (e.g., tool:github, model:claude)')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--window <ms>', 'Window size in ms', '3600000')
+  .action(async (key: string, opts: { dir: string; window: string }) => {
+    const { getUsage } = await import('../runtime/rate-limiter.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const windowMs = parseInt(opts.window, 10) || 3600000;
+    const usage = getUsage(dir, key, windowMs);
+
+    const windowLabel = windowMs >= 3600000
+      ? `${windowMs / 3600000}h`
+      : windowMs >= 60000
+        ? `${windowMs / 60000}m`
+        : `${windowMs}ms`;
+
+    console.log(`\nRate limit: ${key} (${windowLabel} window)\n`);
+    console.log(`  Requests: ${usage.count}`);
+    if (usage.oldest !== null) {
+      console.log(`  Oldest: ${new Date(usage.oldest).toISOString()}`);
+    }
+    if (usage.newest !== null) {
+      console.log(`  Newest: ${new Date(usage.newest).toISOString()}`);
+    }
+    console.log();
+  });
+
+rateLimitCmd
+  .command('clear')
+  .description('Clear rate limit events')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--key <key>', 'Clear only this key (clears all if omitted)')
+  .action(async (opts: { dir: string; key?: string }) => {
+    const { clearRateLimits } = await import('../runtime/rate-limiter.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const removed = clearRateLimits(dir, opts.key);
+    if (opts.key) {
+      console.log(`Cleared ${removed} event(s) for key "${opts.key}".`);
+    } else {
+      console.log(`Cleared ${removed} total event(s).`);
+    }
+  });
+
 program.parse();

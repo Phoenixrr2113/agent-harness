@@ -15,6 +15,7 @@ import { streamText } from 'ai';
 import { buildSystemPrompt } from '../runtime/context-loader.js';
 import { loadState, saveState } from '../runtime/state.js';
 import { createSessionId, writeSession, type SessionRecord } from '../runtime/sessions.js';
+import { recordCost } from '../runtime/cost-tracker.js';
 
 export function createHarness(options: CreateHarnessOptions): HarnessAgent {
   const dir = resolve(options.dir);
@@ -118,6 +119,15 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
 
       writeSession(dir, session);
 
+      // Record cost
+      recordCost(dir, {
+        model_id: config.model.id,
+        provider: config.model.provider ?? 'openrouter',
+        input_tokens: result.usage.inputTokens,
+        output_tokens: result.usage.outputTokens,
+        source: `run:${sessionId}`,
+      });
+
       // Update state
       state.last_interaction = ended;
       saveState(dir, state);
@@ -175,6 +185,15 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
       };
 
       writeSession(dir, session);
+
+      // Record cost
+      recordCost(dir, {
+        model_id: config.model.id,
+        provider: config.model.provider ?? 'openrouter',
+        input_tokens: usage?.inputTokens ?? 0,
+        output_tokens: usage?.outputTokens ?? 0,
+        source: `stream:${sessionId}`,
+      });
 
       state.last_interaction = ended;
       saveState(dir, state);
