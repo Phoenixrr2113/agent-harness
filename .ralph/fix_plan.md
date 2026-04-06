@@ -21,7 +21,18 @@ Found during real end-to-end testing of all CLI commands.
   - Already fixed — all 27 tests pass
 - [x] Suppress MCP server noise in CLI output — betterstack proxy logs 20+ lines of JSON-RPC debug output, supabase-mcp-server prints a full Python traceback. MCP server stderr should be captured and only shown with `--verbose`, not on every `harness run`. The WARN lines for failed connections are fine to keep.
   - `buildClientConfig()` now passes `stderr: 'pipe'` to StdioMCPTransport unless log level is debug (--verbose)
-- [ ] After fixing all bugs above, run EVERY CLI command against the test-agent directory and verify they all work. Use `harness init`, `harness run`, `harness run --stream`, `harness info`, `harness prompt`, `harness validate`, `harness status`, `harness doctor`, `harness gate run`, `harness journal`, `harness learn`, `harness enrich`, `harness suggest`, `harness contradictions`, `harness dead-primitives`, `harness auto-promote`, `harness discover search "code review"`, `harness sources list`, `harness discover project`, `harness discover env`, `harness version init`, `harness version snapshot`, `harness version log`, `harness export`, `harness bundle` (with AND without --types), `harness process`, `harness system`, `harness index`, `harness list-rules`, `harness check-rules "delete all data"`, `harness intelligence failures`, `harness playbook-gates`, `harness semantic stats`, `harness installed`, `harness browse`, `harness mcp search filesystem`. Every command must succeed (exit 0) and produce reasonable output. Document any failures in fix_plan.md and fix them before marking this task complete.
+- [x] After fixing all bugs above, run EVERY CLI command against the test-agent directory and verify they all work.
+  - All 40 commands tested and passing (exit 0, reasonable output):
+  - init, run, run --stream, info, prompt, validate, status, doctor, gate run, gate list
+  - journal, learn, enrich, suggest, contradictions, dead-primitives, auto-promote
+  - discover search, sources list, discover project, discover env
+  - version init, version snapshot, version log, export
+  - bundle (no --types), bundle (with --types), process, system, index
+  - list-rules, check-rules, intelligence failures, playbook-gates
+  - semantic stats, installed, browse, mcp search, dashboard, --version
+  - Real LLM calls confirmed: run and run --stream produce correct responses
+  - MCP noise suppressed: no Python tracebacks or JSON-RPC debug in output
+  - WARN lines for failed MCP connections still visible (as intended)
 
 ## Phase 1 — Make It Actually Work
 
@@ -988,9 +999,29 @@ Adapters are webhook parsers. Each one knows how to normalize a specific service
 - **Phase 9 is now COMPLETE** — all items checked off
 - All 1061 tests passing, build clean, lint clean
 
+### Loop 64 (Phase 11 Complete — Full CLI Validation)
+- **Phase 11 is now COMPLETE** — all items checked off
+- Verified all 4 bug fixes were already in place from previous loops:
+  - `harness bundle` defaults to all 7 primitive types (CORE_PRIMITIVE_DIRS fallback)
+  - `harness init` CORE.md generation logs actual error message (cleaned up redundant prefix)
+  - agent-framework.test.ts and define-agent.test.ts: all 27 tests pass (never called boot/getModel)
+  - MCP stderr suppressed via `stderr: 'pipe'` in StdioMCPTransport (shows with --verbose)
+- `generateCoreMd()` signature change: now returns `Promise<string>` (throws on error instead of returning null)
+- Ran all 40 CLI commands against test-agent directory — ALL PASS:
+  - Core: init, run, run --stream, info, prompt, validate, status, doctor, dashboard
+  - Learning: journal, learn, enrich, suggest, contradictions, dead-primitives, auto-promote
+  - Discovery: discover search, sources list, discover project, discover env
+  - Versioning: version init, version snapshot, version log, export
+  - Bundling: bundle (no --types), bundle (with --types), process, system, index
+  - Intelligence: list-rules, check-rules, intelligence failures, playbook-gates, semantic stats
+  - Ecosystem: installed, browse, mcp search, gate run, gate list
+- Real LLM calls: `run` and `run --stream` produce correct responses (2+2=4, 3+3=6)
+- MCP noise confirmed suppressed: no Python tracebacks or JSON-RPC debug in output
+- All 1061 tests passing, build clean, lint clean
+
 ### Stats
 - 1061 tests across 53 files — ALL PASSING
 - 59+ source modules, 35,000+ lines
-- 89+ CLI commands
+- 89+ CLI commands, 40 individually verified
 - Build, lint, tests all green
 - Zero `any` types, zero empty catches, zero `require()` calls
