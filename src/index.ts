@@ -12,6 +12,8 @@ export type {
   ContextBudget,
   IndexEntry,
   DeepPartial,
+  ToolCallInfo,
+  ToolExecutorOptions,
 } from './core/types.js';
 export { HarnessConfigSchema, FrontmatterSchema, CORE_PRIMITIVE_DIRS, getPrimitiveDirs } from './core/types.js';
 export { loadConfig, writeDefaultConfig } from './core/config.js';
@@ -49,6 +51,8 @@ export { loadMetrics, saveMetrics, recordRun, getWorkflowStats, getAllWorkflowSt
 export type { WorkflowRun, MetricsStore, WorkflowStats } from './runtime/metrics.js';
 export { loadTools, getToolById, listToolSummaries, checkToolAuth, parseToolDefinition } from './runtime/tools.js';
 export type { ToolDefinition, ToolSummary, ToolAuth, ToolOperation } from './runtime/tools.js';
+export { buildToolSet, convertToolDefinition, resolveEndpoint, buildOperationSchema, buildAuthHeaders, executeHttpOperation, createToolCallTracker, getToolSetSummary } from './runtime/tool-executor.js';
+export type { ToolCallResult, ToolCallRecord, ProgrammaticTool, ToolExecutorConfig, AIToolSet } from './runtime/tool-executor.js';
 export { exportHarness, writeBundle, readBundle, importBundle } from './runtime/export.js';
 export type { HarnessBundle, ExportEntry, ImportResult, ExportOptions } from './runtime/export.js';
 export { buildDependencyGraph, getGraphStats } from './runtime/graph.js';

@@ -164,6 +164,16 @@ export interface HarnessHooks {
   onShutdown?: (context: { agent: HarnessAgent; state: AgentState }) => void | Promise<void>;
 }
 
+// --- Tool Executor Config (inline to avoid circular deps) ---
+export interface ToolExecutorOptions {
+  /** Maximum tool calls per run (default: 5) */
+  maxToolCalls?: number;
+  /** Timeout per tool call in ms (default: 30000) */
+  toolTimeoutMs?: number;
+  /** Whether to allow HTTP tool execution (default: true) */
+  allowHttpExecution?: boolean;
+}
+
 // --- Agent Options (programmatic API) ---
 export interface CreateHarnessOptions {
   dir: string;
@@ -175,6 +185,15 @@ export interface CreateHarnessOptions {
   config?: DeepPartial<HarnessConfig>;
   /** Lifecycle hooks for agent events */
   hooks?: HarnessHooks;
+  /** Tool execution configuration */
+  toolExecutor?: ToolExecutorOptions;
+}
+
+/** Record of a single tool call made during a run */
+export interface ToolCallInfo {
+  toolName: string;
+  args: Record<string, unknown>;
+  result: unknown;
 }
 
 // --- Agent Interface ---
@@ -183,6 +202,8 @@ export interface AgentRunResult {
   usage: { inputTokens: number; outputTokens: number; totalTokens: number };
   session_id: string;
   steps: number;
+  /** Tool calls made during the run (empty array if none) */
+  toolCalls: ToolCallInfo[];
 }
 
 export interface HarnessAgent {

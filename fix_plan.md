@@ -134,9 +134,13 @@
 
 - [x] **Config-driven guardrails** — New `src/runtime/guardrails.ts` with `checkGuardrails()` that enforces both rate limits and budget before every LLM call. New `rate_limits` config section (`per_minute`, `per_hour`, `per_day`) and `budget` config section (`daily_limit_usd`, `monthly_limit_usd`, `enforce`). `buildRateLimits()` converts config into `RateLimit[]` rules. Rate limit checks run first, budget checks second. When blocked, throws descriptive error with `retry_after_ms` for rate limits or budget-exceeded message for budgets. `budget.enforce: false` makes budget alerts informational only. Wired into `createHarness()` — both `run()` and `stream()` check guardrails before LLM call. Blocked calls recorded as failures in health metrics. 18 new tests.
 
+## Completed (Loop 24)
+
+- [x] **Tool execution runtime** — New `src/runtime/tool-executor.ts` converts parsed `ToolDefinition` markdown files into AI SDK `ToolSet` objects with HTTP execution. `buildToolSet()` loads active tools from the `tools/` directory and converts each operation into an executable AI SDK tool. `convertToolDefinition()` creates one tool per HTTP operation with auto-generated JSON Schema from URL parameters. `resolveEndpoint()` replaces `{param}` placeholders with URL-encoded values. `buildAuthHeaders()` maps env var patterns (`*_API_KEY` → Bearer, `*_BOT_TOKEN` → Bot) to HTTP auth headers. `executeHttpOperation()` makes real HTTP requests with timeout, body, and query parameter support. `ProgrammaticTool` interface for registering custom tools via code. `createToolCallTracker()` for recording tool calls in sessions. Provider layer updated: `generate()` and `generateWithMessages()` now accept `tools` (AI SDK ToolSet) and `maxToolSteps` parameters, using `stopWhen: stepCountIs(N)` for multi-step agentic loops. `GenerateResult` extended with `toolCalls` and `steps` fields. `AgentRunResult` extended with `toolCalls` array. `createHarness()` wired: loads tools at boot, passes to LLM calls in `run()`, records tool-aware step counts in sessions. New `ToolExecutorOptions` and `ToolCallInfo` types in core types. 31 new tests.
+
 ## All Plan Items Complete
 
-All items from the original fix plan have been implemented across 23 loops.
+All items from the original fix plan have been implemented across 24 loops.
 
 ## Architecture Notes
 
@@ -175,6 +179,7 @@ All items from the original fix plan have been implemented across 23 loops.
 - Health monitoring with 5-check system, cost integration, and CLI dashboard
 - Unified telemetry aggregator with dashboard CLI, JSON export, and live watch mode
 - Config-driven guardrails: rate limiting + budget enforcement before every LLM call
+- Tool execution runtime: markdown-defined tools become executable AI SDK tools with HTTP support
 
 ### Known Limitations
 - Token estimation is 1:4 char ratio — good enough but not precise

@@ -11,13 +11,14 @@ import type {
   AgentState,
 } from './types.js';
 import { getModel, generate } from '../llm/provider.js';
-import { streamText } from 'ai';
+import { streamText, stepCountIs } from 'ai';
 import { buildSystemPrompt } from '../runtime/context-loader.js';
 import { loadState, saveState } from '../runtime/state.js';
 import { createSessionId, writeSession, type SessionRecord } from '../runtime/sessions.js';
 import { recordCost } from '../runtime/cost-tracker.js';
 import { recordSuccess, recordFailure, recordBoot } from '../runtime/health.js';
 import { checkGuardrails } from '../runtime/guardrails.js';
+import { buildToolSet, type AIToolSet } from '../runtime/tool-executor.js';
 
 export function createHarness(options: CreateHarnessOptions): HarnessAgent {
   const dir = resolve(options.dir);
@@ -42,6 +43,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
   let state: AgentState;
   let systemPrompt: string;
   let booted = false;
+  let toolSet: AIToolSet = {};
 
   const agent: HarnessAgent = {
     name: config.agent.name,
@@ -58,13 +60,18 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
       const ctx = buildSystemPrompt(dir, config);
       systemPrompt = ctx.systemPrompt;
 
+      // Load tools and convert to AI SDK format
+      toolSet = buildToolSet(dir, options.toolExecutor);
+      const toolCount = Object.keys(toolSet).length;
+
       booted = true;
 
       log.info(
         `Booted "${config.agent.name}" | ` +
         `${ctx.budget.loaded_files.length} files loaded | ` +
         `~${ctx.budget.used_tokens} tokens used | ` +
-        `${ctx.budget.remaining} remaining`,
+        `${ctx.budget.remaining} remaining` +
+        (toolCount > 0 ? ` | ${toolCount} tools` : ''),
       );
 
       for (const warning of ctx.warnings) {
@@ -102,6 +109,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
       const sessionId = createSessionId();
       const started = new Date().toISOString();
 
+      const hasTools = Object.keys(toolSet).length > 0;
       let result;
       try {
         result = await generate({
@@ -110,6 +118,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
           prompt,
           maxRetries: config.model.max_retries,
           timeoutMs: config.model.timeout_ms,
+          ...(hasTools ? { tools: toolSet, maxToolSteps: options.toolExecutor?.maxToolCalls ?? 5 } : {}),
         });
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
@@ -130,7 +139,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
         prompt,
         summary: result.text.slice(0, 200),
         tokens_used: result.usage.totalTokens,
-        steps: 1,
+        steps: result.steps,
         model_id: config.model.id,
       };
 
@@ -156,7 +165,8 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
         text: result.text,
         usage: result.usage,
         session_id: sessionId,
-        steps: 1,
+        steps: result.steps,
+        toolCalls: result.toolCalls,
       };
 
       // Lifecycle: onSessionEnd

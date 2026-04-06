@@ -1,9 +1,10 @@
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
-import { generateText, streamText, type LanguageModel } from 'ai';
+import { generateText, streamText, stepCountIs, type LanguageModel } from 'ai';
 import type { ModelMessage } from '@ai-sdk/provider-utils';
-import type { HarnessConfig } from '../core/types.js';
+import type { HarnessConfig, ToolCallInfo } from '../core/types.js';
+import type { AIToolSet } from '../runtime/tool-executor.js';
 
 /** Supported provider names for config.model.provider */
 export type ProviderName = 'openrouter' | 'anthropic' | 'openai';
@@ -109,6 +110,10 @@ export interface GenerateOptions extends CallOptions {
   system: string;
   prompt: string;
   maxOutputTokens?: number;
+  /** AI SDK tools to make available for the LLM */
+  tools?: AIToolSet;
+  /** Max tool-use roundtrips (default: 1 if tools provided, 0 otherwise) */
+  maxToolSteps?: number;
 }
 
 export interface GenerateWithMessagesOptions extends CallOptions {
@@ -116,11 +121,19 @@ export interface GenerateWithMessagesOptions extends CallOptions {
   system: string;
   messages: ModelMessage[];
   maxOutputTokens?: number;
+  /** AI SDK tools to make available for the LLM */
+  tools?: AIToolSet;
+  /** Max tool-use roundtrips (default: 1 if tools provided, 0 otherwise) */
+  maxToolSteps?: number;
 }
 
 export interface GenerateResult {
   text: string;
   usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  /** Tool calls made during generation (empty if no tools used) */
+  toolCalls: ToolCallInfo[];
+  /** Number of steps taken (1 = no tool calls, >1 = tool roundtrips) */
+  steps: number;
 }
 
 function extractUsage(usage: { inputTokens?: number; outputTokens?: number } | undefined) {
@@ -131,12 +144,35 @@ function extractUsage(usage: { inputTokens?: number; outputTokens?: number } | u
   };
 }
 
-function buildCallSettings(opts: CallOptions) {
+function buildCallSettings(opts: CallOptions & { tools?: AIToolSet; maxToolSteps?: number }) {
+  const hasTools = opts.tools && Object.keys(opts.tools).length > 0;
   return {
     ...(opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}),
     ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}),
     ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
+    ...(hasTools ? { tools: opts.tools } : {}),
+    ...(hasTools ? { stopWhen: stepCountIs(opts.maxToolSteps ?? 5) } : {}),
   };
+}
+
+/** Extract tool call info from AI SDK step results */
+function extractToolCalls(result: { steps?: Array<{ toolCalls?: Array<{ toolName: string; input: unknown }>; toolResults?: Array<{ toolName: string; output: unknown }> }> }): ToolCallInfo[] {
+  const calls: ToolCallInfo[] = [];
+  if (!result.steps) return calls;
+
+  for (const step of result.steps) {
+    if (!step.toolCalls) continue;
+    for (let i = 0; i < step.toolCalls.length; i++) {
+      const tc = step.toolCalls[i];
+      const tr = step.toolResults?.[i];
+      calls.push({
+        toolName: tc.toolName,
+        args: (tc.input ?? {}) as Record<string, unknown>,
+        result: tr?.output ?? null,
+      });
+    }
+  }
+  return calls;
 }
 
 export async function generate(opts: GenerateOptions): Promise<GenerateResult> {
@@ -148,7 +184,15 @@ export async function generate(opts: GenerateOptions): Promise<GenerateResult> {
     ...buildCallSettings(opts),
   });
 
-  return { text: result.text, usage: extractUsage(result.usage) };
+  // Use totalUsage when available (multi-step) otherwise fall back to usage
+  const usage = result.totalUsage ?? result.usage;
+
+  return {
+    text: result.text,
+    usage: extractUsage(usage),
+    toolCalls: extractToolCalls(result),
+    steps: result.steps?.length ?? 1,
+  };
 }
 
 export async function generateWithMessages(opts: GenerateWithMessagesOptions): Promise<GenerateResult> {
@@ -160,7 +204,14 @@ export async function generateWithMessages(opts: GenerateWithMessagesOptions): P
     ...buildCallSettings(opts),
   });
 
-  return { text: result.text, usage: extractUsage(result.usage) };
+  const usage = result.totalUsage ?? result.usage;
+
+  return {
+    text: result.text,
+    usage: extractUsage(usage),
+    toolCalls: extractToolCalls(result),
+    steps: result.steps?.length ?? 1,
+  };
 }
 
 export async function* streamGenerate(opts: GenerateOptions): AsyncIterable<string> {
