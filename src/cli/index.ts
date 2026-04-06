@@ -3846,4 +3846,188 @@ program
     }
   });
 
+// ── State Merge ──────────────────────────────────────────────────────────────
+
+const stateCmd = program.command('state-merge').description('Mixed-ownership state merging');
+
+stateCmd
+  .command('apply')
+  .description('Apply a state change with ownership tracking')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--author <owner>', 'Change author: human, agent, infrastructure', 'human')
+  .option('--mode <mode>', 'Set agent mode')
+  .option('--goals <goals>', 'Set goals (comma-separated)')
+  .option('--strategy <strategy>', 'Merge strategy: human-wins, agent-wins, latest-wins, union', 'human-wins')
+  .option('--json', 'Output as JSON')
+  .action(async (opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { mergeState } = await import('../runtime/state-merge.js');
+    const changes: Record<string, unknown> = {};
+    if (opts.mode) changes.mode = opts.mode;
+    if (opts.goals) changes.goals = (opts.goals as string).split(',').map((g: string) => g.trim());
+
+    if (Object.keys(changes).length === 0) {
+      console.log('No changes specified. Use --mode or --goals.');
+      return;
+    }
+
+    const result = mergeState(dir, {
+      author: opts.author as 'human' | 'agent' | 'infrastructure',
+      changes,
+    }, opts.strategy as 'human-wins' | 'agent-wins' | 'latest-wins' | 'union');
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(`State merged (strategy: ${opts.strategy}).`);
+      if (result.hadConflicts) {
+        console.log(`  ${result.conflicts.length} conflict(s) resolved:`);
+        for (const c of result.conflicts) {
+          console.log(`    ${c.field}: resolved to ${c.resolvedTo}`);
+        }
+      } else {
+        console.log('  No conflicts.');
+      }
+      console.log(`  Mode: ${result.state.mode}`);
+      console.log(`  Goals: ${result.state.goals.join(', ') || '(none)'}`);
+    }
+  });
+
+stateCmd
+  .command('ownership')
+  .description('Show current state ownership')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--json', 'Output as JSON')
+  .action(async (opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { loadOwnership } = await import('../runtime/state-merge.js');
+    const ownership = loadOwnership(dir);
+
+    if (opts.json) {
+      console.log(JSON.stringify(ownership, null, 2));
+    } else {
+      console.log('State field ownership:');
+      for (const [field, owner] of Object.entries(ownership)) {
+        console.log(`  ${field}: ${owner}`);
+      }
+    }
+  });
+
+// ── Emotional State ──────────────────────────────────────────────────────────
+
+const emoCmd = program.command('emotional').description('Operational disposition tracking');
+
+emoCmd
+  .command('status')
+  .description('Show current emotional/disposition state')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--json', 'Output as JSON')
+  .action(async (opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { loadEmotionalState, summarizeEmotionalState } = await import('../runtime/emotional-state.js');
+    const state = loadEmotionalState(dir);
+
+    if (opts.json) {
+      console.log(JSON.stringify(state, null, 2));
+    } else {
+      console.log('Operational Disposition:');
+      console.log(`  Confidence:  ${state.confidence}/100`);
+      console.log(`  Engagement:  ${state.engagement}/100`);
+      console.log(`  Frustration: ${state.frustration}/100`);
+      console.log(`  Curiosity:   ${state.curiosity}/100`);
+      console.log(`  Urgency:     ${state.urgency}/100`);
+      console.log(`  Updated:     ${state.updatedAt}`);
+      console.log(`\n${summarizeEmotionalState(state)}`);
+    }
+  });
+
+emoCmd
+  .command('signal')
+  .description('Apply an emotional signal')
+  .argument('<dimension>', 'Dimension: confidence, engagement, frustration, curiosity, urgency')
+  .argument('<delta>', 'Delta value (positive or negative integer)')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('-r, --reason <reason>', 'Reason for the signal')
+  .option('--json', 'Output as JSON')
+  .action(async (dimension: string, delta: string, opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { applySignals } = await import('../runtime/emotional-state.js');
+    const state = applySignals(dir, [{
+      dimension: dimension as 'confidence' | 'engagement' | 'frustration' | 'curiosity' | 'urgency',
+      delta: parseInt(delta, 10),
+      reason: opts.reason as string | undefined,
+    }]);
+
+    if (opts.json) {
+      console.log(JSON.stringify(state, null, 2));
+    } else {
+      console.log(`Applied signal: ${dimension} ${parseInt(delta, 10) >= 0 ? '+' : ''}${delta}`);
+      console.log(`  New ${dimension}: ${state[dimension as keyof typeof state]}/100`);
+    }
+  });
+
+emoCmd
+  .command('trends')
+  .description('Show emotional dimension trends')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--days <days>', 'Days to analyze', '7')
+  .option('--json', 'Output as JSON')
+  .action(async (opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { getEmotionalTrends } = await import('../runtime/emotional-state.js');
+    const trends = getEmotionalTrends(dir, { days: parseInt(opts.days as string, 10) });
+
+    if (opts.json) {
+      console.log(JSON.stringify(trends, null, 2));
+    } else {
+      console.log(`Emotional trends (last ${opts.days} days):\n`);
+      for (const t of trends) {
+        const arrow = t.trend === 'rising' ? '↑' : t.trend === 'falling' ? '↓' : '→';
+        console.log(`  ${t.dimension}: avg ${t.average.toFixed(0)}/100 ${arrow} (${t.values.length} data points)`);
+      }
+    }
+  });
+
+emoCmd
+  .command('reset')
+  .description('Reset emotional state to defaults')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .action(async (opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { resetEmotionalState } = await import('../runtime/emotional-state.js');
+    resetEmotionalState(dir);
+    console.log('Emotional state reset to defaults.');
+  });
+
+// ── Check Action ─────────────────────────────────────────────────────────────
+
+program
+  .command('check-action')
+  .description('Check if an action is allowed by harness rules (agent-framework guardrails)')
+  .argument('<action>', 'Action description to check')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--tags <tags>', 'Filter by rule tags (comma-separated)')
+  .option('--json', 'Output as JSON')
+  .action(async (action: string, opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { checkAction } = await import('../runtime/agent-framework.js');
+    const tags = opts.tags ? (opts.tags as string).split(',').map((t: string) => t.trim()) : undefined;
+    const result = checkAction(dir, action, { ruleTags: tags });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else if (result.allowed) {
+      console.log('[OK] Action allowed.');
+    } else {
+      console.log(`[BLOCKED] ${result.reason}`);
+    }
+  });
+
 program.parse();
