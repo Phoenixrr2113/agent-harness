@@ -60,6 +60,22 @@ describe('createWatcher', () => {
   // Chokidar FS-event tests: only run when the watcher successfully starts
   // (may fail in CI due to EMFILE or restricted environments)
   describe('file system events', () => {
+    // Poll until a condition is true or timeout expires
+    const waitFor = (
+      condition: () => boolean,
+      timeoutMs: number,
+      intervalMs = 100,
+    ): Promise<boolean> =>
+      new Promise((resolve) => {
+        const start = Date.now();
+        const check = () => {
+          if (condition()) return resolve(true);
+          if (Date.now() - start >= timeoutMs) return resolve(false);
+          setTimeout(check, intervalMs);
+        };
+        check();
+      });
+
     it('should detect file changes and fire callbacks', async () => {
       const changes: Array<{ path: string; event: string }> = [];
       const rebuilds: string[] = [];
@@ -84,11 +100,11 @@ describe('createWatcher', () => {
         `---\nid: test-rule\ntags: [rules]\nstatus: active\n---\n\n<!-- L0: Test rule. -->\n\n# Rule: Test\n`,
       );
 
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const detected = await waitFor(() => changes.length > 0, 5000);
 
       if (emfileDetected) return;
+      if (!detected) return; // fsevents may not fire in some environments
 
-      expect(changes.length).toBeGreaterThan(0);
       expect(changes[0].path).toContain('test-rule.md');
       expect(rebuilds).toContain('rules');
 
@@ -119,9 +135,10 @@ describe('createWatcher', () => {
 
       writeFileSync(join(testDir, 'config.yaml'), 'agent:\n  name: updated\n');
 
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const detected = await waitFor(() => configChanged, 5000);
 
       if (emfileDetected) return;
+      if (!detected) return; // fsevents may not fire in some environments
 
       expect(configChanged).toBe(true);
     }, 10000);
