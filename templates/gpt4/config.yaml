@@ -1,0 +1,22 @@
+agent:
+  name: {{AGENT_NAME}}
+  version: "0.1.0"
+
+model:
+  provider: openrouter
+  id: openai/gpt-4o
+  max_tokens: 128000
+
+runtime:
+  scratchpad_budget: 10000
+  quiet_hours:
+    start: 23
+    end: 6
+  timezone: America/New_York
+
+memory:
+  session_retention_days: 7
+  journal_retention_days: 365
+
+channels:
+  primary: cli

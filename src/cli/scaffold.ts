@@ -1,5 +1,6 @@
-import { mkdirSync, writeFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { writeDefaultConfig } from '../core/config.js';
 
 const DIRECTORIES = [
@@ -15,10 +16,68 @@ const DIRECTORIES = [
   'memory/journal',
 ];
 
-export function scaffoldHarness(targetDir: string, agentName: string): void {
+/**
+ * Resolve the package root directory by walking up from import.meta.url
+ * until we find package.json. Works in both dev (src/) and prod (dist/).
+ */
+function getPackageRoot(): string {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 5; i++) {
+    if (existsSync(join(dir, 'package.json'))) return dir;
+    dir = dirname(dir);
+  }
+  // Fallback: assume 2 levels up from source
+  return dirname(dirname(fileURLToPath(import.meta.url)));
+}
+
+/**
+ * Apply template variables to a string.
+ */
+function applyTemplate(content: string, agentName: string): string {
+  const date = new Date().toISOString().split('T')[0];
+  return content
+    .replace(/\{\{AGENT_NAME\}\}/g, agentName)
+    .replace(/\{\{DATE\}\}/g, date);
+}
+
+/**
+ * Copy default primitives from defaults/ directory into the target harness.
+ */
+function copyDefaults(targetDir: string, agentName: string): void {
+  const defaultsDir = join(getPackageRoot(), 'defaults');
+  if (!existsSync(defaultsDir)) return;
+
+  const primitiveDirs = ['rules', 'instincts', 'skills', 'playbooks', 'agents'];
+  for (const dir of primitiveDirs) {
+    const srcDir = join(defaultsDir, dir);
+    if (!existsSync(srcDir)) continue;
+    const files = readdirSync(srcDir).filter((f) => f.endsWith('.md'));
+    for (const file of files) {
+      const content = readFileSync(join(srcDir, file), 'utf-8');
+      writeFileSync(join(targetDir, dir, file), applyTemplate(content, agentName), 'utf-8');
+    }
+  }
+}
+
+/**
+ * Load a template file and apply substitutions. Returns null if not found.
+ */
+function loadTemplate(templateName: string, fileName: string, agentName: string): string | null {
+  const templatePath = join(getPackageRoot(), 'templates', templateName, fileName);
+  if (!existsSync(templatePath)) return null;
+  return applyTemplate(readFileSync(templatePath, 'utf-8'), agentName);
+}
+
+export interface ScaffoldOptions {
+  template?: string;
+}
+
+export function scaffoldHarness(targetDir: string, agentName: string, options?: ScaffoldOptions): void {
   if (existsSync(targetDir)) {
     throw new Error(`Directory already exists: ${targetDir}`);
   }
+
+  const template = options?.template ?? 'base';
 
   // Create directory structure
   mkdirSync(targetDir, { recursive: true });
@@ -26,10 +85,11 @@ export function scaffoldHarness(targetDir: string, agentName: string): void {
     mkdirSync(join(targetDir, dir), { recursive: true });
   }
 
-  // --- CORE.md ---
+  // --- CORE.md (from template, or inline fallback) ---
+  const coreContent = loadTemplate(template, 'CORE.md', agentName);
   writeFileSync(
     join(targetDir, 'CORE.md'),
-    `# ${agentName}
+    coreContent ?? `# ${agentName}
 
 ## Purpose
 I am ${agentName}, an autonomous AI agent. My purpose is to help my creator build, think, and ship.
@@ -49,10 +109,11 @@ I am ${agentName}, an autonomous AI agent. My purpose is to help my creator buil
 `
   );
 
-  // --- SYSTEM.md ---
+  // --- SYSTEM.md (from template, or inline fallback) ---
+  const systemContent = loadTemplate(template, 'SYSTEM.md', agentName);
   writeFileSync(
     join(targetDir, 'SYSTEM.md'),
-    `# System
+    systemContent ?? `# System
 
 You are ${agentName}. This file defines how you boot and operate.
 
@@ -79,8 +140,9 @@ You are ${agentName}. This file defines how you boot and operate.
 `
   );
 
-  // --- config.yaml ---
-  writeFileSync(join(targetDir, 'config.yaml'), writeDefaultConfig(targetDir, agentName));
+  // --- config.yaml (from template, or use writeDefaultConfig) ---
+  const configContent = loadTemplate(template, 'config.yaml', agentName);
+  writeFileSync(join(targetDir, 'config.yaml'), configContent ?? writeDefaultConfig(targetDir, agentName));
 
   // --- state.md ---
   writeFileSync(
@@ -104,254 +166,15 @@ ${new Date().toISOString()}
   // --- memory/scratch.md ---
   writeFileSync(join(targetDir, 'memory', 'scratch.md'), '');
 
-  // --- Default Rules ---
-  writeFileSync(
-    join(targetDir, 'rules', 'operations.md'),
-    `---
-id: operations
-tags: [rules, operations, safety]
-created: ${new Date().toISOString().split('T')[0]}
-updated: ${new Date().toISOString().split('T')[0]}
-author: human
-status: active
----
-
-<!-- L0: Core operational rules — communication, code standards, security, financial boundaries. -->
-<!-- L1: Be concise and direct. Lead with the answer. Use TypeScript strict mode, no \`any\`.
-     Validate all inputs at system boundaries. Never commit secrets. Never execute financial
-     transactions without explicit human approval. -->
-
-# Rule: Operations
-
-## Communication
-- Be concise. Lead with the answer, not the reasoning.
-- Default to async communication.
-
-## Code Standards
-- TypeScript strict mode. No \`any\` types.
-- Test alongside implementation.
-- Read before edit. Search before create.
-
-## Security
-- Validate all external inputs.
-- Never commit secrets or credentials.
-- Never store tokens in plain text.
-
-## Financial
-- No transactions without explicit human approval.
-- Log all financial operations.
-`
-  );
-
-  // --- Default Instincts ---
-  writeFileSync(
-    join(targetDir, 'instincts', 'lead-with-answer.md'),
-    `---
-id: lead-with-answer
-tags: [instinct, communication]
-created: ${new Date().toISOString().split('T')[0]}
-updated: ${new Date().toISOString().split('T')[0]}
-author: agent
-status: active
-source: learned-behavior
----
-
-<!-- L0: Always lead with the answer, not the reasoning. -->
-<!-- L1: When responding to questions, put the answer first. Context and reasoning come after.
-     This respects the reader's time and attention. Avoid preamble like "Great question!" -->
-
-# Instinct: Lead With Answer
-
-When someone asks a question, answer it first. Then explain if needed.
-
-**Wrong:** "That's a great question. Let me think about the various factors..."
-**Right:** "Use Redis. Here's why..."
-
-Provenance: Learned from repeated feedback about verbose responses.
-`
-  );
-
-  writeFileSync(
-    join(targetDir, 'instincts', 'read-before-edit.md'),
-    `---
-id: read-before-edit
-tags: [instinct, development]
-created: ${new Date().toISOString().split('T')[0]}
-updated: ${new Date().toISOString().split('T')[0]}
-author: agent
-status: active
-source: learned-behavior
----
-
-<!-- L0: Always read a file before editing it. -->
-<!-- L1: Never propose changes to code you haven't read. Understanding existing patterns
-     prevents breaking changes and respects prior work. Read the full file, understand the
-     context, then edit. -->
-
-# Instinct: Read Before Edit
-
-Always read a file completely before modifying it. Understand existing patterns,
-naming conventions, and architecture before making changes.
-
-Provenance: Multiple incidents where blind edits broke existing functionality.
-`
-  );
-
-  writeFileSync(
-    join(targetDir, 'instincts', 'search-before-create.md'),
-    `---
-id: search-before-create
-tags: [instinct, development, reuse]
-created: ${new Date().toISOString().split('T')[0]}
-updated: ${new Date().toISOString().split('T')[0]}
-author: agent
-status: active
-source: learned-behavior
----
-
-<!-- L0: Search for existing solutions before creating new ones. -->
-<!-- L1: Before writing new code, search the codebase for existing implementations.
-     Reuse is almost always better than duplication. Check utilities, helpers, and
-     similar patterns before building from scratch. -->
-
-# Instinct: Search Before Create
-
-Before creating anything new — a function, a file, a module — search for existing
-implementations first. Duplication creates maintenance burden. Reuse creates leverage.
-
-Provenance: Found duplicate utility functions across three separate modules.
-`
-  );
-
-  // --- Default Skill ---
-  writeFileSync(
-    join(targetDir, 'skills', 'research.md'),
-    `---
-id: research
-tags: [skill, research, analysis]
-created: ${new Date().toISOString().split('T')[0]}
-updated: ${new Date().toISOString().split('T')[0]}
-author: human
-status: active
----
-
-<!-- L0: Deep research — clarify question, find primary sources, verify, deliver recommendation. -->
-<!-- L1: Research workflow: clarify the actual question → find primary sources (not summaries) →
-     verify information recency → cross-reference claims → deliver a single clear recommendation
-     with confidence level. Never deliver a list of options without a recommendation. -->
-
-# Skill: Research
-
-## Process
-1. **Clarify** — What is the actual question? What decision does this inform?
-2. **Find primary sources** — Documentation, papers, official repos. Not blog summaries.
-3. **Verify recency** — Is this information current? Check dates.
-4. **Cross-reference** — Do multiple sources agree?
-5. **Recommend** — Deliver ONE recommendation with confidence level.
-
-## Red Flags
-- Relying on a single source
-- Information older than 6 months for fast-moving topics
-- Delivering options without a recommendation
-- Summarizing without verifying
-
-## When NOT to Use
-- When the answer is in the codebase (search first)
-- When the creator has already made a decision (don't second-guess)
-`
-  );
-
-  // --- Default Playbook ---
-  writeFileSync(
-    join(targetDir, 'playbooks', 'ship-feature.md'),
-    `---
-id: ship-feature
-tags: [playbook, development, shipping]
-created: ${new Date().toISOString().split('T')[0]}
-updated: ${new Date().toISOString().split('T')[0]}
-author: human
-status: active
----
-
-<!-- L0: Ship a feature — understand, research, plan, build, verify, deliver. -->
-<!-- L1: Adaptive workflow for shipping features: understand the ask fully before starting →
-     research existing patterns → plan approach → build incrementally (one file at a time) →
-     write tests alongside → verify everything works → deliver with context. -->
-
-# Playbook: Ship Feature
-
-## Steps (Adapt as Needed)
-1. **Understand** — Read the full ask. Ask clarifying questions if ambiguous.
-2. **Research** — Look at existing code, patterns, and conventions.
-3. **Plan** — Outline approach. Identify risks. Share plan if complex.
-4. **Build** — One file at a time. Tests alongside. Read before edit.
-5. **Verify** — Run tests. Check for regressions. Manual smoke test.
-6. **Deliver** — Push with clear commit message. Summarize what changed and why.
-
-## Judgment Calls
-- If scope creep emerges, flag it early rather than expanding silently.
-- If a dependency is missing, propose adding it with rationale.
-- If something seems wrong with the ask, say so.
-`
-  );
-
-  // --- Default Agent ---
-  writeFileSync(
-    join(targetDir, 'agents', 'summarizer.md'),
-    `---
-id: agent-summarizer
-tags: [agent, utility, stateless]
-created: ${new Date().toISOString().split('T')[0]}
-updated: ${new Date().toISOString().split('T')[0]}
-author: human
-status: active
----
-
-<!-- L0: Stateless summarizer agent — condenses long text into structured summaries. -->
-<!-- L1: Takes long-form input (documents, transcripts, logs) and produces structured summaries
-     with key points, action items, and decisions. Follows a consistent output format.
-     Cannot access external services or modify files. -->
-
-# Agent: Summarizer
-
-## Identity
-You are a stateless summarizer agent. You produce structured summaries of input text.
-You do not have memory or state between calls.
-
-## Purpose
-Condense long-form input into structured, actionable summaries.
-
-## Capabilities
-- Extract key points from documents, transcripts, and logs
-- Identify action items and decisions
-- Produce consistent structured output
-
-## Output Format
-Always respond with this structure:
-
-### Summary
-(2-3 sentence overview)
-
-### Key Points
-- (bulleted list of important points)
-
-### Action Items
-- (any action items found, or "None identified")
-
-### Decisions
-- (any decisions made, or "None identified")
-
-## Constraints
-- Never fabricate information not present in the input
-- Never access external services
-- If the input is too short to summarize, say so
-`
-  );
+  // --- Copy default primitives from defaults/ directory ---
+  copyDefaults(targetDir, agentName);
 
   // --- .gitignore ---
   writeFileSync(
     join(targetDir, '.gitignore'),
     `memory/scratch.md
+memory/context.jsonl
+memory/context.md
 memory/sessions/*
 memory/journal/*
 !memory/sessions/.gitkeep
@@ -363,4 +186,19 @@ memory/journal/*
   // Create .gitkeep files
   writeFileSync(join(targetDir, 'memory', 'sessions', '.gitkeep'), '');
   writeFileSync(join(targetDir, 'memory', 'journal', '.gitkeep'), '');
+}
+
+/**
+ * List available templates.
+ */
+export function listTemplates(): string[] {
+  const templatesDir = join(getPackageRoot(), 'templates');
+  if (!existsSync(templatesDir)) return [];
+  return readdirSync(templatesDir).filter((f) => {
+    try {
+      return readdirSync(join(templatesDir, f)).length > 0;
+    } catch {
+      return false;
+    }
+  });
 }

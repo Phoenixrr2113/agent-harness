@@ -18,7 +18,8 @@ export { buildSystemPrompt } from './runtime/context-loader.js';
 export { loadState, saveState } from './runtime/state.js';
 export { getProvider, resetProvider, getModel, generate, generateWithMessages, streamGenerate, streamWithMessages } from './llm/provider.js';
 export type { GenerateOptions, GenerateWithMessagesOptions, GenerateResult, StreamWithMessagesResult } from './llm/provider.js';
-export { scaffoldHarness } from './cli/scaffold.js';
+export { scaffoldHarness, listTemplates } from './cli/scaffold.js';
+export type { ScaffoldOptions } from './cli/scaffold.js';
 export { buildIndex, writeIndexFile, rebuildAllIndexes } from './runtime/indexer.js';
 export { createWatcher } from './runtime/watcher.js';
 export { Scheduler } from './runtime/scheduler.js';
@@ -27,6 +28,6 @@ export { proposeInstincts, installInstinct, learnFromSessions } from './runtime/
 export { evaluateCapability, installCapability, processIntake } from './runtime/intake.js';
 export { createSessionId, writeSession, cleanupOldFiles, listSessions, listExpiredFiles } from './runtime/sessions.js';
 export type { SessionRecord, CleanupResult } from './runtime/sessions.js';
-export { Conversation } from './runtime/conversation.js';
+export { Conversation, parseJsonlContext, parseLegacyContext } from './runtime/conversation.js';
 export { delegateTo, findAgent, listAgents, loadAgentDocs, buildAgentPrompt } from './runtime/delegate.js';
 export type { DelegationResult, AgentInfo, DelegateOptions } from './runtime/delegate.js';

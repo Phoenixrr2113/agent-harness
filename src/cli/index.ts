@@ -102,12 +102,13 @@ program
   .command('init <name>')
   .description('Scaffold a new agent harness directory')
   .option('-d, --dir <path>', 'Parent directory', '.')
-  .action(async (name: string, opts: { dir: string }) => {
+  .option('-t, --template <name>', 'Config template (base, claude-opus, gpt4, local)', 'base')
+  .action(async (name: string, opts: { dir: string; template: string }) => {
     const { scaffoldHarness } = await import('./scaffold.js');
     const targetDir = resolve(opts.dir, name);
 
     try {
-      scaffoldHarness(targetDir, name);
+      scaffoldHarness(targetDir, name, { template: opts.template });
       console.log(`\n✓ Agent harness created: ${targetDir}`);
       console.log(`\nNext steps:`);
       console.log(`  cd ${name}`);

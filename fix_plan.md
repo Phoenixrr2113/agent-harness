@@ -29,17 +29,17 @@
 - [x] **Better error messages** — Rewrote `formatError()` with typed error handling: API errors, network errors, rate limiting, file system errors, validation errors. Added `requireHarness()` helper used by 9 commands. Eliminated all `err: any` patterns in CLI.
 - [x] **Session metadata** — `SessionRecord` now includes optional `model_id` and `delegated_to` fields. Sessions record which model was used and whether they were delegation calls. Written to session markdown with **Model:** and **Delegated to:** lines. Delegation sessions get auto-tagged with agent id.
 
+## Completed (Loop 5)
+
+- [x] **Conversation session recording** — `send()` and `sendStream()` in Conversation class now record sessions after each chat turn. Optional via `recordSessions` constructor option (defaults to true). Includes model_id, prompt (truncated to 500 chars), and summary (truncated to 200 chars). 16 new tests in conversation.test.ts.
+- [x] **Context.md format (JSON-lines)** — Switched from fragile `### User`/`### Assistant` markdown to JSON-lines format (`context.jsonl`). Each line is one `{"role","content"}` object. Backward-compatible: auto-migrates legacy `context.md` on first load. Both parsers exported and tested. `.gitignore` updated.
+- [x] **Defaults/templates** — Populated `defaults/` with canonical primitives (rules, instincts, skills, playbooks, agents) using `{{DATE}}`/`{{AGENT_NAME}}` template variables. Created 4 model config templates: `base` (claude-sonnet), `claude-opus`, `gpt4`, `local` (llama-3.3-70b). Refactored scaffold.ts to read from `defaults/` and `templates/` at runtime instead of hardcoding strings (~50% code reduction). Added `--template` flag to `harness init`. Added `listTemplates()` export.
+
 ## Next Priority
-
-### P1 — DX & Reliability
-
-- [ ] **Defaults/templates** — The `defaults/` and `templates/` directories are empty. Should contain default primitives for `harness init` (e.g., default rules, instinct seeds, config presets for different models).
 
 ### P2 — Polish
 
-- [ ] **Context.md format** — Conversation persistence format (`### User` / `### Assistant`) is fragile. Consider JSON or structured frontmatter.
 - [ ] **Index file improvements** — Index tables truncate L0 at 80 chars. Should be configurable.
-- [ ] **Conversation session recording** — Chat sessions don't create session records. Each chat turn should optionally write a session.
 
 ### P3 — Future
 

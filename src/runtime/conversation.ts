@@ -4,6 +4,7 @@ import { getModel, generateWithMessages, streamWithMessages } from '../llm/provi
 import { loadConfig } from '../core/config.js';
 import { buildSystemPrompt } from './context-loader.js';
 import { estimateTokens } from '../primitives/loader.js';
+import { createSessionId, writeSession, type SessionRecord } from './sessions.js';
 import type { ModelMessage } from '@ai-sdk/provider-utils';
 import type { HarnessConfig } from '../core/types.js';
 
@@ -11,6 +12,12 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   tokens: number;
+}
+
+/** Persisted context format — one JSON object per line */
+interface PersistedMessage {
+  role: 'user' | 'assistant';
+  content: string;
 }
 
 // Reserve 50% of remaining context (after system prompt) for conversation history
@@ -28,10 +35,14 @@ export class Conversation {
   private systemPromptTokens: number = 0;
   private maxContextTokens: number = 200000;
   private modelOverride?: string;
+  private recordSessions: boolean = true;
 
-  constructor(harnessDir: string, apiKey?: string) {
+  constructor(harnessDir: string, apiKey?: string, options?: { recordSessions?: boolean }) {
     this.harnessDir = harnessDir;
     this.apiKey = apiKey;
+    if (options?.recordSessions !== undefined) {
+      this.recordSessions = options.recordSessions;
+    }
   }
 
   setModelOverride(modelId: string): void {
@@ -45,11 +56,18 @@ export class Conversation {
     this.systemPromptTokens = ctx.budget.used_tokens;
     this.maxContextTokens = config.model.max_tokens;
 
-    // Load persisted context if exists
-    const contextPath = join(this.harnessDir, 'memory', 'context.md');
-    if (existsSync(contextPath)) {
-      const raw = readFileSync(contextPath, 'utf-8');
-      this.messages = parseContextMd(raw);
+    // Load persisted context — try JSON-lines first, fall back to legacy markdown
+    const jsonlPath = join(this.harnessDir, 'memory', 'context.jsonl');
+    const legacyPath = join(this.harnessDir, 'memory', 'context.md');
+
+    if (existsSync(jsonlPath)) {
+      const raw = readFileSync(jsonlPath, 'utf-8');
+      this.messages = parseJsonlContext(raw);
+    } else if (existsSync(legacyPath)) {
+      const raw = readFileSync(legacyPath, 'utf-8');
+      this.messages = parseLegacyContext(raw);
+      // Migrate: save in new format immediately
+      this.save();
     }
   }
 
@@ -114,6 +132,8 @@ export class Conversation {
     const config = this.getConfig();
     const model = getModel(config, this.apiKey);
 
+    const started = new Date().toISOString();
+
     const result = await generateWithMessages({
       model,
       system: this.systemPrompt,
@@ -126,6 +146,11 @@ export class Conversation {
       tokens: estimateTokens(result.text),
     });
     this.save();
+
+    // Record session for this chat turn
+    if (this.recordSessions) {
+      this.writeSessionRecord(config, userMessage, result.text, result.usage.totalTokens, started);
+    }
 
     return result.text;
   }
@@ -141,8 +166,9 @@ export class Conversation {
 
     const config = this.getConfig();
     const model = getModel(config, this.apiKey);
+    const started = new Date().toISOString();
 
-    const { textStream } = streamWithMessages({
+    const { textStream, usage } = streamWithMessages({
       model,
       system: this.systemPrompt,
       messages: this.toModelMessages(),
@@ -161,31 +187,62 @@ export class Conversation {
       tokens: estimateTokens(fullResponse),
     });
     this.save();
+
+    // Record session for this chat turn
+    if (this.recordSessions) {
+      const usageResult = await usage;
+      this.writeSessionRecord(config, userMessage, fullResponse, usageResult.totalTokens, started);
+    }
   }
 
   save(): void {
-    const contextPath = join(this.harnessDir, 'memory', 'context.md');
     const memoryDir = join(this.harnessDir, 'memory');
     if (!existsSync(memoryDir)) {
       mkdirSync(memoryDir, { recursive: true });
     }
 
-    const lines = ['# Conversation Context', ''];
-    for (const msg of this.messages) {
-      lines.push(`### ${msg.role === 'user' ? 'User' : 'Assistant'}`);
-      lines.push(msg.content);
-      lines.push('');
-    }
-
-    writeFileSync(contextPath, lines.join('\n'), 'utf-8');
+    // Write JSON-lines format — one JSON object per line
+    const jsonlPath = join(memoryDir, 'context.jsonl');
+    const lines = this.messages.map((m): string =>
+      JSON.stringify({ role: m.role, content: m.content } satisfies PersistedMessage)
+    );
+    writeFileSync(jsonlPath, lines.join('\n'), 'utf-8');
   }
 
   clear(): void {
     this.messages = [];
-    const contextPath = join(this.harnessDir, 'memory', 'context.md');
-    if (existsSync(contextPath)) {
-      writeFileSync(contextPath, '', 'utf-8');
+    const jsonlPath = join(this.harnessDir, 'memory', 'context.jsonl');
+    const legacyPath = join(this.harnessDir, 'memory', 'context.md');
+    if (existsSync(jsonlPath)) {
+      writeFileSync(jsonlPath, '', 'utf-8');
     }
+    if (existsSync(legacyPath)) {
+      writeFileSync(legacyPath, '', 'utf-8');
+    }
+  }
+
+  private writeSessionRecord(
+    config: HarnessConfig,
+    prompt: string,
+    response: string,
+    totalTokens: number,
+    started: string,
+  ): void {
+    const sessionId = createSessionId();
+    const ended = new Date().toISOString();
+
+    const session: SessionRecord = {
+      id: sessionId,
+      started,
+      ended,
+      prompt: prompt.slice(0, 500),
+      summary: response.slice(0, 200),
+      tokens_used: totalTokens,
+      model_id: config.model.id,
+      steps: 1,
+    };
+
+    writeSession(this.harnessDir, session);
   }
 
   getHistory(): Array<{ role: string; content: string }> {
@@ -204,10 +261,37 @@ export class Conversation {
 }
 
 /**
- * Parse context.md back into Message array.
- * Format: ### User / ### Assistant sections.
+ * Parse JSON-lines context format.
+ * Each line is a JSON object: { role, content }
  */
-function parseContextMd(raw: string): Message[] {
+function parseJsonlContext(raw: string): Message[] {
+  if (!raw.trim()) return [];
+
+  const messages: Message[] = [];
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const parsed = JSON.parse(trimmed) as PersistedMessage;
+      if (parsed.role && parsed.content) {
+        messages.push({
+          role: parsed.role,
+          content: parsed.content,
+          tokens: estimateTokens(parsed.content),
+        });
+      }
+    } catch {
+      // Skip malformed lines
+    }
+  }
+  return messages;
+}
+
+/**
+ * Parse legacy context.md format (### User / ### Assistant sections).
+ * Kept for backward compatibility — auto-migrates on first load.
+ */
+function parseLegacyContext(raw: string): Message[] {
   const messages: Message[] = [];
   const lines = raw.split('\n');
   let currentRole: 'user' | 'assistant' | null = null;
@@ -239,3 +323,6 @@ function parseContextMd(raw: string): Message[] {
 
   return messages;
 }
+
+// Export parsers for testing
+export { parseJsonlContext, parseLegacyContext };
