@@ -83,6 +83,10 @@ export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): Lo
     }
   }
 
+  if (allDocs.length === 0) {
+    warnings.push('No primitives found — add rules, instincts, or skills to improve agent behavior');
+  }
+
   // Estimate total L2 demand vs available budget for primitives
   const primitiveBudget = targetBudget - budget.used_tokens;
   let totalL2Demand = 0;

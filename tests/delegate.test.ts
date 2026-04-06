@@ -1,12 +1,55 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync, readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+
+vi.mock('../src/llm/provider.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/llm/provider.js')>();
+  const { MockLanguageModelV3 } = await import('ai/test');
+  const model = new MockLanguageModelV3({
+    provider: 'mock',
+    modelId: 'mock-model',
+    doGenerate: async () => ({
+      content: [{ type: 'text' as const, text: 'Delegated agent response.' }],
+      finishReason: { type: 'stop' as const },
+      usage: {
+        inputTokens: { total: 80, noCache: 80, cacheRead: undefined, cacheWrite: undefined },
+        outputTokens: { total: 40, text: 40, reasoning: undefined },
+      },
+    }),
+    doStream: async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: 'text-start' as const, id: '1' });
+          controller.enqueue({ type: 'text-delta' as const, id: '1', delta: 'Streamed ' });
+          controller.enqueue({ type: 'text-delta' as const, id: '1', delta: 'delegation.' });
+          controller.enqueue({ type: 'text-end' as const, id: '1' });
+          controller.enqueue({
+            type: 'finish' as const,
+            usage: {
+              inputTokens: { total: 60, noCache: 60, cacheRead: undefined, cacheWrite: undefined },
+              outputTokens: { total: 20, text: 20, reasoning: undefined },
+            },
+            finishReason: { type: 'stop' as const },
+          });
+          controller.close();
+        },
+      }),
+    }),
+  });
+  return {
+    ...actual,
+    getModel: vi.fn().mockReturnValue(model),
+  };
+});
+
 import {
   loadAgentDocs,
   findAgent,
   listAgents,
   buildAgentPrompt,
+  delegateTo,
+  delegateStream,
 } from '../src/runtime/delegate.js';
 import { loadConfig } from '../src/core/config.js';
 
@@ -367,10 +410,28 @@ ${largeBody}
     });
   });
 
+  describe('input validation', () => {
+    it('should reject empty agentId', async () => {
+      await expect(
+        delegateTo({ harnessDir: testDir, agentId: '', prompt: 'test' })
+      ).rejects.toThrow('agentId is required');
+    });
+
+    it('should reject empty prompt', async () => {
+      await expect(
+        delegateTo({ harnessDir: testDir, agentId: 'some-agent', prompt: '  ' })
+      ).rejects.toThrow('prompt cannot be empty');
+    });
+
+    it('delegateStream should reject empty agentId', () => {
+      expect(() =>
+        delegateStream({ harnessDir: testDir, agentId: '', prompt: 'test' })
+      ).toThrow('agentId is required');
+    });
+  });
+
   describe('delegateTo', () => {
     it('should throw descriptive error for non-existent agent', async () => {
-      const { delegateTo } = await import('../src/runtime/delegate.js');
-
       await expect(
         delegateTo({
           harnessDir: testDir,
@@ -381,8 +442,6 @@ ${largeBody}
     });
 
     it('should include available agents in error message', async () => {
-      const { delegateTo } = await import('../src/runtime/delegate.js');
-
       writeFileSync(
         join(testDir, 'agents', 'summarizer.md'),
         `---
@@ -409,12 +468,47 @@ status: active
         expect(message).toContain('agent-summarizer');
       }
     });
+
+    it('should return delegation result with session record', async () => {
+      writeFileSync(
+        join(testDir, 'agents', 'worker.md'),
+        `---
+id: agent-worker
+tags: [agent]
+status: active
+---
+
+<!-- L0: Worker agent. -->
+
+# Agent: Worker
+`
+      );
+
+      const result = await delegateTo({
+        harnessDir: testDir,
+        agentId: 'agent-worker',
+        prompt: 'Do the work',
+        apiKey: 'test-key',
+      });
+
+      expect(result.agentId).toBe('agent-worker');
+      expect(result.text).toBe('Delegated agent response.');
+      expect(result.usage.totalTokens).toBeGreaterThan(0);
+      expect(result.sessionId).toMatch(/^\d{4}-\d{2}-\d{2}-/);
+
+      // Verify session file was written
+      const sessionsDir = join(testDir, 'memory', 'sessions');
+      const files = readdirSync(sessionsDir).filter((f) => f.endsWith('.md'));
+      expect(files.length).toBeGreaterThan(0);
+
+      const sessionContent = readFileSync(join(sessionsDir, files[0]), 'utf-8');
+      expect(sessionContent).toContain('**Delegated to:** agent-worker');
+      expect(sessionContent).toContain('tags: [session, delegation, agent-worker]');
+    });
   });
 
   describe('delegateStream', () => {
-    it('should throw for non-existent agent', async () => {
-      const { delegateStream } = await import('../src/runtime/delegate.js');
-
+    it('should throw for non-existent agent', () => {
       expect(() =>
         delegateStream({
           harnessDir: testDir,
@@ -424,9 +518,7 @@ status: active
       ).toThrow('Agent "nonexistent" not found');
     });
 
-    it('should return agentId and sessionId for valid agent', async () => {
-      const { delegateStream } = await import('../src/runtime/delegate.js');
-
+    it('should return agentId and sessionId for valid agent', () => {
       writeFileSync(
         join(testDir, 'agents', 'streamer.md'),
         `---
@@ -451,6 +543,48 @@ status: active
       expect(result.agentId).toBe('agent-streamer');
       expect(result.sessionId).toBeDefined();
       expect(result.textStream).toBeDefined();
+    });
+
+    it('should stream text and write session after consumption', async () => {
+      writeFileSync(
+        join(testDir, 'agents', 'streamer.md'),
+        `---
+id: agent-streamer
+tags: [agent]
+status: active
+---
+
+<!-- L0: Streamer agent. -->
+
+# Agent: Streamer
+`
+      );
+
+      const result = delegateStream({
+        harnessDir: testDir,
+        agentId: 'agent-streamer',
+        prompt: 'Stream this',
+        apiKey: 'test-key',
+      });
+
+      // Consume the stream
+      let fullText = '';
+      for await (const chunk of result.textStream) {
+        fullText += chunk;
+      }
+
+      expect(fullText).toBe('Streamed delegation.');
+
+      // Session should be written after stream is consumed
+      const sessionsDir = join(testDir, 'memory', 'sessions');
+      const files = readdirSync(sessionsDir).filter((f) => f.endsWith('.md'));
+      expect(files.length).toBeGreaterThan(0);
+
+      const sessionContent = readFileSync(join(sessionsDir, files[0]), 'utf-8');
+      expect(sessionContent).toContain('**Delegated to:** agent-streamer');
+      expect(sessionContent).toContain('Streamed delegation.');
+      // Should capture real token count instead of 0
+      expect(sessionContent).not.toContain('**Tokens:** 0');
     });
   });
 });

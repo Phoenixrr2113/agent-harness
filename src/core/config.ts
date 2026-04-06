@@ -58,8 +58,8 @@ model:
 runtime:
   scratchpad_budget: 10000
   timezone: America/New_York
-  # heartbeat: "0 6-23 * * *"
-  # daily_summary: "0 22 * * *"
+  # heartbeat: "0 6-23 * * *"      # reserved, not yet implemented
+  # daily_summary: "0 22 * * *"     # reserved, not yet implemented
 
 memory:
   session_retention_days: 7
@@ -70,6 +70,16 @@ channels:
 
 extensions:
   directories: []
+
+# rate_limits:
+#   per_minute: 10
+#   per_hour: 100
+#   per_day: 500
+
+# budget:
+#   daily_limit_usd: 5.00
+#   monthly_limit_usd: 100.00
+#   enforce: true
 `;
 }
 

@@ -4,7 +4,7 @@ agent:
 
 model:
   provider: openrouter
-  id: anthropic/claude-opus-4
+  id: anthropic/claude-opus-4.6
   max_tokens: 200000
   max_retries: 2
   # timeout_ms: 60000
@@ -25,3 +25,27 @@ channels:
 
 extensions:
   directories: []
+
+# rate_limits:
+#   per_minute: 10
+#   per_hour: 100
+#   per_day: 500
+
+# budget:
+#   daily_limit_usd: 10.00
+#   monthly_limit_usd: 200.00
+#   enforce: true
+
+# mcp:
+#   servers:
+#     # Example: local filesystem MCP server
+#     # filesystem:
+#     #   transport: stdio
+#     #   command: npx
+#     #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+#     # Example: remote HTTP MCP server
+#     # api-server:
+#     #   transport: http
+#     #   url: https://example.com/mcp
+#     #   headers:
+#     #     Authorization: "Bearer ${API_KEY}"

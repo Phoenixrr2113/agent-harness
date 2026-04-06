@@ -214,6 +214,9 @@ export async function generateWithMessages(opts: GenerateWithMessagesOptions): P
   };
 }
 
+/**
+ * @deprecated Use `streamGenerateWithDetails()` instead — returns metadata (usage, toolCalls, steps).
+ */
 export async function* streamGenerate(opts: GenerateOptions): AsyncIterable<string> {
   const result = streamText({
     model: opts.model,
@@ -231,6 +234,10 @@ export async function* streamGenerate(opts: GenerateOptions): AsyncIterable<stri
 export interface StreamWithMessagesResult {
   textStream: AsyncIterable<string>;
   usage: Promise<GenerateResult['usage']>;
+  /** Tool calls made across all steps (resolves after stream completes) */
+  toolCalls: Promise<ToolCallInfo[]>;
+  /** Number of steps (resolves after stream completes) */
+  steps: Promise<number>;
 }
 
 export function streamWithMessages(opts: GenerateWithMessagesOptions): StreamWithMessagesResult {
@@ -242,10 +249,42 @@ export function streamWithMessages(opts: GenerateWithMessagesOptions): StreamWit
     ...buildCallSettings(opts),
   });
 
-  const usage = Promise.resolve(result.usage).then((u) => extractUsage(u));
+  const totalUsage = Promise.resolve(result.totalUsage ?? result.usage).then((u) => extractUsage(u));
+  const toolCalls = Promise.resolve(result.steps).then((s) => extractToolCalls({ steps: s }));
+  const steps = Promise.resolve(result.steps).then((s) => s?.length ?? 1);
 
   return {
     textStream: result.textStream,
-    usage,
+    usage: totalUsage,
+    toolCalls,
+    steps,
+  };
+}
+
+export interface StreamGenerateResult {
+  textStream: AsyncIterable<string>;
+  usage: Promise<GenerateResult['usage']>;
+  toolCalls: Promise<ToolCallInfo[]>;
+  steps: Promise<number>;
+}
+
+export function streamGenerateWithDetails(opts: GenerateOptions): StreamGenerateResult {
+  const result = streamText({
+    model: opts.model,
+    system: opts.system,
+    prompt: opts.prompt,
+    maxOutputTokens: opts.maxOutputTokens,
+    ...buildCallSettings(opts),
+  });
+
+  const totalUsage = Promise.resolve(result.totalUsage ?? result.usage).then((u) => extractUsage(u));
+  const toolCalls = Promise.resolve(result.steps).then((s) => extractToolCalls({ steps: s }));
+  const steps = Promise.resolve(result.steps).then((s) => s?.length ?? 1);
+
+  return {
+    textStream: result.textStream,
+    usage: totalUsage,
+    toolCalls,
+    steps,
   };
 }

@@ -2,6 +2,7 @@ import { writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync, copyFile
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 import { withFileLockSync } from './file-lock.js';
+import type { ToolCallInfo } from '../core/types.js';
 
 export interface SessionRecord {
   id: string;
@@ -13,6 +14,8 @@ export interface SessionRecord {
   steps: number;
   model_id?: string;
   delegated_to?: string;
+  /** Tool calls executed during this session */
+  tool_calls?: ToolCallInfo[];
 }
 
 export function createSessionId(): string {
@@ -20,6 +23,24 @@ export function createSessionId(): string {
   const date = now.toISOString().split('T')[0];
   const short = randomUUID().slice(0, 8);
   return `${date}-${short}`;
+}
+
+/** Format tool calls as markdown for session files */
+function formatToolCalls(toolCalls?: ToolCallInfo[]): string {
+  if (!toolCalls || toolCalls.length === 0) return '';
+
+  const lines = ['\n## Tools Used\n'];
+  for (const tc of toolCalls) {
+    lines.push(`### ${tc.toolName}`);
+    const argsStr = JSON.stringify(tc.args, null, 2);
+    lines.push(`**Args:** \`${argsStr.length > 200 ? argsStr.slice(0, 200) + '...' : argsStr}\``);
+    if (tc.result !== null && tc.result !== undefined) {
+      const resultStr = typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result);
+      lines.push(`**Result:** ${resultStr.length > 300 ? resultStr.slice(0, 300) + '...' : resultStr}`);
+    }
+    lines.push('');
+  }
+  return lines.join('\n');
 }
 
 export function writeSession(harnessDir: string, session: SessionRecord): string {
@@ -34,6 +55,8 @@ export function writeSession(harnessDir: string, session: SessionRecord): string
     : '[session]';
   const modelLine = session.model_id ? `\n**Model:** ${session.model_id}` : '';
   const delegateLine = session.delegated_to ? `\n**Delegated to:** ${session.delegated_to}` : '';
+  const toolSection = formatToolCalls(session.tool_calls);
+
   const content = `---
 id: ${session.id}
 tags: ${tags}
@@ -59,7 +82,7 @@ ${session.prompt}
 
 ## Summary
 ${session.summary}
-`;
+${toolSection}`;
 
   withFileLockSync(harnessDir, filePath, () => {
     writeFileSync(filePath, content, 'utf-8');

@@ -357,14 +357,16 @@ ${'x'.repeat(2000)}
     expect(systemPrompt).toContain('Summary');
   });
 
-  it('should return empty parseErrors and warnings for valid harness', () => {
+  it('should return empty parseErrors for valid harness', () => {
     writeFileSync(join(testDir, 'CORE.md'), '# Test Agent');
 
     const result = buildSystemPrompt(testDir, mockConfig);
 
     expect(result.parseErrors).toEqual([]);
-    // Small budget usage = no warnings
-    expect(result.warnings).toEqual([]);
+    // Warns about zero primitives since test has no rules/instincts/skills
+    expect(result.warnings).toEqual([
+      'No primitives found — add rules, instincts, or skills to improve agent behavior',
+    ]);
   });
 
   it('should warn when primitives loaded at reduced level', () => {

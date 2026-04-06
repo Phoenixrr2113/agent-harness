@@ -2,11 +2,14 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { getModel, generateWithMessages, streamWithMessages } from '../llm/provider.js';
 import { loadConfig } from '../core/config.js';
+import { log } from '../core/logger.js';
 import { buildSystemPrompt } from './context-loader.js';
 import { estimateTokens } from '../primitives/loader.js';
 import { createSessionId, writeSession, type SessionRecord } from './sessions.js';
+import { withFileLockSync } from './file-lock.js';
+import type { AIToolSet } from './tool-executor.js';
 import type { ModelMessage } from '@ai-sdk/provider-utils';
-import type { HarnessConfig } from '../core/types.js';
+import type { HarnessConfig, ToolCallInfo } from '../core/types.js';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -27,6 +30,28 @@ const MIN_MESSAGES = 2;
 // Hard cap on message count regardless of tokens
 const MAX_MESSAGES = 100;
 
+export interface ConversationOptions {
+  recordSessions?: boolean;
+  /** AI SDK tools available during conversation */
+  tools?: AIToolSet;
+  /** Maximum tool-use roundtrips per message (default: 5) */
+  maxToolSteps?: number;
+}
+
+export interface ConversationSendResult {
+  text: string;
+  usage: { totalTokens: number };
+  steps: number;
+  toolCalls: ToolCallInfo[];
+}
+
+export interface ConversationStreamResult {
+  /** Async iterable of text chunks — consume with for-await */
+  textStream: AsyncIterable<string>;
+  /** Resolves after the stream is fully consumed with turn metadata */
+  result: Promise<{ text: string; usage: { totalTokens: number }; steps: number; toolCalls: ToolCallInfo[] }>;
+}
+
 export class Conversation {
   private messages: Message[] = [];
   private harnessDir: string;
@@ -35,18 +60,38 @@ export class Conversation {
   private systemPromptTokens: number = 0;
   private maxContextTokens: number = 200000;
   private modelOverride?: string;
+  private providerOverride?: string;
   private recordSessions: boolean = true;
+  private tools: AIToolSet;
+  private maxToolSteps: number;
 
-  constructor(harnessDir: string, apiKey?: string, options?: { recordSessions?: boolean }) {
+  constructor(harnessDir: string, apiKey?: string, options?: ConversationOptions) {
     this.harnessDir = harnessDir;
     this.apiKey = apiKey;
+    this.tools = options?.tools ?? {};
+    this.maxToolSteps = options?.maxToolSteps ?? 5;
     if (options?.recordSessions !== undefined) {
       this.recordSessions = options.recordSessions;
     }
   }
 
+  /** Update the tool set (e.g., after MCP servers connect) */
+  setTools(tools: AIToolSet): void {
+    this.tools = tools;
+  }
+
   setModelOverride(modelId: string): void {
-    this.modelOverride = modelId;
+    if (!modelId || !modelId.trim()) {
+      throw new Error('modelId cannot be empty');
+    }
+    this.modelOverride = modelId.trim();
+  }
+
+  setProviderOverride(provider: string): void {
+    if (!provider || !provider.trim()) {
+      throw new Error('provider cannot be empty');
+    }
+    this.providerOverride = provider.trim();
   }
 
   async init(): Promise<void> {
@@ -73,10 +118,14 @@ export class Conversation {
 
   private getConfig(): HarnessConfig {
     const config = loadConfig(this.harnessDir);
-    if (this.modelOverride) {
+    if (this.modelOverride || this.providerOverride) {
       return {
         ...config,
-        model: { ...config.model, id: this.modelOverride },
+        model: {
+          ...config.model,
+          ...(this.modelOverride ? { id: this.modelOverride } : {}),
+          ...(this.providerOverride ? { provider: this.providerOverride } : {}),
+        },
       };
     }
     return config;
@@ -120,7 +169,11 @@ export class Conversation {
     }));
   }
 
-  async send(userMessage: string): Promise<string> {
+  async send(userMessage: string): Promise<ConversationSendResult> {
+    if (!userMessage || !userMessage.trim()) {
+      throw new Error('Message cannot be empty');
+    }
+
     this.messages.push({
       role: 'user',
       content: userMessage,
@@ -133,11 +186,13 @@ export class Conversation {
     const model = getModel(config, this.apiKey);
 
     const started = new Date().toISOString();
+    const hasTools = Object.keys(this.tools).length > 0;
 
     const result = await generateWithMessages({
       model,
       system: this.systemPrompt,
       messages: this.toModelMessages(),
+      ...(hasTools ? { tools: this.tools, maxToolSteps: this.maxToolSteps } : {}),
     });
 
     this.messages.push({
@@ -145,17 +200,39 @@ export class Conversation {
       content: result.text,
       tokens: estimateTokens(result.text),
     });
-    this.save();
+
+    try {
+      this.save();
+    } catch (err) {
+      log.warn(`Failed to save conversation context: ${err instanceof Error ? err.message : String(err)}`);
+    }
 
     // Record session for this chat turn
     if (this.recordSessions) {
-      this.writeSessionRecord(config, userMessage, result.text, result.usage.totalTokens, started);
+      try {
+        this.writeSessionRecord(
+          config, userMessage, result.text,
+          result.usage.totalTokens, started,
+          result.steps, result.toolCalls,
+        );
+      } catch (err) {
+        log.warn(`Failed to record chat session: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
 
-    return result.text;
+    return {
+      text: result.text,
+      usage: result.usage,
+      steps: result.steps,
+      toolCalls: result.toolCalls,
+    };
   }
 
-  async *sendStream(userMessage: string): AsyncIterable<string> {
+  sendStream(userMessage: string): ConversationStreamResult {
+    if (!userMessage || !userMessage.trim()) {
+      throw new Error('Message cannot be empty');
+    }
+
     this.messages.push({
       role: 'user',
       content: userMessage,
@@ -167,32 +244,82 @@ export class Conversation {
     const config = this.getConfig();
     const model = getModel(config, this.apiKey);
     const started = new Date().toISOString();
+    const hasTools = Object.keys(this.tools).length > 0;
 
-    const { textStream, usage } = streamWithMessages({
+    const streamResult = streamWithMessages({
       model,
       system: this.systemPrompt,
       messages: this.toModelMessages(),
+      ...(hasTools ? { tools: this.tools, maxToolSteps: this.maxToolSteps } : {}),
     });
 
-    let fullResponse = '';
-
-    for await (const chunk of textStream) {
-      fullResponse += chunk;
-      yield chunk;
-    }
-
-    this.messages.push({
-      role: 'assistant',
-      content: fullResponse,
-      tokens: estimateTokens(fullResponse),
+    // Deferred result — resolves after stream is fully consumed
+    let resolveResult: (r: ConversationStreamResult['result'] extends Promise<infer T> ? T : never) => void;
+    const resultPromise = new Promise<ConversationStreamResult['result'] extends Promise<infer T> ? T : never>((res) => {
+      resolveResult = res;
     });
-    this.save();
 
-    // Record session for this chat turn
-    if (this.recordSessions) {
-      const usageResult = await usage;
-      this.writeSessionRecord(config, userMessage, fullResponse, usageResult.totalTokens, started);
+    const self = this;
+
+    async function* generateStream(): AsyncIterable<string> {
+      let fullResponse = '';
+
+      for await (const chunk of streamResult.textStream) {
+        fullResponse += chunk;
+        yield chunk;
+      }
+
+      self.messages.push({
+        role: 'assistant',
+        content: fullResponse,
+        tokens: estimateTokens(fullResponse),
+      });
+
+      try {
+        self.save();
+      } catch (err) {
+        log.warn(`Failed to save conversation context: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      // Resolve post-stream metadata
+      let usageResult = { totalTokens: 0 };
+      let stepsResult = 1;
+      let toolCallsResult: ToolCallInfo[] = [];
+      try {
+        [usageResult, stepsResult, toolCallsResult] = await Promise.all([
+          streamResult.usage,
+          streamResult.steps,
+          streamResult.toolCalls,
+        ]);
+      } catch (err) {
+        log.warn(`Failed to resolve stream metadata: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      // Record session for this chat turn
+      if (self.recordSessions) {
+        try {
+          self.writeSessionRecord(
+            config, userMessage, fullResponse,
+            usageResult.totalTokens, started,
+            stepsResult, toolCallsResult,
+          );
+        } catch (err) {
+          log.warn(`Failed to record chat session: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+
+      resolveResult({
+        text: fullResponse,
+        usage: usageResult,
+        steps: stepsResult,
+        toolCalls: toolCallsResult,
+      });
     }
+
+    return {
+      textStream: generateStream(),
+      result: resultPromise,
+    };
   }
 
   save(): void {
@@ -201,12 +328,14 @@ export class Conversation {
       mkdirSync(memoryDir, { recursive: true });
     }
 
-    // Write JSON-lines format — one JSON object per line
+    // Write JSON-lines format — one JSON object per line, with file lock
     const jsonlPath = join(memoryDir, 'context.jsonl');
     const lines = this.messages.map((m): string =>
       JSON.stringify({ role: m.role, content: m.content } satisfies PersistedMessage)
     );
-    writeFileSync(jsonlPath, lines.join('\n'), 'utf-8');
+    withFileLockSync(this.harnessDir, 'context.jsonl', () => {
+      writeFileSync(jsonlPath, lines.join('\n'), 'utf-8');
+    });
   }
 
   clear(): void {
@@ -227,6 +356,8 @@ export class Conversation {
     response: string,
     totalTokens: number,
     started: string,
+    steps?: number,
+    toolCalls?: ToolCallInfo[],
   ): void {
     const sessionId = createSessionId();
     const ended = new Date().toISOString();
@@ -239,7 +370,8 @@ export class Conversation {
       summary: response.slice(0, 200),
       tokens_used: totalTokens,
       model_id: config.model.id,
-      steps: 1,
+      steps: steps ?? 1,
+      tool_calls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
     };
 
     writeSession(this.harnessDir, session);

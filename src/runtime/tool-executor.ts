@@ -305,13 +305,18 @@ function convertProgrammaticTool(pt: ProgrammaticTool): AIToolSet {
 
 /**
  * Load all tools from the harness directory and convert them to AI SDK format.
- * Includes both markdown-defined tools and programmatic tools from config.
+ * Includes markdown-defined tools, programmatic tools from config, and MCP tools.
  *
  * Returns an empty object if no tools are configured.
+ *
+ * @param harnessDir - Path to the harness directory
+ * @param config - Tool executor configuration
+ * @param mcpTools - Pre-loaded MCP tools to merge (from McpManager.getTools())
  */
 export function buildToolSet(
   harnessDir: string,
   config?: ToolExecutorConfig,
+  mcpTools?: AIToolSet,
 ): AIToolSet {
   const executorConfig = config ?? {};
   const tools: AIToolSet = {};
@@ -335,6 +340,11 @@ export function buildToolSet(
       const converted = convertProgrammaticTool(pt);
       Object.assign(tools, converted);
     }
+  }
+
+  // Merge MCP tools (from connected MCP servers)
+  if (mcpTools) {
+    Object.assign(tools, mcpTools);
   }
 
   return tools;

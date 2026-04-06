@@ -140,7 +140,8 @@ program
   .option('-s, --stream', 'Stream output', false)
   .option('-m, --model <model>', 'Model override (or alias: gemma, qwen, glm, claude)')
   .option('-p, --provider <provider>', 'Provider override (openrouter, anthropic, openai)')
-  .action(async (prompt: string, opts: { dir: string; stream: boolean; model?: string; provider?: string }) => {
+  .option('-k, --api-key <key>', 'API key override (default: from environment)')
+  .action(async (prompt: string, opts: { dir: string; stream: boolean; model?: string; provider?: string; apiKey?: string }) => {
     const { createHarness } = await import('../core/harness.js');
     const dir = resolve(opts.dir);
     loadEnvFromDir(dir);
@@ -153,19 +154,33 @@ program
         dir,
         model: modelId,
         provider: opts.provider,
+        apiKey: opts.apiKey,
       });
 
       if (opts.stream) {
+        const streamResult = agent.stream(prompt);
         process.stdout.write('\n');
-        for await (const chunk of agent.stream(prompt)) {
+        for await (const chunk of streamResult.textStream) {
           process.stdout.write(chunk);
         }
         process.stdout.write('\n\n');
+        const result = await streamResult.result;
+        const toolInfo = result.toolCalls.length > 0
+          ? ` | ${result.toolCalls.length} tool call(s)`
+          : '';
+        const stepInfo = result.steps > 1 ? ` | ${result.steps} steps` : '';
+        console.error(
+          `[${result.usage.totalTokens} tokens${stepInfo}${toolInfo} | session: ${result.session_id}]`
+        );
       } else {
         const result = await agent.run(prompt);
         console.log('\n' + result.text + '\n');
+        const toolInfo = result.toolCalls.length > 0
+          ? ` | ${result.toolCalls.length} tool call(s)`
+          : '';
+        const stepInfo = result.steps > 1 ? ` | ${result.steps} steps` : '';
         console.error(
-          `[${result.usage.totalTokens} tokens | session: ${result.session_id}]`
+          `[${result.usage.totalTokens} tokens${stepInfo}${toolInfo} | session: ${result.session_id}]`
         );
       }
 
@@ -182,24 +197,44 @@ program
   .description('Start an interactive chat session with conversation memory')
   .option('-d, --dir <path>', 'Harness directory', '.')
   .option('-m, --model <model>', 'Model override')
+  .option('-p, --provider <provider>', 'Provider override (openrouter, anthropic, openai)')
+  .option('-k, --api-key <key>', 'API key override (default: from environment)')
   .option('--fresh', 'Start fresh (clear conversation history)', false)
-  .action(async (opts: { dir: string; model?: string; fresh: boolean }) => {
+  .action(async (opts: { dir: string; model?: string; provider?: string; apiKey?: string; fresh: boolean }) => {
     const { Conversation } = await import('../runtime/conversation.js');
     const { loadConfig } = await import('../core/config.js');
+    const { buildToolSet } = await import('../runtime/tool-executor.js');
+    const { createMcpManager } = await import('../runtime/mcp.js');
     const readline = await import('readline');
     const dir = resolve(opts.dir);
 
     requireHarness(dir);
 
-    const conv = new Conversation(dir);
+    const config = loadConfig(dir);
+
+    // Load tools (markdown + programmatic + MCP)
+    let mcpTools: Record<string, unknown> = {};
+    const mcpManager = createMcpManager(config);
+    if (mcpManager.hasServers()) {
+      try {
+        await mcpManager.connect();
+        mcpTools = mcpManager.getTools();
+      } catch (err: unknown) {
+        console.error(`Warning: MCP connection failed: ${formatError(err)}`);
+      }
+    }
+    const toolSet = buildToolSet(dir, undefined, mcpTools as Record<string, never>);
+    const toolCount = Object.keys(toolSet).length;
+
+    const conv = new Conversation(dir, opts.apiKey, { tools: toolSet });
     const modelId = resolveModel(opts.model);
     if (modelId) conv.setModelOverride(modelId);
+    if (opts.provider) conv.setProviderOverride(opts.provider);
     if (opts.fresh) conv.clear();
     await conv.init();
 
-    const config = loadConfig(dir);
     const history = conv.getHistory();
-    console.log(`\n${config.agent.name} is ready. ${history.length > 0 ? `(${history.length} messages in history)` : ''}`);
+    console.log(`\n${config.agent.name} is ready. ${history.length > 0 ? `(${history.length} messages in history)` : ''}${toolCount > 0 ? ` | ${toolCount} tools` : ''}`);
     console.log(`Type your message, "clear" to reset, or "exit" to quit.\n`);
 
     const rl = readline.createInterface({
@@ -207,10 +242,17 @@ program
       output: process.stdout,
     });
 
+    const cleanup = async () => {
+      if (mcpManager.hasServers()) {
+        await mcpManager.close();
+      }
+    };
+
     const ask = () => {
       rl.question('> ', async (input) => {
         const trimmed = input.trim();
         if (!trimmed || trimmed === 'exit' || trimmed === 'quit') {
+          await cleanup();
           rl.close();
           return;
         }
@@ -222,11 +264,21 @@ program
         }
 
         try {
+          const streamResult = conv.sendStream(trimmed);
           process.stdout.write('\n');
-          for await (const chunk of conv.sendStream(trimmed)) {
+          for await (const chunk of streamResult.textStream) {
             process.stdout.write(chunk);
           }
-          process.stdout.write('\n\n');
+          process.stdout.write('\n');
+          const meta = await streamResult.result;
+          if (meta.usage.totalTokens > 0) {
+            const toolInfo = meta.toolCalls.length > 0
+              ? ` | ${meta.toolCalls.length} tool call(s)`
+              : '';
+            const stepInfo = meta.steps > 1 ? ` | ${meta.steps} steps` : '';
+            console.error(`[${meta.usage.totalTokens} tokens${stepInfo}${toolInfo}]`);
+          }
+          process.stdout.write('\n');
         } catch (err: unknown) {
           console.error(`Error: ${formatError(err)}`);
         }
@@ -243,7 +295,8 @@ program
   .command('info')
   .description('Show harness info and loaded context')
   .option('-d, --dir <path>', 'Harness directory', '.')
-  .action(async (opts: { dir: string }) => {
+  .option('--json', 'Output as JSON')
+  .action(async (opts: { dir: string; json: boolean }) => {
     const { loadConfig } = await import('../core/config.js');
     const { buildSystemPrompt } = await import('../runtime/context-loader.js');
     const { loadState } = await import('../runtime/state.js');
@@ -255,6 +308,32 @@ program
       const ctx = buildSystemPrompt(dir, config);
       const state = loadState(dir);
 
+      // MCP servers
+      const mcpServers = config.mcp?.servers ?? {};
+      const mcpEntries = Object.entries(mcpServers);
+
+      if (opts.json) {
+        const info = {
+          agent: { name: config.agent.name, version: config.agent.version },
+          model: config.model.id,
+          provider: config.model.provider,
+          state: { mode: state.mode, last_interaction: state.last_interaction },
+          context: {
+            max_tokens: ctx.budget.max_tokens,
+            used_tokens: ctx.budget.used_tokens,
+            remaining: ctx.budget.remaining,
+            loaded_files: ctx.budget.loaded_files,
+          },
+          mcp: mcpEntries.map(([name, s]) => ({
+            name,
+            transport: s.transport,
+            enabled: s.enabled !== false,
+          })),
+        };
+        console.log(JSON.stringify(info, null, 2));
+        return;
+      }
+
       console.log(`\nAgent: ${config.agent.name} v${config.agent.version}`);
       console.log(`Model: ${config.model.id}`);
       console.log(`State: ${state.mode}`);
@@ -265,6 +344,15 @@ program
       console.log(`  Remaining: ~${ctx.budget.remaining}`);
       console.log(`  Files loaded: ${ctx.budget.loaded_files.length}`);
       ctx.budget.loaded_files.forEach(f => console.log(`    - ${f}`));
+
+      if (mcpEntries.length > 0) {
+        const enabledCount = mcpEntries.filter(([, s]) => s.enabled !== false).length;
+        console.log(`\nMCP servers: ${mcpEntries.length} configured (${enabledCount} enabled)`);
+        for (const [name, s] of mcpEntries) {
+          const enabled = s.enabled !== false;
+          console.log(`  ${enabled ? '+' : '-'} ${name} (${s.transport})`);
+        }
+      }
       console.log();
     } catch (err: unknown) {
       console.error(`Error: ${formatError(err)}`);
@@ -277,7 +365,8 @@ program
   .command('prompt')
   .description('Show the full assembled system prompt')
   .option('-d, --dir <path>', 'Harness directory', '.')
-  .action(async (opts: { dir: string }) => {
+  .option('--json', 'Output metadata as JSON (includes prompt, budget, warnings)')
+  .action(async (opts: { dir: string; json: boolean }) => {
     const { loadConfig } = await import('../core/config.js');
     const { buildSystemPrompt } = await import('../runtime/context-loader.js');
     const dir = resolve(opts.dir);
@@ -286,6 +375,17 @@ program
     try {
       const config = loadConfig(dir);
       const ctx = buildSystemPrompt(dir, config);
+
+      if (opts.json) {
+        console.log(JSON.stringify({
+          systemPrompt: ctx.systemPrompt,
+          budget: ctx.budget,
+          warnings: ctx.warnings,
+          parseErrors: ctx.parseErrors,
+        }, null, 2));
+        return;
+      }
+
       console.log(ctx.systemPrompt);
     } catch (err: unknown) {
       console.error(`Error: ${formatError(err)}`);
@@ -298,8 +398,9 @@ program
   .command('dev')
   .description('Start dev mode — watches for file changes, rebuilds indexes, runs scheduled workflows')
   .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('-k, --api-key <key>', 'API key override (default: from environment)')
   .option('--no-schedule', 'Disable workflow scheduler')
-  .action(async (opts: { dir: string; schedule: boolean }) => {
+  .action(async (opts: { dir: string; apiKey?: string; schedule: boolean }) => {
     const { loadConfig } = await import('../core/config.js');
     const { rebuildAllIndexes } = await import('../runtime/indexer.js');
     const { createWatcher } = await import('../runtime/watcher.js');
@@ -322,6 +423,7 @@ program
     if (opts.schedule) {
       scheduler = new Scheduler({
         harnessDir: dir,
+        apiKey: opts.apiKey,
         onRun: (id, result) => {
           console.log(`[scheduler] ✓ ${id}: ${result.slice(0, 100)}`);
         },
@@ -347,16 +449,28 @@ program
       }
     }
 
-    // Start watching (including extension directories)
+    // Start watching (including extension directories and config.yaml)
     createWatcher({
       harnessDir: dir,
       extraDirs: extDirs,
+      watchConfig: true,
       onChange: (path, event) => {
         const rel = path.replace(dir + '/', '');
         console.log(`[dev] ${event}: ${rel}`);
       },
       onIndexRebuild: (directory) => {
         console.log(`[dev] Index rebuilt: ${directory}/_index.md`);
+      },
+      onConfigChange: () => {
+        try {
+          const newConfig = loadConfig(dir);
+          console.log(`[dev] Config reloaded: model=${newConfig.model.id}`);
+        } catch (err: unknown) {
+          console.error(`[dev] Config reload failed: ${formatError(err)}`);
+        }
+      },
+      onError: (err) => {
+        console.error(`[dev] Watcher error: ${err.message}`);
       },
     });
 
@@ -405,7 +519,8 @@ program
   .option('--all', 'Synthesize all dates with sessions', false)
   .option('--force', 'Re-synthesize even if journal exists', false)
   .option('--pending', 'Show dates with sessions but no journal', false)
-  .action(async (opts: { dir: string; date?: string; from?: string; to?: string; all: boolean; force: boolean; pending: boolean }) => {
+  .option('--auto-harvest', 'Auto-install instinct candidates from synthesized journals', false)
+  .action(async (opts: { dir: string; date?: string; from?: string; to?: string; all: boolean; force: boolean; pending: boolean; autoHarvest: boolean }) => {
     const dir = resolve(opts.dir);
     loadEnvFromDir(dir);
 
@@ -452,6 +567,22 @@ program
           console.log(`  ${entry.date}: ${sessionCount} session(s), ${entry.tokens_used} tokens${instinctCount > 0 ? `, ${instinctCount} instinct candidate(s)` : ''}`);
         }
         console.log();
+
+        // Auto-harvest: install instinct candidates from synthesized journals
+        if (opts.autoHarvest) {
+          const { harvestInstincts } = await import('../runtime/instinct-learner.js');
+          const dates = entries.map((e) => e.date).sort();
+          const harvest = harvestInstincts(dir, {
+            from: dates[0],
+            to: dates[dates.length - 1],
+            install: true,
+          });
+          if (harvest.installed.length > 0) {
+            console.log(`Auto-harvested ${harvest.installed.length} instinct(s):`);
+            harvest.installed.forEach((id) => console.log(`  ✓ ${id}`));
+            console.log();
+          }
+        }
       } catch (err: unknown) {
         console.error(`Error: ${formatError(err)}`);
         process.exit(1);
@@ -471,6 +602,20 @@ program
       if (entry.instinct_candidates.length > 0) {
         console.log(`  Instinct candidates:`);
         entry.instinct_candidates.forEach(c => console.log(`    - ${c}`));
+
+        // Auto-harvest: install instinct candidates from this journal
+        if (opts.autoHarvest) {
+          const { harvestInstincts } = await import('../runtime/instinct-learner.js');
+          const harvest = harvestInstincts(dir, {
+            from: entry.date,
+            to: entry.date,
+            install: true,
+          });
+          if (harvest.installed.length > 0) {
+            console.log(`  Auto-harvested:`);
+            harvest.installed.forEach((id) => console.log(`    ✓ ${id}`));
+          }
+        }
       }
       console.log(`\n${entry.synthesis}`);
     } catch (err: unknown) {
@@ -655,39 +800,46 @@ program
   .command('validate')
   .description('Validate harness structure and configuration')
   .option('-d, --dir <path>', 'Harness directory', '.')
-  .action(async (opts: { dir: string }) => {
+  .option('--json', 'Output as JSON')
+  .action(async (opts: { dir: string; json: boolean }) => {
     const { validateHarness } = await import('../runtime/validator.js');
     const dir = resolve(opts.dir);
 
-    const { ok, warnings, errors, parseErrors, totalPrimitives } = validateHarness(dir);
+    const result = validateHarness(dir);
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+      if (result.errors.length > 0) process.exit(1);
+      return;
+    }
 
     // Output results
     console.log(`\nHarness validation: ${dir}\n`);
 
-    if (ok.length > 0) {
-      for (const msg of ok) {
+    if (result.ok.length > 0) {
+      for (const msg of result.ok) {
         console.log(`  ✓ ${msg}`);
       }
     }
 
-    if (warnings.length > 0) {
+    if (result.warnings.length > 0) {
       console.log();
-      for (const msg of warnings) {
+      for (const msg of result.warnings) {
         console.log(`  ⚠ ${msg}`);
       }
     }
 
-    if (errors.length > 0) {
+    if (result.errors.length > 0) {
       console.log();
-      for (const msg of errors) {
+      for (const msg of result.errors) {
         console.log(`  ✗ ${msg}`);
       }
     }
 
-    console.log(`\nSummary: ${ok.length} passed, ${warnings.length} warnings, ${errors.length} errors`);
-    console.log(`Primitives: ${totalPrimitives} loaded${parseErrors.length > 0 ? `, ${parseErrors.length} parse error(s)` : ''}\n`);
+    console.log(`\nSummary: ${result.ok.length} passed, ${result.warnings.length} warnings, ${result.errors.length} errors`);
+    console.log(`Primitives: ${result.totalPrimitives} loaded${result.parseErrors.length > 0 ? `, ${result.parseErrors.length} parse error(s)` : ''}\n`);
 
-    if (errors.length > 0) {
+    if (result.errors.length > 0) {
       process.exit(1);
     }
   });
@@ -887,6 +1039,22 @@ program
     }
     console.log(`  Journals: ${journalCount}`);
 
+    // MCP Servers
+    const mcpServers = config.mcp?.servers ?? {};
+    const mcpEntries = Object.entries(mcpServers);
+    if (mcpEntries.length > 0) {
+      const enabledCount = mcpEntries.filter(([, s]) => s.enabled !== false).length;
+      console.log(`\n  MCP Servers: ${mcpEntries.length} configured (${enabledCount} enabled)`);
+      for (const [name, serverConfig] of mcpEntries) {
+        const enabled = serverConfig.enabled !== false;
+        const icon = enabled ? '+' : '-';
+        const detail = serverConfig.transport === 'stdio'
+          ? serverConfig.command ?? ''
+          : serverConfig.url ?? '';
+        console.log(`    [${icon}] ${name} (${serverConfig.transport}) ${detail}`);
+      }
+    }
+
     // State
     if (state.goals.length > 0) {
       console.log(`\n  Goals:`);
@@ -1039,7 +1207,8 @@ program
   .option('--type <type>', 'Filter by primitive type (e.g., rules, skills)')
   .option('--status <status>', 'Filter by status (active, draft, archived, deprecated)')
   .option('--author <author>', 'Filter by author (human, agent, infrastructure)')
-  .action(async (query: string | undefined, opts: { dir: string; tag?: string; type?: string; status?: string; author?: string }) => {
+  .option('--json', 'Output as JSON')
+  .action(async (query: string | undefined, opts: { dir: string; tag?: string; type?: string; status?: string; author?: string; json: boolean }) => {
     const { searchPrimitives } = await import('../runtime/search.js');
     const { loadConfig } = await import('../core/config.js');
     const dir = resolve(opts.dir);
@@ -1058,6 +1227,18 @@ program
       status: opts.status,
       author: opts.author,
     }, config);
+
+    if (opts.json) {
+      console.log(JSON.stringify(results.map((r) => ({
+        id: r.doc.frontmatter.id,
+        directory: r.directory,
+        status: r.doc.frontmatter.status,
+        tags: r.doc.frontmatter.tags,
+        l0: r.doc.l0,
+        matchReason: r.matchReason,
+      })), null, 2));
+      return;
+    }
 
     if (results.length === 0) {
       const filters = [query, opts.tag && `tag:${opts.tag}`, opts.type && `type:${opts.type}`, opts.status && `status:${opts.status}`, opts.author && `author:${opts.author}`].filter(Boolean).join(', ');
@@ -1482,7 +1663,8 @@ program
   .command('graph')
   .description('Analyze primitive dependency graph (related:/with: fields)')
   .option('-d, --dir <path>', 'Harness directory', '.')
-  .action(async (opts: { dir: string }) => {
+  .option('--json', 'Output as JSON')
+  .action(async (opts: { dir: string; json: boolean }) => {
     const { buildDependencyGraph, getGraphStats } = await import('../runtime/graph.js');
     const { loadConfig } = await import('../core/config.js');
     const dir = resolve(opts.dir);
@@ -1493,6 +1675,11 @@ program
 
     const graph = buildDependencyGraph(dir, config);
     const stats = getGraphStats(dir, config);
+
+    if (opts.json) {
+      console.log(JSON.stringify({ graph, stats }, null, 2));
+      return;
+    }
 
     console.log(`\nDependency Graph\n`);
     console.log(`  Nodes: ${stats.totalNodes}`);
@@ -1540,7 +1727,8 @@ program
   .option('-d, --dir <path>', 'Harness directory', '.')
   .option('--from <date>', 'Start date (YYYY-MM-DD)')
   .option('--to <date>', 'End date (YYYY-MM-DD)')
-  .action(async (opts: { dir: string; from?: string; to?: string }) => {
+  .option('--json', 'Output as JSON')
+  .action(async (opts: { dir: string; from?: string; to?: string; json: boolean }) => {
     const { getSessionAnalytics, getSessionsInRange } = await import('../runtime/analytics.js');
     const dir = resolve(opts.dir);
     requireHarness(dir);
@@ -1548,6 +1736,12 @@ program
     if (opts.from || opts.to) {
       const sessions = getSessionsInRange(dir, opts.from, opts.to);
       const label = opts.from && opts.to ? `${opts.from} to ${opts.to}` : opts.from ? `from ${opts.from}` : `to ${opts.to}`;
+
+      if (opts.json) {
+        console.log(JSON.stringify({ range: label, sessions }, null, 2));
+        return;
+      }
+
       if (sessions.length === 0) {
         console.log(`\nNo sessions found for ${label}.\n`);
         return;
@@ -1565,6 +1759,16 @@ program
     }
 
     const analytics = getSessionAnalytics(dir);
+
+    if (opts.json) {
+      // Convert Map to plain object for JSON serialization
+      const serializable = {
+        ...analytics,
+        modelUsage: Object.fromEntries(analytics.modelUsage),
+      };
+      console.log(JSON.stringify(serializable, null, 2));
+      return;
+    }
 
     if (analytics.totalSessions === 0) {
       console.log('\nNo sessions recorded yet.\n');
@@ -1688,7 +1892,8 @@ costsCmd
   .option('-d, --dir <path>', 'Harness directory', '.')
   .option('--from <date>', 'Start date (YYYY-MM-DD)')
   .option('--to <date>', 'End date (YYYY-MM-DD)')
-  .action(async (opts: { dir: string; from?: string; to?: string }) => {
+  .option('--json', 'Output as JSON')
+  .action(async (opts: { dir: string; from?: string; to?: string; json: boolean }) => {
     const { getSpending } = await import('../runtime/cost-tracker.js');
     const dir = resolve(opts.dir);
     requireHarness(dir);
@@ -1697,6 +1902,11 @@ costsCmd
     const label = opts.from || opts.to
       ? `${opts.from ?? 'start'} to ${opts.to ?? 'now'}`
       : 'today';
+
+    if (opts.json) {
+      console.log(JSON.stringify({ period: label, ...summary }, null, 2));
+      return;
+    }
 
     if (summary.entries === 0) {
       console.log(`\nNo spending recorded for ${label}.\n`);
@@ -1806,7 +2016,8 @@ program
   .description('Show system health status and metrics')
   .option('-d, --dir <path>', 'Harness directory', '.')
   .option('--reset', 'Reset health metrics', false)
-  .action(async (opts: { dir: string; reset: boolean }) => {
+  .option('--json', 'Output as JSON')
+  .action(async (opts: { dir: string; reset: boolean; json: boolean }) => {
     const { getHealthStatus, resetHealth } = await import('../runtime/health.js');
     const dir = resolve(opts.dir);
     requireHarness(dir);
@@ -1818,6 +2029,11 @@ program
     }
 
     const health = getHealthStatus(dir);
+
+    if (opts.json) {
+      console.log(JSON.stringify(health, null, 2));
+      return;
+    }
 
     const statusIcon = health.status === 'healthy' ? 'OK' : health.status === 'degraded' ? 'WARN' : 'FAIL';
     console.log(`\nHealth: ${statusIcon} (${health.status})\n`);
@@ -1906,6 +2122,133 @@ rateLimitCmd
       console.log(`Cleared ${removed} event(s) for key "${opts.key}".`);
     } else {
       console.log(`Cleared ${removed} total event(s).`);
+    }
+  });
+
+// --- MCP (Model Context Protocol server management) ---
+const mcpCmd = program
+  .command('mcp')
+  .description('Manage MCP (Model Context Protocol) server connections');
+
+mcpCmd
+  .command('list')
+  .description('List configured MCP servers and their status')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .action(async (opts: { dir: string }) => {
+    const { loadConfig } = await import('../core/config.js');
+    const { validateMcpConfig } = await import('../runtime/mcp.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const config = loadConfig(dir);
+    const servers = config.mcp?.servers ?? {};
+    const entries = Object.entries(servers);
+
+    if (entries.length === 0) {
+      console.log('\nNo MCP servers configured.');
+      console.log('Add servers to config.yaml under mcp.servers:\n');
+      console.log('  mcp:');
+      console.log('    servers:');
+      console.log('      my-server:');
+      console.log('        transport: stdio');
+      console.log('        command: npx');
+      console.log('        args: ["-y", "@my/mcp-server"]');
+      console.log();
+      return;
+    }
+
+    const validationErrors = validateMcpConfig(config);
+    const errorMap = new Map(validationErrors.map((e) => [e.server, e.error]));
+
+    console.log(`\n${entries.length} MCP server(s) configured:\n`);
+    for (const [name, serverConfig] of entries) {
+      const enabled = serverConfig.enabled !== false;
+      const status = !enabled ? 'disabled' : errorMap.has(name) ? 'invalid' : 'configured';
+      const icon = status === 'configured' ? '+' : status === 'disabled' ? '-' : '!';
+
+      console.log(`  [${icon}] ${name} (${serverConfig.transport})`);
+
+      if (serverConfig.transport === 'stdio' && serverConfig.command) {
+        const args = serverConfig.args?.join(' ') ?? '';
+        console.log(`      Command: ${serverConfig.command} ${args}`.trimEnd());
+      } else if (serverConfig.url) {
+        console.log(`      URL: ${serverConfig.url}`);
+      }
+
+      if (errorMap.has(name)) {
+        console.log(`      Error: ${errorMap.get(name)}`);
+      }
+    }
+    console.log();
+  });
+
+mcpCmd
+  .command('test')
+  .description('Test MCP server connections and list available tools')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('-s, --server <name>', 'Test only a specific server')
+  .action(async (opts: { dir: string; server?: string }) => {
+    const { loadConfig } = await import('../core/config.js');
+    const { createMcpManager } = await import('../runtime/mcp.js');
+    const dir = resolve(opts.dir);
+    loadEnvFromDir(dir);
+    requireHarness(dir);
+
+    const config = loadConfig(dir);
+    const servers = config.mcp?.servers ?? {};
+
+    if (Object.keys(servers).length === 0) {
+      console.log('\nNo MCP servers configured. Run `harness mcp list` for setup instructions.\n');
+      return;
+    }
+
+    // If testing a specific server, filter config
+    let testConfig = config;
+    if (opts.server) {
+      if (!servers[opts.server]) {
+        console.error(`Error: MCP server "${opts.server}" not found in config.`);
+        console.error(`Available: ${Object.keys(servers).join(', ')}`);
+        process.exit(1);
+      }
+      testConfig = {
+        ...config,
+        mcp: { servers: { [opts.server]: servers[opts.server] } },
+      };
+    }
+
+    console.log(`\nTesting MCP server connections...\n`);
+
+    const manager = createMcpManager(testConfig);
+    try {
+      await manager.connect();
+      const summaries = manager.getSummaries();
+
+      for (const summary of summaries) {
+        if (!summary.enabled) {
+          console.log(`  [-] ${summary.name}: disabled`);
+          continue;
+        }
+
+        if (summary.connected) {
+          console.log(`  [OK] ${summary.name}: connected, ${summary.toolCount} tool(s)`);
+          if (summary.toolNames.length > 0) {
+            for (const toolName of summary.toolNames) {
+              console.log(`        - ${toolName}`);
+            }
+          }
+        } else {
+          console.log(`  [FAIL] ${summary.name}: ${summary.error ?? 'unknown error'}`);
+        }
+      }
+
+      const totalTools = summaries.reduce((sum, s) => sum + s.toolCount, 0);
+      const connectedCount = summaries.filter((s) => s.connected).length;
+      console.log(`\n  ${connectedCount}/${summaries.length} server(s) connected, ${totalTools} total tool(s)\n`);
+    } catch (err: unknown) {
+      console.error(`Error: ${formatError(err)}`);
+      process.exit(1);
+    } finally {
+      await manager.close();
     }
   });
 

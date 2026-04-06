@@ -4,6 +4,7 @@ import { join } from 'path';
 import { loadDirectory, parseHarnessDocument } from '../primitives/loader.js';
 import { loadConfig } from '../core/config.js';
 import { createHarness } from '../core/harness.js';
+import { delegateTo } from './delegate.js';
 import { archiveOldFiles } from './sessions.js';
 import { recordRun } from './metrics.js';
 import { log } from '../core/logger.js';
@@ -121,7 +122,9 @@ export class Scheduler {
       if (!cronExpr) continue;
 
       if (!cron.validate(cronExpr)) {
-        this.onError?.(doc.frontmatter.id, new Error(`Invalid cron expression: ${cronExpr}`));
+        try { this.onError?.(doc.frontmatter.id, new Error(`Invalid cron expression: ${cronExpr}`)); } catch (e) {
+          log.warn(`onError hook failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
         continue;
       }
 
@@ -130,7 +133,9 @@ export class Scheduler {
       });
 
       this.workflows.set(doc.frontmatter.id, { doc, cronExpression: cronExpr, task });
-      this.onSchedule?.(doc.frontmatter.id, cronExpr);
+      try { this.onSchedule?.(doc.frontmatter.id, cronExpr); } catch (e) {
+        log.warn(`onSchedule hook failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
   }
 
@@ -156,7 +161,9 @@ export class Scheduler {
     const config = loadConfig(this.harnessDir);
     if (isQuietHours(config)) {
       log.debug(`Skipping workflow "${workflowId}" — quiet hours active`);
-      this.onSkipQuietHours?.(workflowId);
+      try { this.onSkipQuietHours?.(workflowId); } catch (e) {
+        log.warn(`onSkipQuietHours hook failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
       return '';
     }
 
@@ -167,16 +174,34 @@ export class Scheduler {
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        // Create a harness instance for this workflow execution
-        const agent = createHarness({
-          dir: this.harnessDir,
-          apiKey: this.apiKey,
-        });
-
         // The workflow body IS the prompt — it describes what to do
         const prompt = `Execute this workflow:\n\n${doc.body}`;
-        const result = await agent.run(prompt);
-        await agent.shutdown();
+
+        let resultText: string;
+        let tokensUsed: number;
+
+        // If workflow has a `with:` field, delegate to that sub-agent
+        const delegateAgentId = doc.frontmatter.with;
+        if (delegateAgentId) {
+          log.debug(`Workflow "${workflowId}" delegating to agent "${delegateAgentId}"`);
+          const delegateResult = await delegateTo({
+            harnessDir: this.harnessDir,
+            agentId: delegateAgentId,
+            prompt,
+            apiKey: this.apiKey,
+          });
+          resultText = delegateResult.text;
+          tokensUsed = delegateResult.usage.totalTokens;
+        } else {
+          const agent = createHarness({
+            dir: this.harnessDir,
+            apiKey: this.apiKey,
+          });
+          const result = await agent.run(prompt);
+          await agent.shutdown();
+          resultText = result.text;
+          tokensUsed = result.usage.totalTokens;
+        }
 
         // Record success in health metrics
         recordSuccess(this.harnessDir);
@@ -189,13 +214,15 @@ export class Scheduler {
           ended: new Date(endTime).toISOString(),
           duration_ms: endTime - startTime,
           success: true,
-          tokens_used: result.usage.totalTokens,
+          tokens_used: tokensUsed,
           attempt: attempt + 1,
           max_retries: maxRetries,
         });
 
-        this.onRun?.(workflowId, result.text);
-        return result.text;
+        try { this.onRun?.(workflowId, resultText); } catch (e) {
+          log.warn(`onRun hook failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        return resultText;
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
 
@@ -203,7 +230,9 @@ export class Scheduler {
           // Exponential backoff: baseDelay * 2^attempt
           const delay = baseDelay * Math.pow(2, attempt);
           log.debug(`Workflow "${workflowId}" failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms`);
-          this.onRetry?.(workflowId, attempt + 1, maxRetries, lastError);
+          try { this.onRetry?.(workflowId, attempt + 1, maxRetries, lastError); } catch (e) {
+            log.warn(`onRetry hook failed: ${e instanceof Error ? e.message : String(e)}`);
+          }
           await sleep(delay);
         }
       }
@@ -226,7 +255,9 @@ export class Scheduler {
     });
 
     // All attempts exhausted
-    this.onError?.(workflowId, lastError!);
+    try { this.onError?.(workflowId, lastError!); } catch (e) {
+      log.warn(`onError hook failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
     throw lastError;
   }
 
@@ -263,11 +294,15 @@ export class Scheduler {
       if (total > 0) {
         log.info(`Archived ${result.sessionsArchived} session(s), ${result.journalsArchived} journal(s)`);
       }
-      this.onArchival?.(result.sessionsArchived, result.journalsArchived);
+      try { this.onArchival?.(result.sessionsArchived, result.journalsArchived); } catch (e) {
+        log.warn(`onArchival hook failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       log.error(`Archival failed: ${error.message}`);
-      this.onError?.('__archival__', error);
+      try { this.onError?.('__archival__', error); } catch (e) {
+        log.warn(`onError hook failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
   }
 

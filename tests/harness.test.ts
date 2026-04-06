@@ -52,6 +52,8 @@ vi.mock('../src/llm/provider.js', async (importOriginal) => {
 
 import { createHarness } from '../src/core/harness.js';
 import { resetProvider } from '../src/llm/provider.js';
+import { tool } from 'ai';
+import { z } from 'zod';
 
 describe('createHarness (programmatic API)', () => {
   let testDir: string;
@@ -230,7 +232,7 @@ ${new Date().toISOString()}
       await agent.boot();
 
       const chunks: string[] = [];
-      for await (const chunk of agent.stream('Stream test')) {
+      for await (const chunk of agent.stream('Stream test').textStream) {
         chunks.push(chunk);
       }
 
@@ -240,13 +242,72 @@ ${new Date().toISOString()}
     it('should write session after streaming completes', async () => {
       const agent = createHarness({ dir: testDir, apiKey: 'test-key' });
 
-      for await (const _chunk of agent.stream('Stream session test')) {
+      for await (const _chunk of agent.stream('Stream session test').textStream) {
         // consume stream
       }
 
       const sessionsDir = join(testDir, 'memory', 'sessions');
       const files = readdirSync(sessionsDir).filter((f) => f.endsWith('.md'));
       expect(files.length).toBe(1);
+    });
+
+    it('should resolve result promise with metadata after stream consumed', async () => {
+      const agent = createHarness({ dir: testDir, apiKey: 'test-key' });
+      await agent.boot();
+
+      const streamResult = agent.stream('Stream metadata test');
+
+      // Consume the stream first
+      let fullText = '';
+      for await (const chunk of streamResult.textStream) {
+        fullText += chunk;
+      }
+
+      // Then await the result promise
+      const result = await streamResult.result;
+      expect(result.text).toBe('Mock streamed response.');
+      expect(result.session_id).toBeTruthy();
+      expect(result.usage.totalTokens).toBeGreaterThanOrEqual(0);
+      expect(result.steps).toBeGreaterThanOrEqual(1);
+      expect(Array.isArray(result.toolCalls)).toBe(true);
+    });
+
+    it('should call onError hook when stream guardrail blocks', async () => {
+      // Set up rate limits in config before creating the harness
+      const configPath = join(testDir, 'config.yaml');
+      const configContent = readFileSync(configPath, 'utf-8');
+      writeFileSync(configPath, configContent + '\nrate_limits:\n  per_minute: 1\n');
+
+      // Pre-fill rate limit events so the limit is already exceeded
+      const now = Date.now();
+      const events = Array.from({ length: 5 }, () => ({ key: 'llm-calls:minute', timestamp: now }));
+      writeFileSync(
+        join(testDir, 'memory', 'rate-limits.json'),
+        JSON.stringify({ events, updated: new Date().toISOString() }),
+      );
+
+      const onError = vi.fn();
+      const agent = createHarness({
+        dir: testDir,
+        apiKey: 'test-key',
+        hooks: { onError },
+      });
+      await agent.boot();
+
+      try {
+        for await (const _chunk of agent.stream('blocked').textStream) {
+          // should not reach here
+        }
+      } catch {
+        // expected
+      }
+
+      expect(onError).toHaveBeenCalledOnce();
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: expect.objectContaining({ message: expect.stringContaining('Guardrail') }),
+        }),
+      );
     });
   });
 
@@ -405,6 +466,168 @@ ${new Date().toISOString()}
         'onShutdown',
         'onStateChange:idle',
       ]);
+    });
+  });
+
+  describe('stream with tools', () => {
+    it('should pass tools through to streaming and record session with steps', async () => {
+      const agent = createHarness({ dir: testDir, apiKey: 'test-key' });
+
+      // Write a tool definition file so buildToolSet picks it up
+      const toolDir = join(testDir, 'tools');
+      writeFileSync(
+        join(toolDir, 'weather.md'),
+        `---
+id: weather
+name: Weather API
+status: active
+---
+# Weather API
+Get current weather for a location.
+## Operations
+### GET /weather
+- query: location (string, required)
+`,
+      );
+
+      await agent.boot();
+
+      const chunks: string[] = [];
+      for await (const chunk of agent.stream('Get weather for NYC').textStream) {
+        chunks.push(chunk);
+      }
+
+      // Should still produce text output (from mock)
+      expect(chunks.join('')).toBe('Mock streamed response.');
+
+      // Should have written a session
+      const sessionsDir = join(testDir, 'memory', 'sessions');
+      const files = readdirSync(sessionsDir).filter((f) => f.endsWith('.md'));
+      expect(files.length).toBe(1);
+    });
+
+    it('should call onSessionEnd hook after streaming', async () => {
+      const onSessionEnd = vi.fn();
+      const agent = createHarness({
+        dir: testDir,
+        apiKey: 'test-key',
+        hooks: { onSessionEnd },
+      });
+
+      for await (const _chunk of agent.stream('Stream hook test').textStream) {
+        // consume stream
+      }
+
+      expect(onSessionEnd).toHaveBeenCalledOnce();
+      expect(onSessionEnd).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: 'Stream hook test',
+          sessionId: expect.any(String),
+          result: expect.objectContaining({
+            text: 'Mock streamed response.',
+            session_id: expect.any(String),
+            steps: expect.any(Number),
+            toolCalls: expect.any(Array),
+          }),
+        }),
+      );
+    });
+
+    it('should record health success after streaming', async () => {
+      const { loadHealth } = await import('../src/runtime/health.js');
+      const agent = createHarness({ dir: testDir, apiKey: 'test-key' });
+
+      for await (const _chunk of agent.stream('Health test').textStream) {
+        // consume
+      }
+
+      const health = loadHealth(testDir);
+      expect(health.totalRuns).toBeGreaterThan(0);
+    });
+  });
+
+  describe('run with programmatic tools', () => {
+    it('should pass programmatic tools to run and include in toolSet', async () => {
+      const myTool = tool({
+        description: 'A test tool',
+        parameters: z.object({ input: z.string() }),
+        execute: async ({ input }) => `processed: ${input}`,
+      });
+
+      const agent = createHarness({
+        dir: testDir,
+        apiKey: 'test-key',
+        toolExecutor: {
+          programmaticTools: { myTool },
+        },
+      });
+
+      // run() should succeed — tools are loaded but the mock model doesn't call them
+      const result = await agent.run('Use the tool');
+      expect(result.text).toBe('Mock response from the agent.');
+      expect(result.steps).toBe(1);
+      // No tool calls since mock model returns text directly
+      expect(result.toolCalls).toEqual([]);
+    });
+  });
+
+  describe('post-LLM recording resilience', () => {
+    it('run() should return result even if session write fails', async () => {
+      const { chmodSync } = await import('fs');
+      const agent = createHarness({ dir: testDir, apiKey: 'test-key' });
+      // Boot first (needs writable memory), then break sessions dir
+      await agent.boot();
+
+      const sessionsDir = join(testDir, 'memory', 'sessions');
+      rmSync(sessionsDir, { recursive: true, force: true });
+      chmodSync(join(testDir, 'memory'), 0o444);
+
+      try {
+        const result = await agent.run('Hello');
+        // LLM result should be returned despite recording failure
+        expect(result.text).toBe('Mock response from the agent.');
+        expect(result.usage.totalTokens).toBeGreaterThan(0);
+      } finally {
+        chmodSync(join(testDir, 'memory'), 0o755);
+        mkdirSync(sessionsDir, { recursive: true });
+      }
+    });
+
+    it('stream() should yield all chunks even if session write fails', async () => {
+      const { chmodSync } = await import('fs');
+      const agent = createHarness({ dir: testDir, apiKey: 'test-key' });
+      await agent.boot();
+
+      const sessionsDir = join(testDir, 'memory', 'sessions');
+      rmSync(sessionsDir, { recursive: true, force: true });
+      chmodSync(join(testDir, 'memory'), 0o444);
+
+      try {
+        let fullText = '';
+        for await (const chunk of agent.stream('Hello').textStream) {
+          fullText += chunk;
+        }
+        expect(fullText).toBe('Mock streamed response.');
+      } finally {
+        chmodSync(join(testDir, 'memory'), 0o755);
+        mkdirSync(sessionsDir, { recursive: true });
+      }
+    });
+
+    it('run() should return result even if onSessionEnd hook throws', async () => {
+      const agent = createHarness({
+        dir: testDir,
+        apiKey: 'test-key',
+        hooks: {
+          onSessionEnd: async () => {
+            throw new Error('Hook exploded');
+          },
+        },
+      });
+
+      // Should not throw — hook error is swallowed
+      const result = await agent.run('Hello');
+      expect(result.text).toBe('Mock response from the agent.');
     });
   });
 });

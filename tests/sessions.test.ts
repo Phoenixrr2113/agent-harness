@@ -77,6 +77,55 @@ describe('writeSession', () => {
     const content = readFileSync(path, 'utf-8');
     expect(content).toContain('claude-sonnet-4');
   });
+
+  it('should write tool calls section when tool_calls provided', () => {
+    const session = {
+      ...makeSession('2026-04-06-tools01', '2026-04-06'),
+      tool_calls: [
+        { toolName: 'weather', args: { location: 'NYC' }, result: '72°F sunny' },
+        { toolName: 'search', args: { query: 'test' }, result: null },
+      ],
+    };
+    const path = writeSession(TEST_DIR, session);
+    const content = readFileSync(path, 'utf-8');
+    expect(content).toContain('## Tools Used');
+    expect(content).toContain('### weather');
+    expect(content).toContain('NYC');
+    expect(content).toContain('72°F sunny');
+    expect(content).toContain('### search');
+  });
+
+  it('should omit tool calls section when no tool_calls', () => {
+    const session = makeSession('2026-04-06-notools', '2026-04-06');
+    const path = writeSession(TEST_DIR, session);
+    const content = readFileSync(path, 'utf-8');
+    expect(content).not.toContain('## Tools Used');
+  });
+
+  it('should omit tool calls section when tool_calls is empty array', () => {
+    const session = { ...makeSession('2026-04-06-empty', '2026-04-06'), tool_calls: [] };
+    const path = writeSession(TEST_DIR, session);
+    const content = readFileSync(path, 'utf-8');
+    expect(content).not.toContain('## Tools Used');
+  });
+
+  it('should truncate long tool args and results', () => {
+    const longArg = 'x'.repeat(300);
+    const longResult = 'y'.repeat(400);
+    const session = {
+      ...makeSession('2026-04-06-long01', '2026-04-06'),
+      tool_calls: [
+        { toolName: 'bigTool', args: { data: longArg }, result: longResult },
+      ],
+    };
+    const path = writeSession(TEST_DIR, session);
+    const content = readFileSync(path, 'utf-8');
+    expect(content).toContain('## Tools Used');
+    expect(content).toContain('...');
+    // Full long strings should not appear
+    expect(content).not.toContain(longArg);
+    expect(content).not.toContain(longResult);
+  });
 });
 
 describe('listSessions', () => {

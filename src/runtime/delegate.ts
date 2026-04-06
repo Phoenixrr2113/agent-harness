@@ -2,7 +2,9 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { loadDirectory, estimateTokens, getAtLevel } from '../primitives/loader.js';
 import { loadConfig } from '../core/config.js';
-import { getModel, generate, streamGenerate } from '../llm/provider.js';
+import { log } from '../core/logger.js';
+import { getModel, generate, streamGenerateWithDetails } from '../llm/provider.js';
+import { buildToolSet, type AIToolSet } from './tool-executor.js';
 import { createSessionId, writeSession, type SessionRecord } from './sessions.js';
 import type { HarnessDocument, HarnessConfig } from '../core/types.js';
 
@@ -151,6 +153,13 @@ export interface DelegateOptions {
 function prepareDelegation(opts: DelegateOptions) {
   const { harnessDir, agentId, apiKey } = opts;
 
+  if (!agentId || !agentId.trim()) {
+    throw new Error('agentId is required');
+  }
+  if (!opts.prompt || !opts.prompt.trim()) {
+    throw new Error('prompt cannot be empty');
+  }
+
   const agentDoc = findAgent(harnessDir, agentId);
   if (!agentDoc) {
     const available = listAgents(harnessDir);
@@ -169,7 +178,11 @@ function prepareDelegation(opts: DelegateOptions) {
   const systemPrompt = buildAgentPrompt(harnessDir, agentDoc, config);
   const model = getModel(config, apiKey);
 
-  return { agentDoc, config, systemPrompt, model };
+  // Load tools from the harness so sub-agents can use them
+  const toolSet = buildToolSet(harnessDir);
+  const hasTools = Object.keys(toolSet).length > 0;
+
+  return { agentDoc, config, systemPrompt, model, toolSet, hasTools };
 }
 
 /**
@@ -184,7 +197,7 @@ function prepareDelegation(opts: DelegateOptions) {
  */
 export async function delegateTo(opts: DelegateOptions): Promise<DelegationResult> {
   const { harnessDir, prompt } = opts;
-  const { agentDoc, config, systemPrompt, model } = prepareDelegation(opts);
+  const { agentDoc, config, systemPrompt, model, toolSet, hasTools } = prepareDelegation(opts);
 
   const sessionId = createSessionId();
   const started = new Date().toISOString();
@@ -195,6 +208,7 @@ export async function delegateTo(opts: DelegateOptions): Promise<DelegationResul
     prompt,
     maxRetries: config.model.max_retries,
     timeoutMs: config.model.timeout_ms,
+    ...(hasTools ? { tools: toolSet, maxToolSteps: 5 } : {}),
   });
 
   const ended = new Date().toISOString();
@@ -208,10 +222,15 @@ export async function delegateTo(opts: DelegateOptions): Promise<DelegationResul
     tokens_used: result.usage.totalTokens,
     model_id: config.model.id,
     delegated_to: agentDoc.frontmatter.id,
-    steps: 1,
+    steps: result.steps,
+    tool_calls: result.toolCalls.length > 0 ? result.toolCalls : undefined,
   };
 
-  writeSession(harnessDir, session);
+  try {
+    writeSession(harnessDir, session);
+  } catch (err) {
+    log.warn(`Failed to write delegation session ${sessionId}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   return {
     agentId: agentDoc.frontmatter.id,
@@ -234,24 +253,48 @@ export interface DelegateStreamResult {
  */
 export function delegateStream(opts: DelegateOptions): DelegateStreamResult {
   const { harnessDir, prompt } = opts;
-  const { agentDoc, config, systemPrompt, model } = prepareDelegation(opts);
+
+  // prepareDelegation() is called eagerly so callers get immediate errors
+  // (e.g., agent not found) before consuming the stream.
+  const { agentDoc, config, systemPrompt, model, toolSet, hasTools } = prepareDelegation(opts);
 
   const sessionId = createSessionId();
   const started = new Date().toISOString();
 
-  const stream = streamGenerate({
+  const result = streamGenerateWithDetails({
     model,
     system: systemPrompt,
     prompt,
     maxRetries: config.model.max_retries,
     timeoutMs: config.model.timeout_ms,
+    ...(hasTools ? { tools: toolSet, maxToolSteps: 5 } : {}),
   });
 
   async function* wrappedStream(): AsyncIterable<string> {
     let fullText = '';
-    for await (const chunk of stream) {
-      fullText += chunk;
-      yield chunk;
+    try {
+      for await (const chunk of result.textStream) {
+        fullText += chunk;
+        yield chunk;
+      }
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      log.warn(`Delegation stream error for agent "${agentDoc.frontmatter.id}": ${error.message}`);
+      throw error;
+    }
+
+    // Await post-stream metadata — wrapped so failures don't crash the generator
+    let usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    let steps = 1;
+    let toolCalls: Array<{ toolName: string; args: Record<string, unknown>; result: unknown }> = [];
+    try {
+      [usage, steps, toolCalls] = await Promise.all([
+        result.usage,
+        result.steps,
+        result.toolCalls,
+      ]);
+    } catch (err) {
+      log.warn(`Failed to resolve delegation post-stream metadata: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     const ended = new Date().toISOString();
@@ -262,13 +305,18 @@ export function delegateStream(opts: DelegateOptions): DelegateStreamResult {
       ended,
       prompt,
       summary: fullText.slice(0, 200),
-      tokens_used: 0,
+      tokens_used: usage.totalTokens,
       model_id: config.model.id,
       delegated_to: agentDoc.frontmatter.id,
-      steps: 1,
+      steps,
+      tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
     };
 
-    writeSession(harnessDir, session);
+    try {
+      writeSession(harnessDir, session);
+    } catch (err) {
+      log.warn(`Failed to write delegation session ${sessionId}: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   return {

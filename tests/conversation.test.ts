@@ -1,9 +1,51 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+
+vi.mock('../src/llm/provider.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/llm/provider.js')>();
+  const { MockLanguageModelV3 } = await import('ai/test');
+  const model = new MockLanguageModelV3({
+    provider: 'mock',
+    modelId: 'mock-model',
+    doGenerate: async () => ({
+      content: [{ type: 'text' as const, text: 'Mock response from the agent.' }],
+      finishReason: { type: 'stop' as const },
+      usage: {
+        inputTokens: { total: 100, noCache: 100, cacheRead: undefined, cacheWrite: undefined },
+        outputTokens: { total: 50, text: 50, reasoning: undefined },
+      },
+    }),
+    doStream: async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: 'text-start' as const, id: '1' });
+          controller.enqueue({ type: 'text-delta' as const, id: '1', delta: 'Streamed chat.' });
+          controller.enqueue({ type: 'text-end' as const, id: '1' });
+          controller.enqueue({
+            type: 'finish' as const,
+            usage: {
+              inputTokens: { total: 60, noCache: 60, cacheRead: undefined, cacheWrite: undefined },
+              outputTokens: { total: 20, text: 20, reasoning: undefined },
+            },
+            finishReason: { type: 'stop' as const },
+          });
+          controller.close();
+        },
+      }),
+    }),
+  });
+  return {
+    ...actual,
+    getModel: vi.fn().mockReturnValue(model),
+  };
+});
+
 import { parseJsonlContext, parseLegacyContext, Conversation } from '../src/runtime/conversation.js';
 import { estimateTokens } from '../src/primitives/loader.js';
+import { tool } from 'ai';
+import { z } from 'zod';
 
 describe('conversation persistence', () => {
   describe('parseJsonlContext', () => {
@@ -268,6 +310,35 @@ model:
       expect(conv1).toBeInstanceOf(Conversation);
       expect(conv2).toBeInstanceOf(Conversation);
     });
+
+    it('should accept tools option', () => {
+      const myTool = tool({
+        description: 'Test tool',
+        parameters: z.object({ input: z.string() }),
+        execute: async ({ input }) => `result: ${input}`,
+      });
+
+      const conv = new Conversation(testDir, undefined, {
+        tools: { myTool },
+        maxToolSteps: 3,
+      });
+      expect(conv).toBeInstanceOf(Conversation);
+    });
+
+    it('should accept tools via setTools()', async () => {
+      const conv = new Conversation(testDir, undefined, { recordSessions: false });
+      await conv.init();
+
+      const myTool = tool({
+        description: 'Test tool',
+        parameters: z.object({ input: z.string() }),
+        execute: async ({ input }) => `result: ${input}`,
+      });
+
+      // setTools should not throw
+      conv.setTools({ myTool });
+      expect(conv).toBeInstanceOf(Conversation);
+    });
   });
 
   describe('token stats', () => {
@@ -288,6 +359,181 @@ model:
         estimateTokens('Hello world') + estimateTokens('Greetings!')
       );
       expect(stats.budget).toBeGreaterThan(0);
+    });
+  });
+
+  describe('sendStream', () => {
+    it('should stream text chunks and resolve result with metadata', async () => {
+      const conv = new Conversation(testDir, undefined, { recordSessions: false });
+      await conv.init();
+
+      const streamResult = conv.sendStream('Stream hello');
+
+      let fullText = '';
+      for await (const chunk of streamResult.textStream) {
+        fullText += chunk;
+      }
+
+      expect(fullText).toBe('Streamed chat.');
+
+      const result = await streamResult.result;
+      expect(result.text).toBe('Streamed chat.');
+      expect(result.steps).toBeGreaterThanOrEqual(1);
+      expect(Array.isArray(result.toolCalls)).toBe(true);
+    });
+
+    it('should add streamed response to conversation history', async () => {
+      const conv = new Conversation(testDir, undefined, { recordSessions: false });
+      await conv.init();
+
+      const streamResult = conv.sendStream('Hi there');
+      for await (const _chunk of streamResult.textStream) {
+        // consume
+      }
+      await streamResult.result;
+
+      const history = conv.getHistory();
+      expect(history).toHaveLength(2);
+      expect(history[0]).toEqual({ role: 'user', content: 'Hi there' });
+      expect(history[1]).toEqual({ role: 'assistant', content: 'Streamed chat.' });
+    });
+
+    it('should record session after stream consumed', async () => {
+      const conv = new Conversation(testDir);
+      await conv.init();
+
+      const streamResult = conv.sendStream('Record me');
+      for await (const _chunk of streamResult.textStream) {
+        // consume
+      }
+      await streamResult.result;
+
+      const sessionsDir = join(testDir, 'memory', 'sessions');
+      const files = readdirSync(sessionsDir).filter((f) => f.endsWith('.md'));
+      expect(files.length).toBe(1);
+    });
+  });
+
+  describe('send', () => {
+    it('should return ConversationSendResult with text, usage, steps, and toolCalls', async () => {
+      const conv = new Conversation(testDir, undefined, { recordSessions: false });
+      await conv.init();
+
+      const result = await conv.send('Hello agent');
+      expect(result.text).toBe('Mock response from the agent.');
+      expect(result.usage).toBeDefined();
+      expect(result.usage.totalTokens).toBeGreaterThan(0);
+      expect(result.steps).toBeGreaterThanOrEqual(1);
+      expect(Array.isArray(result.toolCalls)).toBe(true);
+    });
+
+    it('should add user and assistant messages to history', async () => {
+      const conv = new Conversation(testDir, undefined, { recordSessions: false });
+      await conv.init();
+
+      await conv.send('First message');
+      const history = conv.getHistory();
+      expect(history).toHaveLength(2);
+      expect(history[0]).toEqual({ role: 'user', content: 'First message' });
+      expect(history[1]).toEqual({ role: 'assistant', content: 'Mock response from the agent.' });
+    });
+
+    it('should persist context to disk after send', async () => {
+      const conv = new Conversation(testDir, undefined, { recordSessions: false });
+      await conv.init();
+
+      await conv.send('Persist me');
+
+      const jsonlPath = join(testDir, 'memory', 'context.jsonl');
+      expect(existsSync(jsonlPath)).toBe(true);
+      const raw = readFileSync(jsonlPath, 'utf-8');
+      const lines = raw.split('\n').filter(Boolean);
+      expect(lines).toHaveLength(2);
+      expect(JSON.parse(lines[0])).toEqual({ role: 'user', content: 'Persist me' });
+      expect(JSON.parse(lines[1])).toEqual({ role: 'assistant', content: 'Mock response from the agent.' });
+    });
+
+    it('should record a session when recordSessions is true', async () => {
+      const conv = new Conversation(testDir);
+      await conv.init();
+
+      await conv.send('Session test');
+
+      const sessionsDir = join(testDir, 'memory', 'sessions');
+      const files = readdirSync(sessionsDir).filter((f) => f.endsWith('.md'));
+      expect(files.length).toBe(1);
+
+      const sessionContent = readFileSync(join(sessionsDir, files[0]), 'utf-8');
+      expect(sessionContent).toContain('Session test');
+    });
+
+    it('should accumulate multiple exchanges in history', async () => {
+      const conv = new Conversation(testDir, undefined, { recordSessions: false });
+      await conv.init();
+
+      await conv.send('Message 1');
+      await conv.send('Message 2');
+
+      const history = conv.getHistory();
+      expect(history).toHaveLength(4);
+      expect(history[0].content).toBe('Message 1');
+      expect(history[1].content).toBe('Mock response from the agent.');
+      expect(history[2].content).toBe('Message 2');
+      expect(history[3].content).toBe('Mock response from the agent.');
+    });
+  });
+
+  describe('input validation', () => {
+    it('send() should reject empty messages', async () => {
+      const conv = new Conversation(testDir, undefined, { recordSessions: false });
+      await conv.init();
+
+      await expect(conv.send('')).rejects.toThrow('Message cannot be empty');
+      await expect(conv.send('   ')).rejects.toThrow('Message cannot be empty');
+    });
+
+    it('sendStream() should reject empty messages', async () => {
+      const conv = new Conversation(testDir, undefined, { recordSessions: false });
+      await conv.init();
+
+      expect(() => conv.sendStream('')).toThrow('Message cannot be empty');
+      expect(() => conv.sendStream('  \n  ')).toThrow('Message cannot be empty');
+    });
+
+    it('setModelOverride should reject empty strings', () => {
+      const conv = new Conversation(testDir, undefined, { recordSessions: false });
+      expect(() => conv.setModelOverride('')).toThrow('modelId cannot be empty');
+      expect(() => conv.setModelOverride('  ')).toThrow('modelId cannot be empty');
+    });
+
+    it('setProviderOverride should reject empty strings', () => {
+      const conv = new Conversation(testDir, undefined, { recordSessions: false });
+      expect(() => conv.setProviderOverride('')).toThrow('provider cannot be empty');
+    });
+  });
+
+  describe('save resilience', () => {
+    it('send() should return response even if context save fails', async () => {
+      const { chmodSync } = await import('fs');
+      const conv = new Conversation(testDir, undefined, { recordSessions: false });
+      await conv.init();
+
+      // Make memory dir read-only after init so save() fails
+      chmodSync(join(testDir, 'memory'), 0o444);
+
+      try {
+        const response = await conv.send('Hello');
+        // Response should still be returned despite save failure
+        expect(response.text).toBe('Mock response from the agent.');
+        expect(response.usage.totalTokens).toBeGreaterThan(0);
+        // Message should still be in memory (even if not persisted)
+        const history = conv.getHistory();
+        expect(history.length).toBe(2);
+        expect(history[0].content).toBe('Hello');
+        expect(history[1].content).toBe('Mock response from the agent.');
+      } finally {
+        chmodSync(join(testDir, 'memory'), 0o755);
+      }
     });
   });
 });

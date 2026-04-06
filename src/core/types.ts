@@ -61,7 +61,9 @@ export const HarnessConfigSchema = z.object({
   }).passthrough(),
   runtime: z.object({
     scratchpad_budget: z.number().int().nonnegative().default(10000),
+    /** Reserved: cron expression for periodic heartbeat check (not yet implemented) */
     heartbeat: z.string().optional(),
+    /** Reserved: cron expression for daily summary generation (not yet implemented) */
     daily_summary: z.string().optional(),
     quiet_hours: z.object({
       start: z.number().int().min(0).max(23).default(23),
@@ -95,6 +97,27 @@ export const HarnessConfigSchema = z.object({
     /** Block runs when budget exceeded (default: true) */
     enforce: z.boolean().default(true),
   }).passthrough().default({ enforce: true }),
+  mcp: z.object({
+    /** MCP server definitions keyed by server name */
+    servers: z.record(z.string(), z.object({
+      /** Transport type: 'stdio' for local processes, 'http' for remote, 'sse' for SSE */
+      transport: z.enum(['stdio', 'http', 'sse']),
+      /** Command to spawn (stdio transport only) */
+      command: z.string().optional(),
+      /** Command arguments (stdio transport only) */
+      args: z.array(z.string()).optional(),
+      /** Environment variables for the spawned process (stdio transport only) */
+      env: z.record(z.string(), z.string()).optional(),
+      /** Working directory for the spawned process (stdio transport only) */
+      cwd: z.string().optional(),
+      /** URL endpoint (http/sse transport only) */
+      url: z.string().optional(),
+      /** Additional HTTP headers (http/sse transport only) */
+      headers: z.record(z.string(), z.string()).optional(),
+      /** Whether this server is enabled (default: true) */
+      enabled: z.boolean().default(true),
+    }).passthrough()).default({}),
+  }).passthrough().default({ servers: {} }),
 }).passthrough();
 
 export type HarnessConfig = z.infer<typeof HarnessConfigSchema>;
@@ -112,6 +135,7 @@ export const CONFIG_DEFAULTS: HarnessConfig = {
   extensions: { directories: [] },
   rate_limits: {},
   budget: { enforce: true },
+  mcp: { servers: {} },
 };
 
 export const CORE_PRIMITIVE_DIRS = ['rules', 'instincts', 'skills', 'playbooks', 'workflows', 'tools', 'agents'] as const;
@@ -206,12 +230,19 @@ export interface AgentRunResult {
   toolCalls: ToolCallInfo[];
 }
 
+export interface AgentStreamResult {
+  /** Async iterable of text chunks — consume with for-await */
+  textStream: AsyncIterable<string>;
+  /** Resolves after the stream is fully consumed with session metadata */
+  result: Promise<AgentRunResult>;
+}
+
 export interface HarnessAgent {
   name: string;
   config: HarnessConfig;
   boot(): Promise<void>;
   run(prompt: string): Promise<AgentRunResult>;
-  stream(prompt: string): AsyncIterable<string>;
+  stream(prompt: string): AgentStreamResult;
   shutdown(): Promise<void>;
   getSystemPrompt(): string;
   getState(): AgentState;

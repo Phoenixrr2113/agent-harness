@@ -4,12 +4,13 @@ import { getHealthStatus } from './health.js';
 import { getSpending } from './cost-tracker.js';
 import { getAllWorkflowStats, loadMetrics } from './metrics.js';
 import { getSessionAnalytics } from './analytics.js';
+import { validateMcpConfig } from './mcp.js';
 import { loadState } from './state.js';
 import { loadConfig } from '../core/config.js';
 import type { HealthStatus } from './health.js';
 import type { SpendingSummary } from './cost-tracker.js';
 import type { WorkflowStats } from './metrics.js';
-import type { AgentState } from '../core/types.js';
+import type { AgentState, HarnessConfig } from '../core/types.js';
 
 /** A point-in-time snapshot of all system telemetry. */
 export interface TelemetrySnapshot {
@@ -44,6 +45,11 @@ export interface TelemetrySnapshot {
     journalCount: number;
     weeklyCount: number;
     primitiveCount: number;
+  };
+  mcp: {
+    serverCount: number;
+    enabledCount: number;
+    servers: Array<{ name: string; transport: string; enabled: boolean; valid: boolean; error?: string }>;
   };
 }
 
@@ -86,8 +92,9 @@ export function collectSnapshot(
   // Agent info
   let agentName = 'unknown';
   let agentVersion = '0.0.0';
+  let config: HarnessConfig | undefined;
   try {
-    const config = loadConfig(harnessDir);
+    config = loadConfig(harnessDir);
     agentName = config.agent.name;
     agentVersion = config.agent.version;
   } catch {
@@ -179,6 +186,20 @@ export function collectSnapshot(
     primitiveCount += countFiles(join(harnessDir, dir), mdFilter);
   }
 
+  // MCP server info
+  const mcpServers = config?.mcp?.servers ?? {};
+  const mcpEntries = Object.entries(mcpServers);
+  const mcpValidationErrors = config ? validateMcpConfig(config) : [];
+  const mcpErrorMap = new Map(mcpValidationErrors.map((e) => [e.server, e.error]));
+
+  const mcpServerList = mcpEntries.map(([name, s]) => ({
+    name,
+    transport: s.transport,
+    enabled: s.enabled !== false,
+    valid: !mcpErrorMap.has(name),
+    ...(mcpErrorMap.has(name) ? { error: mcpErrorMap.get(name) } : {}),
+  }));
+
   return {
     timestamp: now,
     agent: {
@@ -211,6 +232,11 @@ export function collectSnapshot(
       journalCount,
       weeklyCount,
       primitiveCount,
+    },
+    mcp: {
+      serverCount: mcpEntries.length,
+      enabledCount: mcpServerList.filter((s) => s.enabled).length,
+      servers: mcpServerList,
     },
   };
 }
@@ -273,6 +299,18 @@ export function formatDashboard(snapshot: TelemetrySnapshot): string {
     }
     if (snapshot.workflows.stats.length > 5) {
       lines.push(`    ... and ${snapshot.workflows.stats.length - 5} more`);
+    }
+    lines.push('');
+  }
+
+  // MCP
+  if (snapshot.mcp.serverCount > 0) {
+    lines.push('  MCP Servers');
+    lines.push(`    Configured: ${snapshot.mcp.serverCount} | Enabled: ${snapshot.mcp.enabledCount}`);
+    for (const server of snapshot.mcp.servers) {
+      const status = !server.enabled ? '-' : server.valid ? '+' : '!';
+      const error = server.error ? ` (${server.error})` : '';
+      lines.push(`    [${status}] ${server.name} (${server.transport})${error}`);
     }
     lines.push('');
   }

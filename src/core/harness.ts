@@ -8,10 +8,10 @@ import type {
   HarnessAgent,
   HarnessHooks,
   AgentRunResult,
+  AgentStreamResult,
   AgentState,
 } from './types.js';
-import { getModel, generate } from '../llm/provider.js';
-import { streamText, stepCountIs } from 'ai';
+import { getModel, generate, streamGenerateWithDetails } from '../llm/provider.js';
 import { buildSystemPrompt } from '../runtime/context-loader.js';
 import { loadState, saveState } from '../runtime/state.js';
 import { createSessionId, writeSession, type SessionRecord } from '../runtime/sessions.js';
@@ -19,6 +19,7 @@ import { recordCost } from '../runtime/cost-tracker.js';
 import { recordSuccess, recordFailure, recordBoot } from '../runtime/health.js';
 import { checkGuardrails } from '../runtime/guardrails.js';
 import { buildToolSet, type AIToolSet } from '../runtime/tool-executor.js';
+import { createMcpManager, type McpManager } from '../runtime/mcp.js';
 
 export function createHarness(options: CreateHarnessOptions): HarnessAgent {
   const dir = resolve(options.dir);
@@ -44,6 +45,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
   let systemPrompt: string;
   let booted = false;
   let toolSet: AIToolSet = {};
+  let mcpManager: McpManager | undefined;
 
   const agent: HarnessAgent = {
     name: config.agent.name,
@@ -60,8 +62,20 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
       const ctx = buildSystemPrompt(dir, config);
       systemPrompt = ctx.systemPrompt;
 
-      // Load tools and convert to AI SDK format
-      toolSet = buildToolSet(dir, options.toolExecutor);
+      // Connect to MCP servers and load their tools
+      let mcpTools: AIToolSet = {};
+      mcpManager = createMcpManager(config);
+      if (mcpManager.hasServers()) {
+        try {
+          await mcpManager.connect();
+          mcpTools = mcpManager.getTools();
+        } catch (err) {
+          log.warn(`MCP connection failed during boot: ${err instanceof Error ? err.message : String(err)}. Continuing without MCP tools.`);
+        }
+      }
+
+      // Load tools and convert to AI SDK format (includes markdown + programmatic + MCP)
+      toolSet = buildToolSet(dir, options.toolExecutor, mcpTools);
       const toolCount = Object.keys(toolSet).length;
 
       booted = true;
@@ -84,7 +98,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
       }
 
       // Record boot in health metrics
-      recordBoot(dir);
+      try { recordBoot(dir); } catch { /* best-effort */ }
 
       // Lifecycle: onBoot
       if (hooks.onBoot) {
@@ -99,9 +113,9 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
       const guard = checkGuardrails(dir, config);
       if (!guard.allowed) {
         const error = new Error(`Guardrail blocked: ${guard.reason}`);
-        recordFailure(dir, error.message);
+        try { recordFailure(dir, error.message); } catch { /* best-effort */ }
         if (hooks.onError) {
-          await hooks.onError({ agent, error, prompt });
+          try { await hooks.onError({ agent, error, prompt }); } catch { /* best-effort */ }
         }
         throw error;
       }
@@ -122,9 +136,9 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
         });
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
-        recordFailure(dir, error.message);
+        try { recordFailure(dir, error.message); } catch { /* best-effort */ }
         if (hooks.onError) {
-          await hooks.onError({ agent, error, prompt });
+          try { await hooks.onError({ agent, error, prompt }); } catch { /* best-effort */ }
         }
         throw error;
       }
@@ -141,25 +155,41 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
         tokens_used: result.usage.totalTokens,
         steps: result.steps,
         model_id: config.model.id,
+        tool_calls: result.toolCalls.length > 0 ? result.toolCalls : undefined,
       };
 
-      writeSession(dir, session);
+      // Post-LLM recording — wrapped in try-catch so telemetry failures
+      // never mask a successful LLM result
+      try {
+        writeSession(dir, session);
+      } catch (err) {
+        log.warn(`Failed to write session ${sessionId}: ${err instanceof Error ? err.message : String(err)}`);
+      }
 
-      // Record cost
-      recordCost(dir, {
-        model_id: config.model.id,
-        provider: config.model.provider ?? 'openrouter',
-        input_tokens: result.usage.inputTokens,
-        output_tokens: result.usage.outputTokens,
-        source: `run:${sessionId}`,
-      });
+      try {
+        recordCost(dir, {
+          model_id: config.model.id,
+          provider: config.model.provider ?? 'openrouter',
+          input_tokens: result.usage.inputTokens,
+          output_tokens: result.usage.outputTokens,
+          source: `run:${sessionId}`,
+        });
+      } catch (err) {
+        log.warn(`Failed to record cost: ${err instanceof Error ? err.message : String(err)}`);
+      }
 
-      // Record success in health metrics
-      recordSuccess(dir);
+      try {
+        recordSuccess(dir);
+      } catch (err) {
+        log.warn(`Failed to record health: ${err instanceof Error ? err.message : String(err)}`);
+      }
 
-      // Update state
-      state.last_interaction = ended;
-      saveState(dir, state);
+      try {
+        state.last_interaction = ended;
+        saveState(dir, state);
+      } catch (err) {
+        log.warn(`Failed to save state: ${err instanceof Error ? err.message : String(err)}`);
+      }
 
       const runResult: AgentRunResult = {
         text: result.text,
@@ -169,90 +199,211 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
         toolCalls: result.toolCalls,
       };
 
-      // Lifecycle: onSessionEnd
+      // Lifecycle: onSessionEnd — wrapped so hook errors don't lose the result
       if (hooks.onSessionEnd) {
-        await hooks.onSessionEnd({ agent, sessionId, prompt, result: runResult });
+        try {
+          await hooks.onSessionEnd({ agent, sessionId, prompt, result: runResult });
+        } catch (err) {
+          log.warn(`onSessionEnd hook error: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
 
       return runResult;
     },
 
-    async *stream(prompt: string): AsyncIterable<string> {
-      if (!booted) await agent.boot();
-
-      // Check guardrails (rate limits + budget) before LLM call
-      const guard = checkGuardrails(dir, config);
-      if (!guard.allowed) {
-        const error = new Error(`Guardrail blocked: ${guard.reason}`);
-        recordFailure(dir, error.message);
-        throw error;
-      }
-
+    stream(prompt: string): AgentStreamResult {
       const sessionId = createSessionId();
-      const started = new Date().toISOString();
-      let fullText = '';
 
-      const result = streamText({
-        model,
-        system: systemPrompt,
-        prompt,
-        maxRetries: config.model.max_retries,
-        ...(config.model.timeout_ms ? { timeout: config.model.timeout_ms } : {}),
+      // Deferred result — resolves after stream is fully consumed and recording completes
+      let resolveResult: (r: AgentRunResult) => void;
+      let rejectResult: (e: Error) => void;
+      const resultPromise = new Promise<AgentRunResult>((res, rej) => {
+        resolveResult = res;
+        rejectResult = rej;
       });
+      // Prevent unhandled rejection when error propagates via the generator throw path
+      // and consumer doesn't explicitly await .result
+      resultPromise.catch(() => {});
 
-      for await (const chunk of result.textStream) {
-        fullText += chunk;
-        yield chunk;
+      async function* generateStream(): AsyncIterable<string> {
+        if (!booted) await agent.boot();
+
+        // Check guardrails (rate limits + budget) before LLM call
+        const guard = checkGuardrails(dir, config);
+        if (!guard.allowed) {
+          const error = new Error(`Guardrail blocked: ${guard.reason}`);
+          try { recordFailure(dir, error.message); } catch { /* best-effort */ }
+          if (hooks.onError) {
+            try { await hooks.onError({ agent, error, prompt }); } catch { /* best-effort */ }
+          }
+          rejectResult(error);
+          throw error;
+        }
+
+        const started = new Date().toISOString();
+        let fullText = '';
+
+        const hasTools = Object.keys(toolSet).length > 0;
+
+        let streamResult;
+        try {
+          streamResult = streamGenerateWithDetails({
+            model,
+            system: systemPrompt,
+            prompt,
+            maxRetries: config.model.max_retries,
+            timeoutMs: config.model.timeout_ms,
+            ...(hasTools ? { tools: toolSet, maxToolSteps: options.toolExecutor?.maxToolCalls ?? 5 } : {}),
+          });
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          try { recordFailure(dir, error.message); } catch { /* best-effort */ }
+          if (hooks.onError) {
+            try { await hooks.onError({ agent, error, prompt }); } catch { /* best-effort */ }
+          }
+          rejectResult(error);
+          throw error;
+        }
+
+        try {
+          for await (const chunk of streamResult.textStream) {
+            fullText += chunk;
+            yield chunk;
+          }
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          try { recordFailure(dir, error.message); } catch { /* best-effort */ }
+          if (hooks.onError) {
+            try { await hooks.onError({ agent, error, prompt }); } catch { /* best-effort */ }
+          }
+          rejectResult(error);
+          throw error;
+        }
+
+        // Await post-stream metadata — wrapped so failures don't crash the generator
+        let usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+        let steps = 1;
+        let toolCalls: Array<{ toolName: string; args: Record<string, unknown>; result: unknown }> = [];
+        try {
+          [usage, steps, toolCalls] = await Promise.all([
+            streamResult.usage,
+            streamResult.steps,
+            streamResult.toolCalls,
+          ]);
+        } catch (err) {
+          log.warn(`Failed to resolve post-stream metadata: ${err instanceof Error ? err.message : String(err)}`);
+        }
+
+        const ended = new Date().toISOString();
+
+        const session: SessionRecord = {
+          id: sessionId,
+          started,
+          ended,
+          prompt,
+          summary: fullText.slice(0, 200),
+          tokens_used: usage.totalTokens,
+          steps,
+          model_id: config.model.id,
+          tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+        };
+
+        // Post-stream recording — wrapped so telemetry failures don't break the caller
+        try {
+          writeSession(dir, session);
+        } catch (err) {
+          log.warn(`Failed to write session ${sessionId}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+
+        try {
+          recordCost(dir, {
+            model_id: config.model.id,
+            provider: config.model.provider ?? 'openrouter',
+            input_tokens: usage.inputTokens,
+            output_tokens: usage.outputTokens,
+            source: `stream:${sessionId}`,
+          });
+        } catch (err) {
+          log.warn(`Failed to record cost: ${err instanceof Error ? err.message : String(err)}`);
+        }
+
+        try {
+          recordSuccess(dir);
+        } catch (err) {
+          log.warn(`Failed to record health: ${err instanceof Error ? err.message : String(err)}`);
+        }
+
+        try {
+          state.last_interaction = ended;
+          saveState(dir, state);
+        } catch (err) {
+          log.warn(`Failed to save state: ${err instanceof Error ? err.message : String(err)}`);
+        }
+
+        const runResult: AgentRunResult = {
+          text: fullText,
+          usage,
+          session_id: sessionId,
+          steps,
+          toolCalls,
+        };
+
+        // Lifecycle: onSessionEnd
+        if (hooks.onSessionEnd) {
+          try {
+            await hooks.onSessionEnd({ agent, sessionId, prompt, result: runResult });
+          } catch (err) {
+            log.warn(`onSessionEnd hook error: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+
+        resolveResult(runResult);
       }
 
-      // Await usage after stream completes
-      const usage = await Promise.resolve(result.usage);
-      const totalTokens = (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0);
-
-      const ended = new Date().toISOString();
-
-      const session: SessionRecord = {
-        id: sessionId,
-        started,
-        ended,
-        prompt,
-        summary: fullText.slice(0, 200),
-        tokens_used: totalTokens,
-        steps: 1,
-        model_id: config.model.id,
+      return {
+        textStream: generateStream(),
+        result: resultPromise,
       };
-
-      writeSession(dir, session);
-
-      // Record cost
-      recordCost(dir, {
-        model_id: config.model.id,
-        provider: config.model.provider ?? 'openrouter',
-        input_tokens: usage?.inputTokens ?? 0,
-        output_tokens: usage?.outputTokens ?? 0,
-        source: `stream:${sessionId}`,
-      });
-
-      state.last_interaction = ended;
-      saveState(dir, state);
     },
 
     async shutdown() {
       if (!booted) return;
 
-      // Lifecycle: onShutdown
+      // Lifecycle: onShutdown — wrapped so hook errors don't prevent cleanup
       if (hooks.onShutdown) {
-        await hooks.onShutdown({ agent, state });
+        try {
+          await hooks.onShutdown({ agent, state });
+        } catch (err) {
+          log.warn(`onShutdown hook error: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+
+      // Close MCP server connections
+      if (mcpManager) {
+        try {
+          await mcpManager.close();
+        } catch (err) {
+          log.warn(`MCP shutdown error: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        mcpManager = undefined;
       }
 
       const previousMode = state.mode;
       state.mode = 'idle';
-      saveState(dir, state);
+      try {
+        saveState(dir, state);
+      } catch (err) {
+        log.warn(`Failed to save state during shutdown: ${err instanceof Error ? err.message : String(err)}`);
+      }
       booted = false;
 
       // Lifecycle: onStateChange
       if (previousMode !== 'idle' && hooks.onStateChange) {
-        await hooks.onStateChange({ agent, previous: previousMode, current: 'idle' });
+        try {
+          await hooks.onStateChange({ agent, previous: previousMode, current: 'idle' });
+        } catch (err) {
+          log.warn(`onStateChange hook error: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
 
       log.info(`Shutdown "${config.agent.name}"`);

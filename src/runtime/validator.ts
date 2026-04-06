@@ -5,6 +5,7 @@ import { fixCapability } from './intake.js';
 import { buildSystemPrompt } from './context-loader.js';
 import { loadConfig } from '../core/config.js';
 import { loadState } from './state.js';
+import { validateMcpConfig } from './mcp.js';
 import { getPrimitiveDirs } from '../core/types.js';
 import type { HarnessConfig, HarnessDocument } from '../core/types.js';
 import type { ParseError } from '../primitives/loader.js';
@@ -167,6 +168,25 @@ export function validateHarness(dir: string): ValidationResult {
     result.ok.push(`API key(s) configured: ${keys.join(', ')}`);
   } else {
     result.warnings.push('No API key set (OPENROUTER_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY)');
+  }
+
+  // --- MCP server validation ---
+  if (config) {
+    const servers = config.mcp?.servers ?? {};
+    const serverCount = Object.keys(servers).length;
+    if (serverCount > 0) {
+      const mcpErrors = validateMcpConfig(config);
+      const enabledCount = Object.values(servers).filter((s) => s.enabled !== false).length;
+
+      if (mcpErrors.length === 0) {
+        result.ok.push(`MCP: ${serverCount} server(s) configured (${enabledCount} enabled)`);
+      } else {
+        result.ok.push(`MCP: ${serverCount} server(s) configured (${enabledCount} enabled)`);
+        for (const err of mcpErrors) {
+          result.errors.push(`MCP server "${err.server}": ${err.error}`);
+        }
+      }
+    }
   }
 
   // --- Memory directories ---

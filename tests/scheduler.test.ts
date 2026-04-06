@@ -276,6 +276,36 @@ describe('Scheduler', () => {
     expect(errorCalled).toBe(true);
   });
 
+  it('should survive throwing hook callbacks without crashing', async () => {
+    // Disable quiet hours
+    writeFileSync(
+      join(SCHED_TEST_DIR, 'config.yaml'),
+      `agent:\n  name: test\n  version: "0.1.0"\nmodel:\n  provider: openrouter\n  id: test-model\n  max_tokens: 200000\nruntime:\n  quiet_hours:\n    start: 0\n    end: 0\nmemory:\n  session_retention_days: 7\n  journal_retention_days: 365\n`,
+      'utf-8',
+    );
+
+    const workflowDir = join(SCHED_TEST_DIR, 'workflows');
+    mkdirSync(workflowDir, { recursive: true });
+    writeFileSync(
+      join(workflowDir, 'hook-crash.md'),
+      `---\nid: hook-crash\ntags: [workflow]\nstatus: active\nmax_retries: 1\nretry_delay_ms: 10\n---\n# Workflow: Hook Crash\n\nTest hook resilience.`,
+      'utf-8',
+    );
+
+    const scheduler = new Scheduler({
+      harnessDir: SCHED_TEST_DIR,
+      autoArchival: false,
+      onRetry: () => { throw new Error('Hook crash in onRetry'); },
+      onError: () => { throw new Error('Hook crash in onError'); },
+    });
+
+    const { parseHarnessDocument } = await import('../src/primitives/loader.js');
+    const doc = parseHarnessDocument(join(workflowDir, 'hook-crash.md'));
+
+    // Should throw the original workflow error, NOT the hook error
+    await expect(scheduler.executeWorkflow(doc)).rejects.toThrow();
+  });
+
   it('should not retry when max_retries is not set', async () => {
     // Disable quiet hours
     writeFileSync(
