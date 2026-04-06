@@ -53,6 +53,36 @@ export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): Lo
   // Priority order for loading primitives
   const priorityOrder = ['rules', 'instincts', 'skills', 'playbooks', 'tools', 'workflows', 'agents'];
 
+  // Collect all docs to estimate total demand before deciding levels
+  const allDocs: { category: string; doc: HarnessDocument }[] = [];
+  for (const category of priorityOrder) {
+    const docs = primitives.get(category);
+    if (!docs || docs.length === 0) continue;
+    for (const doc of docs) {
+      allDocs.push({ category, doc });
+    }
+  }
+
+  // Estimate total L2 demand vs available budget for primitives
+  const primitiveBudget = targetBudget - budget.used_tokens;
+  let totalL2Demand = 0;
+  for (const { doc } of allDocs) {
+    totalL2Demand += estimateTokens(getAtLevel(doc, 2));
+  }
+
+  // Choose a global disclosure level based on how much fits
+  let globalLevel: 0 | 1 | 2;
+  if (totalL2Demand <= primitiveBudget) {
+    globalLevel = 2; // Everything fits at full
+  } else {
+    // Estimate L1 demand
+    let totalL1Demand = 0;
+    for (const { doc } of allDocs) {
+      totalL1Demand += estimateTokens(getAtLevel(doc, 1));
+    }
+    globalLevel = totalL1Demand <= primitiveBudget ? 1 : 0;
+  }
+
   for (const category of priorityOrder) {
     const docs = primitives.get(category);
     if (!docs || docs.length === 0) continue;
@@ -61,31 +91,19 @@ export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): Lo
     const categoryDocs: string[] = [];
 
     for (const doc of docs) {
-      // Decide level based on remaining budget
-      const remaining = targetBudget - budget.used_tokens;
-      let level: 0 | 1 | 2;
+      // Start from global level, fall back if this doc would exceed budget
+      let level = globalLevel;
+      let content = getAtLevel(doc, level);
+      let tokens = estimateTokens(content);
 
-      if (remaining > 5000) {
-        level = 2; // Full content
-      } else if (remaining > 1000) {
-        level = 1; // Summary
-      } else {
-        level = 0; // One-liner
+      while (budget.used_tokens + tokens > targetBudget && level > 0) {
+        level = (level - 1) as 0 | 1;
+        content = getAtLevel(doc, level);
+        tokens = estimateTokens(content);
       }
 
-      const content = getAtLevel(doc, level);
-      const tokens = estimateTokens(content);
-
-      if (budget.used_tokens + tokens > targetBudget && level > 0) {
-        // Try lower level
-        const fallback = getAtLevel(doc, (level - 1) as 0 | 1);
-        categoryDocs.push(`### ${doc.frontmatter.id}\n${fallback}`);
-        budget.used_tokens += estimateTokens(fallback);
-      } else {
-        categoryDocs.push(`### ${doc.frontmatter.id}\n${content}`);
-        budget.used_tokens += tokens;
-      }
-
+      categoryDocs.push(`### ${doc.frontmatter.id}\n${content}`);
+      budget.used_tokens += tokens;
       budget.loaded_files.push(doc.path);
     }
 

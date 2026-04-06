@@ -1,5 +1,6 @@
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { generateText, streamText, type LanguageModel } from 'ai';
+import type { ModelMessage } from '@ai-sdk/provider-utils';
 import type { HarnessConfig } from '../core/types.js';
 
 let _provider: ReturnType<typeof createOpenRouter> | null = null;
@@ -18,6 +19,10 @@ export function getProvider(apiKey?: string): ReturnType<typeof createOpenRouter
   return _provider;
 }
 
+export function resetProvider(): void {
+  _provider = null;
+}
+
 export function getModel(config: HarnessConfig, apiKey?: string): LanguageModel {
   const provider = getProvider(apiKey);
   return provider(config.model.id);
@@ -30,7 +35,27 @@ export interface GenerateOptions {
   maxOutputTokens?: number;
 }
 
-export async function generate(opts: GenerateOptions) {
+export interface GenerateWithMessagesOptions {
+  model: LanguageModel;
+  system: string;
+  messages: ModelMessage[];
+  maxOutputTokens?: number;
+}
+
+export interface GenerateResult {
+  text: string;
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+}
+
+function extractUsage(usage: { inputTokens?: number; outputTokens?: number } | undefined) {
+  return {
+    inputTokens: usage?.inputTokens ?? 0,
+    outputTokens: usage?.outputTokens ?? 0,
+    totalTokens: (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0),
+  };
+}
+
+export async function generate(opts: GenerateOptions): Promise<GenerateResult> {
   const result = await generateText({
     model: opts.model,
     system: opts.system,
@@ -38,14 +63,18 @@ export async function generate(opts: GenerateOptions) {
     maxOutputTokens: opts.maxOutputTokens,
   });
 
-  return {
-    text: result.text,
-    usage: {
-      inputTokens: result.usage?.inputTokens ?? 0,
-      outputTokens: result.usage?.outputTokens ?? 0,
-      totalTokens: (result.usage?.inputTokens ?? 0) + (result.usage?.outputTokens ?? 0),
-    },
-  };
+  return { text: result.text, usage: extractUsage(result.usage) };
+}
+
+export async function generateWithMessages(opts: GenerateWithMessagesOptions): Promise<GenerateResult> {
+  const result = await generateText({
+    model: opts.model,
+    system: opts.system,
+    messages: opts.messages,
+    maxOutputTokens: opts.maxOutputTokens,
+  });
+
+  return { text: result.text, usage: extractUsage(result.usage) };
 }
 
 export async function* streamGenerate(opts: GenerateOptions): AsyncIterable<string> {
@@ -59,4 +88,25 @@ export async function* streamGenerate(opts: GenerateOptions): AsyncIterable<stri
   for await (const chunk of result.textStream) {
     yield chunk;
   }
+}
+
+export interface StreamWithMessagesResult {
+  textStream: AsyncIterable<string>;
+  usage: Promise<GenerateResult['usage']>;
+}
+
+export function streamWithMessages(opts: GenerateWithMessagesOptions): StreamWithMessagesResult {
+  const result = streamText({
+    model: opts.model,
+    system: opts.system,
+    messages: opts.messages,
+    maxOutputTokens: opts.maxOutputTokens,
+  });
+
+  const usage = Promise.resolve(result.usage).then((u) => extractUsage(u));
+
+  return {
+    textStream: result.textStream,
+    usage,
+  };
 }

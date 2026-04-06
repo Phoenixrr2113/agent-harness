@@ -1,8 +1,10 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { getModel, generate } from '../llm/provider.js';
+import { getModel, generateWithMessages, streamWithMessages } from '../llm/provider.js';
 import { loadConfig } from '../core/config.js';
 import { buildSystemPrompt } from './context-loader.js';
+import type { ModelMessage } from '@ai-sdk/provider-utils';
+import type { HarnessConfig } from '../core/types.js';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -15,6 +17,7 @@ export class Conversation {
   private apiKey?: string;
   private systemPrompt: string = '';
   private maxHistory: number;
+  private modelOverride?: string;
 
   constructor(harnessDir: string, apiKey?: string, maxHistory: number = 20) {
     this.harnessDir = harnessDir;
@@ -22,8 +25,12 @@ export class Conversation {
     this.maxHistory = maxHistory;
   }
 
+  setModelOverride(modelId: string): void {
+    this.modelOverride = modelId;
+  }
+
   async init(): Promise<void> {
-    const config = loadConfig(this.harnessDir);
+    const config = this.getConfig();
     const ctx = buildSystemPrompt(this.harnessDir, config);
     this.systemPrompt = ctx.systemPrompt;
 
@@ -32,7 +39,6 @@ export class Conversation {
     if (existsSync(contextPath)) {
       const raw = readFileSync(contextPath, 'utf-8');
       const lines = raw.split('\n');
-      // Parse stored messages
       let currentRole: 'user' | 'assistant' | null = null;
       let currentContent: string[] = [];
 
@@ -59,6 +65,24 @@ export class Conversation {
     }
   }
 
+  private getConfig(): HarnessConfig {
+    const config = loadConfig(this.harnessDir);
+    if (this.modelOverride) {
+      return {
+        ...config,
+        model: { ...config.model, id: this.modelOverride },
+      };
+    }
+    return config;
+  }
+
+  private toModelMessages(): ModelMessage[] {
+    return this.messages.map((m): ModelMessage => ({
+      role: m.role,
+      content: m.content,
+    }));
+  }
+
   async send(userMessage: string): Promise<string> {
     this.messages.push({ role: 'user', content: userMessage });
 
@@ -67,23 +91,16 @@ export class Conversation {
       this.messages.shift();
     }
 
-    // Build prompt with conversation history
-    const historyStr = this.messages
-      .map((m) => `${m.role === 'user' ? 'Human' : 'Assistant'}: ${m.content}`)
-      .join('\n\n');
-
-    const config = loadConfig(this.harnessDir);
+    const config = this.getConfig();
     const model = getModel(config, this.apiKey);
 
-    const result = await generate({
+    const result = await generateWithMessages({
       model,
       system: this.systemPrompt,
-      prompt: historyStr,
+      messages: this.toModelMessages(),
     });
 
     this.messages.push({ role: 'assistant', content: result.text });
-
-    // Persist context
     this.save();
 
     return result.text;
@@ -96,21 +113,18 @@ export class Conversation {
       this.messages.shift();
     }
 
-    const historyStr = this.messages
-      .map((m) => `${m.role === 'user' ? 'Human' : 'Assistant'}: ${m.content}`)
-      .join('\n\n');
-
-    const config = loadConfig(this.harnessDir);
+    const config = this.getConfig();
     const model = getModel(config, this.apiKey);
 
-    const { streamGenerate } = await import('../llm/provider.js');
-    let fullResponse = '';
-
-    for await (const chunk of streamGenerate({
+    const { textStream } = streamWithMessages({
       model,
       system: this.systemPrompt,
-      prompt: historyStr,
-    })) {
+      messages: this.toModelMessages(),
+    });
+
+    let fullResponse = '';
+
+    for await (const chunk of textStream) {
       fullResponse += chunk;
       yield chunk;
     }

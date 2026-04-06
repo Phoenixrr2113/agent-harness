@@ -8,7 +8,8 @@ import type {
   AgentRunResult,
   AgentState,
 } from './types.js';
-import { getModel, generate, streamGenerate } from '../llm/provider.js';
+import { getModel, generate } from '../llm/provider.js';
+import { streamText } from 'ai';
 import { buildSystemPrompt } from '../runtime/context-loader.js';
 import { loadState, saveState } from '../runtime/state.js';
 import { createSessionId, writeSession, type SessionRecord } from '../runtime/sessions.js';
@@ -98,31 +99,35 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
       const started = new Date().toISOString();
       let fullText = '';
 
-      for await (const chunk of streamGenerate({
+      const result = streamText({
         model,
         system: systemPrompt,
         prompt,
-      })) {
+      });
+
+      for await (const chunk of result.textStream) {
         fullText += chunk;
         yield chunk;
       }
 
+      // Await usage after stream completes
+      const usage = await Promise.resolve(result.usage);
+      const totalTokens = (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0);
+
       const ended = new Date().toISOString();
 
-      // Write session
       const session: SessionRecord = {
         id: sessionId,
         started,
         ended,
         prompt,
         summary: fullText.slice(0, 200),
-        tokens_used: 0, // Not available in streaming
+        tokens_used: totalTokens,
         steps: 1,
       };
 
       writeSession(dir, session);
 
-      // Update state
       state.last_interaction = ended;
       saveState(dir, state);
     },
