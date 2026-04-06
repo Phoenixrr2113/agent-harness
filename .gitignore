@@ -4,3 +4,7 @@ dist/
 *.log
 .DS_Store
 .turbo
+
+# Ralph infrastructure (managed by ralph, not part of the project)
+.ralph/
+.ralphrc
