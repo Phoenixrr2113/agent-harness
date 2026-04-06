@@ -63,3 +63,5 @@ export { tryLock, releaseLock, acquireLock, withFileLock, withFileLockSync, isLo
 export type { LockInfo, LockOptions } from './runtime/file-lock.js';
 export { loadHealth, saveHealth, recordSuccess, recordFailure, recordBoot, getHealthStatus, resetHealth } from './runtime/health.js';
 export type { HealthCheck, HealthMetrics, HealthStatus } from './runtime/health.js';
+export { collectSnapshot, formatDashboard } from './runtime/telemetry.js';
+export type { TelemetrySnapshot, TelemetryOptions } from './runtime/telemetry.js';

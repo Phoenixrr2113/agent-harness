@@ -1909,4 +1909,52 @@ rateLimitCmd
     }
   });
 
+// --- DASHBOARD (unified telemetry view) ---
+program
+  .command('dashboard')
+  .description('Show a unified dashboard of health, costs, sessions, workflows, and storage')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--json', 'Output raw JSON snapshot', false)
+  .option('--watch', 'Refresh every N seconds', false)
+  .option('--interval <seconds>', 'Watch refresh interval in seconds', '5')
+  .action(async (opts: { dir: string; json: boolean; watch: boolean; interval: string }) => {
+    const { collectSnapshot, formatDashboard } = await import('../runtime/telemetry.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    if (opts.json) {
+      const snapshot = collectSnapshot(dir);
+      console.log(JSON.stringify(snapshot, null, 2));
+      return;
+    }
+
+    const showDashboard = () => {
+      const snapshot = collectSnapshot(dir);
+      const output = formatDashboard(snapshot);
+      if (opts.watch) {
+        // Clear screen for watch mode
+        process.stdout.write('\x1B[2J\x1B[H');
+        console.log(`\n  Agent Harness Dashboard (refreshing every ${opts.interval}s — Ctrl+C to stop)\n`);
+        console.log(`  ${snapshot.timestamp}\n`);
+      } else {
+        console.log(`\n  Agent Harness Dashboard\n`);
+      }
+      console.log(output);
+    };
+
+    showDashboard();
+
+    if (opts.watch) {
+      const intervalMs = (parseInt(opts.interval, 10) || 5) * 1000;
+      const timer = setInterval(showDashboard, intervalMs);
+
+      const cleanup = () => {
+        clearInterval(timer);
+        process.exit(0);
+      };
+      process.on('SIGINT', cleanup);
+      process.on('SIGTERM', cleanup);
+    }
+  });
+
 program.parse();

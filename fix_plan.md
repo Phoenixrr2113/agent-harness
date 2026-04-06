@@ -125,9 +125,14 @@
 - [x] **File-based concurrency locking** — New `src/runtime/file-lock.ts` with `tryLock()` (non-blocking via `wx` flag), `releaseLock()`, `acquireLock()` (async with timeout/polling), `withFileLock()` (async wrapper), `withFileLockSync()` (sync wrapper), `isLocked()`, `breakLock()`. Stale lock detection checks both timestamp age (default 30s) and PID liveness via `process.kill(pid, 0)`. Fail-open semantics — if lock can't be acquired, fn runs anyway. Lock files stored as `memory/<basename>.lock`. Wired into `saveState()` and `writeSession()`. 24 new tests.
 - [x] **Health monitor** — New `src/runtime/health.ts` with `HealthCheck`, `HealthMetrics`, `HealthStatus` types. `loadHealth()`/`saveHealth()` persist to `memory/health.json`. `recordSuccess()`/`recordFailure()`/`recordBoot()` for event recording. `getHealthStatus()` runs 5 checks: core-files (required files exist), memory-dir, api-keys (OpenRouter/Anthropic/OpenAI env vars), run-health (consecutive failures: 0=pass, 1-2=warn, 3+=fail), last-success (warn if >24h since last success). Status: healthy (0 fails, 0 warns), degraded (warnings), unhealthy (failures). Integrates with cost tracker for daily/monthly spending. Wired into `createHarness()` (boot/run/error) and `Scheduler.executeWorkflow()` (success/failure). CLI: `harness health` (full status with checks/metrics/spending), `--reset` to clear. `resetHealth()` for testing. 24 new tests.
 
+## Completed (Loop 22)
+
+- [x] **Telemetry aggregator** — New `src/runtime/telemetry.ts` with `collectSnapshot()` that collects a unified `TelemetrySnapshot` from all system modules: health status (5 checks), spending (today/month/all-time with model breakdowns), session analytics (total/avg tokens, delegations), workflow metrics (runs/success rate per workflow), and storage counts (sessions, journals, weekly, primitives). Per-section skip options via `TelemetryOptions` for performance. `formatDashboard()` renders a human-readable multi-section dashboard string. Graceful degradation — each section fails independently. 17 new tests.
+- [x] **CLI dashboard** — New `harness dashboard` command shows a unified dashboard of health, costs, sessions, workflows, and storage in one view. `--json` flag outputs raw JSON snapshot for programmatic use. `--watch` flag refreshes every N seconds (default 5) with screen-clear for live monitoring. `--interval <seconds>` configures watch refresh rate. Integrates with all existing telemetry modules.
+
 ## All Plan Items Complete
 
-All items from the original fix plan have been implemented across 21 loops.
+All items from the original fix plan have been implemented across 22 loops.
 
 ## Architecture Notes
 
@@ -164,6 +169,7 @@ All items from the original fix plan have been implemented across 21 loops.
 - Cost tracker with auto-pricing, budget alerts, and daily/monthly spending limits
 - File-based concurrency locking with fail-open semantics, stale detection, PID liveness
 - Health monitoring with 5-check system, cost integration, and CLI dashboard
+- Unified telemetry aggregator with dashboard CLI, JSON export, and live watch mode
 
 ### Known Limitations
 - Token estimation is 1:4 char ratio — good enough but not precise
