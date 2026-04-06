@@ -228,7 +228,7 @@ export function startServe(options: ServeOptions): ServeResult {
 
   // ── Run prompt ──
   app.post('/api/run', async (c) => {
-    const body = await c.req.json<{ prompt?: string; model?: string }>().catch(() => ({}));
+    const body = await c.req.json<{ prompt?: string; model?: string }>().catch(() => ({} as { prompt?: string; model?: string }));
     if (!body.prompt || body.prompt.trim().length === 0) {
       return c.json({ error: 'prompt is required' }, 400);
     }
@@ -286,7 +286,7 @@ export function startServe(options: ServeOptions): ServeResult {
       url?: string;
       events?: string[];
       secret?: string;
-    }>().catch(() => ({}));
+    }>().catch(() => ({} as { url?: string; events?: string[]; secret?: string }));
 
     if (!body.url) {
       return c.json({ error: 'url is required' }, 400);
@@ -336,7 +336,7 @@ export function startServe(options: ServeOptions): ServeResult {
   // Toggle webhook active/inactive
   app.patch('/api/webhooks/:id', requireAuth(webhookSecret) as never, async (c) => {
     const id = c.req.param('id');
-    const body = await c.req.json<{ active?: boolean }>().catch(() => ({}));
+    const body = await c.req.json<{ active?: boolean }>().catch(() => ({} as { active?: boolean }));
 
     const store = loadWebhooks(harnessDir);
     const webhook = store.webhooks.find((w) => w.id === id);

@@ -4030,6 +4030,58 @@ program
     }
   });
 
+// ── Serve ────────────────────────────────────────────────────────────────────
+
+program
+  .command('serve')
+  .description('Start the harness HTTP API server for webhooks and integrations')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('-p, --port <port>', 'Port to listen on', '8080')
+  .option('--api-key <key>', 'API key for LLM provider')
+  .option('--webhook-secret <secret>', 'Secret for authenticating webhook management API')
+  .option('--no-cors', 'Disable CORS')
+  .action(async (opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { startServe } = await import('../runtime/serve.js');
+
+    const port = parseInt(opts.port as string, 10);
+    const result = startServe({
+      harnessDir: dir,
+      port,
+      apiKey: opts.apiKey as string | undefined,
+      webhookSecret: opts.webhookSecret as string | undefined,
+      corsEnabled: opts.cors !== false,
+    });
+
+    console.log(`Harness API server listening on http://localhost:${result.port}`);
+    console.log('Endpoints:');
+    console.log('  GET  /api/health       — health check');
+    console.log('  GET  /api/info         — agent info');
+    console.log('  POST /api/run          — execute a prompt');
+    console.log('  GET  /api/webhooks     — list registered webhooks');
+    console.log('  POST /api/webhooks     — register a webhook');
+    console.log('  DEL  /api/webhooks/:id — delete a webhook');
+    console.log('  PATCH /api/webhooks/:id — toggle webhook active/inactive');
+    console.log('  POST /api/webhooks/:id/test — test a webhook');
+    console.log('  + all dashboard endpoints from harness dev');
+    console.log('\nPress Ctrl+C to stop.');
+
+    // Keep process alive
+    process.on('SIGINT', () => {
+      console.log('\nShutting down...');
+      result.stop();
+      process.exit(0);
+    });
+    process.on('SIGTERM', () => {
+      result.stop();
+      process.exit(0);
+    });
+
+    // Wait indefinitely
+    await new Promise<void>(() => { /* keep alive */ });
+  });
+
 // ── Semantic Search ──────────────────────────────────────────────────────────
 
 const semanticCmd = program.command('semantic').description('Semantic search over indexed primitives');

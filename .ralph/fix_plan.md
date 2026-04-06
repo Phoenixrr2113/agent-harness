@@ -349,7 +349,17 @@ User just writes content, framework handles everything else.
   - `initVersioning()`, `snapshot()`, `rollback()`, `getVersionLog()`, `getVersionDiff()`
   - `tagVersion()`, `listTags()`, `getPendingChanges()`, `getFileHistory()`, `getFileAtVersion()`
   - `harness version init|snapshot|log|diff|rollback|tag|tags|pending|show` CLI commands
-- [ ] `harness serve` — HTTP API for webhooks/integrations
+- [x] `harness serve` — HTTP API for webhooks/integrations
+  - `serve.ts`: HTTP API server wrapping web-server.ts + webhook management
+  - `startServe()`: creates Hono app with health, info, run, webhook CRUD endpoints
+  - Webhook registration API: POST/GET/DELETE/PATCH /api/webhooks + test endpoint
+  - HMAC-SHA256 webhook signing with per-webhook secrets
+  - Auth middleware: Bearer token for webhook management API
+  - `fireWebhookEvent()`: non-blocking delivery to all subscribers with wildcard support
+  - `WebhookStore` persisted in memory/webhooks.json with file locking
+  - Mounts all dashboard endpoints from web-server.ts
+  - `harness serve` CLI: --port, --api-key, --webhook-secret, --no-cors
+  - 12 tests: health, info, run validation, webhook CRUD, auth, persistence, dashboard passthrough
 
 ## Phase 9 — Universal Discovery & Ecosystem Integration
 
@@ -726,9 +736,16 @@ while (true) {
 - Versioning module (created by external process) already exported and tested
 - Total: 951 tests across 49 files
 
+### Loop 55 (Phase 8 Complete — Serve HTTP API)
+- Wired `serve.ts`: exported `startServe` + 5 types from index.ts
+- Added `harness serve` CLI command: --port, --api-key, --webhook-secret, --no-cors
+- Serve tests already created by external process (12 tests)
+- **Phase 8 is now COMPLETE** — all 9 items checked off
+- Total: 963 tests across 50 files
+
 ### Stats
-- 951 tests across 49 files — ALL PASSING
-- 55+ source modules, 32,000+ lines
-- 80+ CLI commands
+- 963 tests across 50 files — ALL PASSING
+- 57+ source modules, 33,000+ lines
+- 82+ CLI commands
 - Build, lint, tests all green
 - Zero `any` types, zero empty catches
