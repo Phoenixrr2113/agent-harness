@@ -242,19 +242,29 @@ program
       output: process.stdout,
     });
 
+    let closed = false;
+    let sending = false;    // Track in-flight LLM requests
+    let pendingClose = false; // Deferred close requested while sending
+
     const cleanup = async () => {
       if (mcpManager.hasServers()) {
         await mcpManager.close();
       }
     };
 
-    let closed = false;
+    const doClose = async () => {
+      if (closed) return;
+      closed = true;
+      await cleanup();
+    };
 
     rl.on('close', async () => {
-      if (!closed) {
-        closed = true;
-        await cleanup();
+      if (sending) {
+        // Defer cleanup until the in-flight request finishes
+        pendingClose = true;
+        return;
       }
+      await doClose();
     });
 
     const ask = () => {
@@ -263,8 +273,7 @@ program
         if (closed) return;
         const trimmed = input.trim();
         if (!trimmed || trimmed === 'exit' || trimmed === 'quit') {
-          closed = true;
-          await cleanup();
+          await doClose();
           rl.close();
           return;
         }
@@ -275,6 +284,7 @@ program
           return;
         }
 
+        sending = true;
         try {
           const streamResult = conv.sendStream(trimmed);
           process.stdout.write('\n');
@@ -293,6 +303,13 @@ program
           process.stdout.write('\n');
         } catch (err: unknown) {
           console.error(`Error: ${formatError(err)}`);
+        } finally {
+          sending = false;
+          // If readline closed while we were sending, clean up now
+          if (pendingClose) {
+            await doClose();
+            return;
+          }
         }
 
         ask();
