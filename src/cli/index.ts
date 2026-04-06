@@ -113,13 +113,37 @@ program
   .description('Scaffold a new agent harness directory')
   .option('-d, --dir <path>', 'Parent directory', '.')
   .option('-t, --template <name>', 'Config template (base, claude-opus, gpt4, local)', 'base')
-  .action(async (name: string, opts: { dir: string; template: string }) => {
+  .option('--no-discover-mcp', 'Skip MCP server auto-discovery')
+  .action(async (name: string, opts: { dir: string; template: string; discoverMcp: boolean }) => {
     const { scaffoldHarness } = await import('./scaffold.js');
     const targetDir = resolve(opts.dir, name);
 
     try {
       scaffoldHarness(targetDir, name, { template: opts.template });
       console.log(`\n✓ Agent harness created: ${targetDir}`);
+
+      // Auto-discover MCP servers from other tools
+      if (opts.discoverMcp !== false) {
+        const { discoverMcpServers, discoveredServersToYaml } = await import('../runtime/mcp-discovery.js');
+        const discovery = discoverMcpServers();
+
+        if (discovery.totalServers > 0) {
+          // Write discovered servers into config.yaml
+          const { appendFileSync } = await import('fs');
+          const configPath = resolve(targetDir, 'config.yaml');
+          const yaml = discoveredServersToYaml(discovery.servers);
+          appendFileSync(configPath, '\n' + yaml + '\n');
+
+          console.log(`\n✓ Discovered ${discovery.totalServers} MCP server(s) from existing tools:`);
+          for (const source of discovery.sources) {
+            if (source.servers.length > 0) {
+              console.log(`  ${source.tool}: ${source.servers.map((s) => s.name).join(', ')}`);
+            }
+          }
+          console.log(`  → Added to config.yaml (edit to enable/disable)`);
+        }
+      }
+
       console.log(`\nNext steps:`);
       console.log(`  cd ${name}`);
       console.log(`  # Edit CORE.md to define your agent's identity`);
@@ -2278,6 +2302,48 @@ mcpCmd
       process.exit(1);
     } finally {
       await manager.close();
+    }
+  });
+
+mcpCmd
+  .command('discover')
+  .description('Scan for MCP servers from other tools (Claude Desktop, Cursor, VS Code, etc.)')
+  .option('--json', 'Output raw JSON', false)
+  .action(async (opts: { json: boolean }) => {
+    const { discoverMcpServers, discoveredServersToYaml, getScannedTools } = await import('../runtime/mcp-discovery.js');
+    const discovery = discoverMcpServers();
+
+    if (opts.json) {
+      console.log(JSON.stringify(discovery, null, 2));
+      return;
+    }
+
+    const tools = getScannedTools();
+    console.log(`\nScanned ${tools.length} tools: ${tools.join(', ')}\n`);
+
+    if (discovery.sourcesFound === 0) {
+      console.log('No tool configs found on this machine.\n');
+      return;
+    }
+
+    console.log(`Found config files from ${discovery.sourcesFound} tool(s):\n`);
+    for (const source of discovery.sources) {
+      if (!source.found) continue;
+      const status = source.error
+        ? `error: ${source.error}`
+        : `${source.servers.length} server(s)`;
+      console.log(`  ${source.tool}: ${status}`);
+      for (const server of source.servers) {
+        console.log(`    - ${server.name} (${server.transport}${server.command ? `: ${server.command}` : ''}${server.url ? `: ${server.url}` : ''})`);
+      }
+    }
+
+    if (discovery.totalServers > 0) {
+      console.log(`\n${discovery.totalServers} unique server(s) after dedup:\n`);
+      console.log(discoveredServersToYaml(discovery.servers));
+      console.log('\nAdd the above to your config.yaml to use these servers.\n');
+    } else {
+      console.log('\nNo MCP servers found in any tool configs.\n');
     }
   });
 

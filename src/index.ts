@@ -77,3 +77,5 @@ export { checkGuardrails, buildRateLimits } from './runtime/guardrails.js';
 export type { GuardrailResult } from './runtime/guardrails.js';
 export { createMcpManager, loadMcpTools, validateMcpConfig } from './runtime/mcp.js';
 export type { McpServerConfig, McpServerConnection, McpServerSummary, McpManager } from './runtime/mcp.js';
+export { discoverMcpServers, discoveredServersToYaml, getScannedTools } from './runtime/mcp-discovery.js';
+export type { DiscoveredMcpServer, DiscoverySource, DiscoveryResult, DiscoveryOptions } from './runtime/mcp-discovery.js';
