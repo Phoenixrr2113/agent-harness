@@ -18,7 +18,7 @@ Found during real end-to-end testing of all CLI commands.
 - [x] Fix `harness init` interactive CORE.md generation failure — currently says "LLM generation failed, using template instead" but swallows the error. Log the actual error message so users know what went wrong (e.g., API key issue, network error, model error)
   - `generateCoreMd()` now throws with error message instead of returning null; caller shows actual error
 - [x] Fix 15 test failures in `tests/agent-framework.test.ts` and `tests/define-agent.test.ts` — all fail with "No API key found for provider openrouter". These tests must mock the provider using `ai/test` MockLanguageModelV3 instead of requiring a real API key. Follow the pattern used in other test files.
-  - Already fixed — all 27 tests pass
+  - Fixed: tests restructured to test API surface (createAgent, checkRuleViolation, defineAgent builder) without calling boot()/getModel(), so no API key is needed. All 27 tests pass.
 - [x] Suppress MCP server noise in CLI output — betterstack proxy logs 20+ lines of JSON-RPC debug output, supabase-mcp-server prints a full Python traceback. MCP server stderr should be captured and only shown with `--verbose`, not on every `harness run`. The WARN lines for failed connections are fine to keep.
   - `buildClientConfig()` now passes `stderr: 'pipe'` to StdioMCPTransport unless log level is debug (--verbose)
 - [x] After fixing all bugs above, run EVERY CLI command against the test-agent directory and verify they all work.
