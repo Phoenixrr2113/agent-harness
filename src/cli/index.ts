@@ -2486,6 +2486,204 @@ program
     console.log();
   });
 
+// --- INTELLIGENCE (auto-promote, dead detection, contradictions, enrichment) ---
+
+program
+  .command('auto-promote')
+  .description('Find instinct patterns appearing 3+ times across journals and optionally install them')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--threshold <n>', 'Minimum occurrences across different dates', '3')
+  .option('--install', 'Auto-install promoted instincts', false)
+  .option('--json', 'Output as JSON', false)
+  .action(async (opts: { dir: string; threshold: string; install: boolean; json: boolean }) => {
+    const { autoPromoteInstincts } = await import('../runtime/intelligence.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const result = autoPromoteInstincts(dir, {
+      threshold: parseInt(opts.threshold, 10),
+      install: opts.install,
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    console.log(`\nScanned ${result.journalsScanned} journal(s)\n`);
+
+    if (result.patterns.length === 0) {
+      console.log('No patterns found meeting the threshold.\n');
+      return;
+    }
+
+    console.log(`${result.patterns.length} pattern(s) found:\n`);
+    for (const p of result.patterns) {
+      const status = result.promoted.includes(behaviorToCliId(p.behavior))
+        ? '✓ promoted'
+        : result.skipped.includes(behaviorToCliId(p.behavior))
+          ? '⊘ exists'
+          : '○ candidate';
+      console.log(`  [${status}] ${p.behavior}`);
+      console.log(`    ${p.count}x across: ${p.journalDates.join(', ')}\n`);
+    }
+
+    if (!opts.install && result.patterns.length > 0) {
+      console.log('Run with --install to create instinct files.\n');
+    }
+  });
+
+function behaviorToCliId(behavior: string): string {
+  return behavior.toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').slice(0, 50).replace(/-+$/, '');
+}
+
+program
+  .command('dead-primitives')
+  .description('Detect orphaned primitives not modified in 30+ days')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--days <n>', 'Threshold days since last modification', '30')
+  .option('--json', 'Output as JSON', false)
+  .action(async (opts: { dir: string; days: string; json: boolean }) => {
+    const { detectDeadPrimitives } = await import('../runtime/intelligence.js');
+    const { loadConfig } = await import('../core/config.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    let config;
+    try { config = loadConfig(dir); } catch { /* proceed without */ }
+
+    const result = detectDeadPrimitives(dir, config, {
+      thresholdDays: parseInt(opts.days, 10),
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    console.log(`\nScanned ${result.totalScanned} primitive(s) (threshold: ${result.thresholdDays} days)\n`);
+
+    if (result.dead.length === 0) {
+      console.log('No dead primitives found.\n');
+      return;
+    }
+
+    console.log(`${result.dead.length} dead primitive(s):\n`);
+    for (const d of result.dead) {
+      console.log(`  ${d.id} (${d.directory})`);
+      console.log(`    ${d.path} — last modified ${d.lastModified} (${d.daysSinceModified}d ago)\n`);
+    }
+  });
+
+program
+  .command('contradictions')
+  .description('Detect contradictions between rules and instincts')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--json', 'Output as JSON', false)
+  .action(async (opts: { dir: string; json: boolean }) => {
+    const { detectContradictions } = await import('../runtime/intelligence.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const result = detectContradictions(dir);
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    console.log(`\nChecked ${result.rulesChecked} rule(s) and ${result.instinctsChecked} instinct(s)\n`);
+
+    if (result.contradictions.length === 0) {
+      console.log('No contradictions detected.\n');
+      return;
+    }
+
+    console.log(`${result.contradictions.length} contradiction(s) found:\n`);
+    for (const c of result.contradictions) {
+      console.log(`  [${c.severity}] ${c.reason}`);
+      console.log(`    ${c.primitiveA.type}/${c.primitiveA.id}: "${c.primitiveA.text}"`);
+      console.log(`    ${c.primitiveB.type}/${c.primitiveB.id}: "${c.primitiveB.text}"\n`);
+    }
+  });
+
+program
+  .command('enrich')
+  .description('Enrich sessions with extracted topics, tools, and primitive references')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--from <date>', 'Start date (YYYY-MM-DD)')
+  .option('--to <date>', 'End date (YYYY-MM-DD)')
+  .option('--json', 'Output as JSON', false)
+  .action(async (opts: { dir: string; from?: string; to?: string; json: boolean }) => {
+    const { enrichSessions } = await import('../runtime/intelligence.js');
+    const { loadConfig } = await import('../core/config.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    let config;
+    try { config = loadConfig(dir); } catch { /* proceed without */ }
+
+    const result = enrichSessions(dir, config, { from: opts.from, to: opts.to });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    console.log(`\nEnriched ${result.sessionsScanned} session(s)\n`);
+
+    if (result.enriched.length === 0) {
+      console.log('No sessions to enrich.\n');
+      return;
+    }
+
+    for (const s of result.enriched) {
+      console.log(`  ${s.sessionId}`);
+      if (s.topics.length > 0) console.log(`    topics: ${s.topics.join(', ')}`);
+      if (s.toolsUsed.length > 0) console.log(`    tools: ${s.toolsUsed.join(', ')}`);
+      if (s.primitivesReferenced.length > 0) console.log(`    refs: ${s.primitivesReferenced.join(', ')}`);
+      console.log(`    ${s.tokenCount} tokens, ${s.stepCount} steps, ${s.model}\n`);
+    }
+  });
+
+program
+  .command('suggest')
+  .description('Suggest capabilities (skills/playbooks) for frequent uncovered session topics')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--min-frequency <n>', 'Minimum topic frequency', '3')
+  .option('--json', 'Output as JSON', false)
+  .action(async (opts: { dir: string; minFrequency: string; json: boolean }) => {
+    const { suggestCapabilities } = await import('../runtime/intelligence.js');
+    const { loadConfig } = await import('../core/config.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    let config;
+    try { config = loadConfig(dir); } catch { /* proceed without */ }
+
+    const result = suggestCapabilities(dir, config, {
+      minFrequency: parseInt(opts.minFrequency, 10),
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    console.log(`\nAnalyzed ${result.topicsAnalyzed} topic(s) from ${result.sessionsScanned} session(s)\n`);
+
+    if (result.suggestions.length === 0) {
+      console.log('No capability gaps found.\n');
+      return;
+    }
+
+    console.log(`${result.suggestions.length} suggestion(s):\n`);
+    for (const s of result.suggestions) {
+      console.log(`  "${s.topic}" — ${s.frequency}x in sessions`);
+      console.log(`    Suggest: create a ${s.suggestedType}\n`);
+    }
+  });
+
 // --- AGENTS (list available sub-agents) ---
 program
   .command('agents')
@@ -3257,6 +3455,179 @@ program
       };
       process.on('SIGINT', cleanup);
       process.on('SIGTERM', cleanup);
+    }
+  });
+
+// --- Intelligence Commands ---
+
+const intelligenceCmd = program.command('intelligence').description('Intelligence and learning analysis tools');
+
+intelligenceCmd
+  .command('promote')
+  .description('Auto-promote instinct candidates that appear 3+ times across journals')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--threshold <n>', 'Minimum occurrences to promote', '3')
+  .option('--install', 'Install promoted instincts as .md files')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    const dir = resolve(opts.dir);
+    loadEnvFromDir(dir);
+    const { autoPromoteInstincts } = await import('../runtime/intelligence.js');
+    const result = autoPromoteInstincts(dir, {
+      threshold: parseInt(opts.threshold, 10),
+      install: opts.install ?? false,
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(`Scanned ${result.journalsScanned} journals`);
+      if (result.patterns.length === 0) {
+        console.log('No patterns meeting threshold found.');
+      } else {
+        console.log(`\nPatterns (${result.patterns.length}):`);
+        for (const p of result.patterns) {
+          console.log(`  [${p.count}x] ${p.behavior}`);
+          console.log(`        Dates: ${p.journalDates.join(', ')}`);
+        }
+      }
+      if (result.promoted.length > 0) {
+        console.log(`\nPromoted: ${result.promoted.join(', ')}`);
+      }
+      if (result.skipped.length > 0) {
+        console.log(`Skipped (already exists): ${result.skipped.join(', ')}`);
+      }
+    }
+  });
+
+intelligenceCmd
+  .command('dead')
+  .description('Detect dead primitives (unreferenced and old)')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--threshold <days>', 'Days since modification to consider dead', '30')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    const dir = resolve(opts.dir);
+    loadEnvFromDir(dir);
+    const { detectDeadPrimitives } = await import('../runtime/intelligence.js');
+    const { loadConfig } = await import('../core/config.js');
+
+    let config;
+    try { config = loadConfig(dir); } catch { /* use default */ }
+
+    const result = detectDeadPrimitives(dir, config, {
+      thresholdDays: parseInt(opts.threshold, 10),
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(`Scanned ${result.totalScanned} primitives (threshold: ${result.thresholdDays} days)`);
+      if (result.dead.length === 0) {
+        console.log('No dead primitives found.');
+      } else {
+        console.log(`\nDead primitives (${result.dead.length}):`);
+        for (const d of result.dead) {
+          console.log(`  ${d.id} (${d.directory}) — ${d.daysSinceModified}d since modified`);
+          console.log(`    ${d.reason}`);
+        }
+      }
+    }
+  });
+
+intelligenceCmd
+  .command('contradictions')
+  .description('Detect contradictions between rules and instincts')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    const dir = resolve(opts.dir);
+    loadEnvFromDir(dir);
+    const { detectContradictions } = await import('../runtime/intelligence.js');
+    const result = detectContradictions(dir);
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(`Checked ${result.rulesChecked} rules, ${result.instinctsChecked} instincts`);
+      if (result.contradictions.length === 0) {
+        console.log('No contradictions detected.');
+      } else {
+        console.log(`\nContradictions (${result.contradictions.length}):`);
+        for (const c of result.contradictions) {
+          console.log(`  [${c.severity}] ${c.primitiveA.id} (${c.primitiveA.type}) vs ${c.primitiveB.id} (${c.primitiveB.type})`);
+          console.log(`    ${c.reason}`);
+        }
+      }
+    }
+  });
+
+intelligenceCmd
+  .command('enrich')
+  .description('Enrich sessions with topics, token counts, and related primitives')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--from <date>', 'Start date (YYYY-MM-DD)')
+  .option('--to <date>', 'End date (YYYY-MM-DD)')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    const dir = resolve(opts.dir);
+    loadEnvFromDir(dir);
+    const { enrichSessions } = await import('../runtime/intelligence.js');
+    const { loadConfig } = await import('../core/config.js');
+
+    let config;
+    try { config = loadConfig(dir); } catch { /* use default */ }
+
+    const result = enrichSessions(dir, config, {
+      from: opts.from,
+      to: opts.to,
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(`Scanned ${result.sessionsScanned} sessions, enriched ${result.enriched.length}`);
+      for (const s of result.enriched) {
+        console.log(`  ${s.sessionId}: ${s.topics.join(', ') || '(no topics)'} — ${s.tokenCount} tokens, ${s.toolsUsed.length} tools`);
+        if (s.primitivesReferenced.length > 0) {
+          console.log(`    Referenced: ${s.primitivesReferenced.join(', ')}`);
+        }
+      }
+    }
+  });
+
+intelligenceCmd
+  .command('suggest')
+  .description('Suggest new skills/playbooks for frequent uncovered topics')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--min-frequency <n>', 'Minimum topic frequency', '3')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    const dir = resolve(opts.dir);
+    loadEnvFromDir(dir);
+    const { suggestCapabilities } = await import('../runtime/intelligence.js');
+    const { loadConfig } = await import('../core/config.js');
+
+    let config;
+    try { config = loadConfig(dir); } catch { /* use default */ }
+
+    const result = suggestCapabilities(dir, config, {
+      minFrequency: parseInt(opts.minFrequency, 10),
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(`Analyzed ${result.topicsAnalyzed} topics from ${result.sessionsScanned} sessions`);
+      if (result.suggestions.length === 0) {
+        console.log('No capability suggestions at this time.');
+      } else {
+        console.log(`\nSuggestions (${result.suggestions.length}):`);
+        for (const s of result.suggestions) {
+          console.log(`  [${s.suggestedType}] "${s.topic}" — ${s.frequency} occurrences`);
+          console.log(`    ${s.suggestion}`);
+        }
+      }
     }
   });
 
