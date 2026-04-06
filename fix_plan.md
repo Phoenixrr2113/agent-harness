@@ -105,9 +105,14 @@
 - [x] **Tool registry** — New `src/runtime/tools.ts` with structured tool loading from `tools/` directory. `parseToolDefinition()` extracts auth env vars, HTTP operations, rate limits, and gotchas from tool markdown files. `loadTools()`, `getToolById()`, `listToolSummaries()`, `checkToolAuth()` exported. CLI: `harness tools list` (shows auth status), `harness tools show <id>` (full detail), `harness tools auth` (env var check across all tools). 13 new tool tests.
 - [x] **Export/import data portability** — New `src/runtime/export.ts` with `exportHarness()` (collects CORE/SYSTEM/config/state/primitives/sessions/journals/metrics into JSON bundle), `writeBundle()`/`readBundle()` for file I/O, `importBundle()` with skip-existing-by-default and `--overwrite` option. Bundle format v1.0 with metadata counts. CLI: `harness export [output]` with `--no-sessions`/`--no-journals`/`--no-metrics`/`--no-state` flags, `harness import <bundle>` with `--overwrite`. 12 new export/import tests.
 
+## Completed (Loop 18)
+
+- [x] **Primitive dependency graph** — New `src/runtime/graph.ts` with `buildDependencyGraph()` and `getGraphStats()`. Analyzes `related:` and `with:` frontmatter fields across all primitives. Union-find algorithm detects connected components (clusters). Reports orphaned primitives (no relationships), broken references, and most-connected nodes. CLI: `harness graph` shows nodes/edges/clusters/orphans/broken refs. 8 new graph tests.
+- [x] **Session analytics** — New `src/runtime/analytics.ts` with `getSessionAnalytics()` (aggregate stats: total/avg tokens, duration, model usage, delegations, top days) and `getSessionsInRange()` (date-filtered raw data). Parses session markdown files to extract structured data. CLI: `harness analytics` shows overview, `--from`/`--to` for date range queries. 7 new analytics tests.
+
 ## All Plan Items Complete
 
-All items from the original fix plan have been implemented across 17 loops.
+All items from the original fix plan have been implemented across 18 loops.
 
 ## Architecture Notes
 
@@ -136,6 +141,8 @@ All items from the original fix plan have been implemented across 17 loops.
 - Workflow execution metrics with history, stats, and CLI visibility
 - Tool registry with structured parsing, auth checking, and CLI visibility
 - Export/import for data portability between harness instances
+- Dependency graph analysis with cluster detection and orphan identification
+- Session analytics with aggregated stats, model usage, and date range queries
 
 ### Known Limitations
 - Token estimation is 1:4 char ratio — good enough but not precise

@@ -1477,6 +1477,129 @@ program
     }
   });
 
+// --- GRAPH (dependency analysis) ---
+program
+  .command('graph')
+  .description('Analyze primitive dependency graph (related:/with: fields)')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .action(async (opts: { dir: string }) => {
+    const { buildDependencyGraph, getGraphStats } = await import('../runtime/graph.js');
+    const { loadConfig } = await import('../core/config.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    let config;
+    try { config = loadConfig(dir); } catch { /* proceed without */ }
+
+    const graph = buildDependencyGraph(dir, config);
+    const stats = getGraphStats(dir, config);
+
+    console.log(`\nDependency Graph\n`);
+    console.log(`  Nodes: ${stats.totalNodes}`);
+    console.log(`  Edges: ${stats.totalEdges}`);
+    console.log(`  Clusters: ${stats.clusterCount}`);
+    console.log(`  Orphans: ${stats.orphanCount}`);
+
+    if (stats.mostConnected.length > 0) {
+      console.log(`\n  Most connected:`);
+      for (const mc of stats.mostConnected) {
+        console.log(`    ${mc.id}: ${mc.connections} connection(s)`);
+      }
+    }
+
+    if (graph.orphans.length > 0) {
+      console.log(`\n  Orphaned primitives (no relationships):`);
+      for (const id of graph.orphans) {
+        const node = graph.nodes.find((n) => n.id === id);
+        console.log(`    ${id} (${node?.directory || 'unknown'})`);
+      }
+    }
+
+    if (stats.brokenRefs.length > 0) {
+      console.log(`\n  Broken references:`);
+      for (const br of stats.brokenRefs) {
+        console.log(`    ${br.from} -> "${br.ref}" (not found)`);
+      }
+    }
+
+    if (graph.clusters.length > 0) {
+      console.log(`\n  Clusters:`);
+      for (let i = 0; i < graph.clusters.length; i++) {
+        const cluster = graph.clusters[i];
+        console.log(`    [${i + 1}] ${cluster.join(', ')}`);
+      }
+    }
+
+    console.log();
+  });
+
+// --- ANALYTICS (session statistics) ---
+program
+  .command('analytics')
+  .description('Show session analytics and usage patterns')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--from <date>', 'Start date (YYYY-MM-DD)')
+  .option('--to <date>', 'End date (YYYY-MM-DD)')
+  .action(async (opts: { dir: string; from?: string; to?: string }) => {
+    const { getSessionAnalytics, getSessionsInRange } = await import('../runtime/analytics.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    if (opts.from || opts.to) {
+      const sessions = getSessionsInRange(dir, opts.from, opts.to);
+      const label = opts.from && opts.to ? `${opts.from} to ${opts.to}` : opts.from ? `from ${opts.from}` : `to ${opts.to}`;
+      if (sessions.length === 0) {
+        console.log(`\nNo sessions found for ${label}.\n`);
+        return;
+      }
+
+      const totalTokens = sessions.reduce((sum, s) => sum + s.tokens, 0);
+      console.log(`\n${sessions.length} session(s) ${label}:\n`);
+      for (const s of sessions) {
+        const model = s.model ? ` [${s.model}]` : '';
+        const delegate = s.delegatedTo ? ` -> ${s.delegatedTo}` : '';
+        console.log(`  ${s.id}: ${s.tokens} tokens, ${s.durationMinutes}min${model}${delegate}`);
+      }
+      console.log(`\n  Total: ${totalTokens} tokens\n`);
+      return;
+    }
+
+    const analytics = getSessionAnalytics(dir);
+
+    if (analytics.totalSessions === 0) {
+      console.log('\nNo sessions recorded yet.\n');
+      return;
+    }
+
+    console.log(`\nSession Analytics\n`);
+    console.log(`  Total sessions: ${analytics.totalSessions}`);
+    console.log(`  Total tokens:   ${analytics.totalTokens.toLocaleString()}`);
+    console.log(`  Avg tokens:     ${analytics.avgTokensPerSession.toLocaleString()}/session`);
+    console.log(`  Avg duration:   ${analytics.avgDurationMinutes}min/session`);
+    console.log(`  Delegations:    ${analytics.delegationCount}`);
+
+    if (analytics.dateRange) {
+      console.log(`  Date range:     ${analytics.dateRange.earliest} to ${analytics.dateRange.latest}`);
+    }
+
+    if (analytics.modelUsage.size > 0) {
+      console.log(`\n  Model usage:`);
+      const sorted = Array.from(analytics.modelUsage.entries()).sort((a, b) => b[1] - a[1]);
+      for (const [model, count] of sorted) {
+        console.log(`    ${model}: ${count} session(s)`);
+      }
+    }
+
+    if (analytics.topDays.length > 0) {
+      console.log(`\n  Busiest days:`);
+      for (const day of analytics.topDays) {
+        console.log(`    ${day.date}: ${day.sessions} session(s), ${day.tokens.toLocaleString()} tokens`);
+      }
+    }
+
+    console.log();
+  });
+
 // --- AGENTS (list available sub-agents) ---
 program
   .command('agents')

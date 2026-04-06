@@ -50,3 +50,7 @@ export { loadTools, getToolById, listToolSummaries, checkToolAuth, parseToolDefi
 export type { ToolDefinition, ToolSummary, ToolAuth, ToolOperation } from './runtime/tools.js';
 export { exportHarness, writeBundle, readBundle, importBundle } from './runtime/export.js';
 export type { HarnessBundle, ExportEntry, ImportResult, ExportOptions } from './runtime/export.js';
+export { buildDependencyGraph, getGraphStats } from './runtime/graph.js';
+export type { DependencyGraph, GraphNode, GraphEdge, GraphStats } from './runtime/graph.js';
+export { getSessionAnalytics, getSessionsInRange } from './runtime/analytics.js';
+export type { SessionData, SessionAnalytics } from './runtime/analytics.js';
