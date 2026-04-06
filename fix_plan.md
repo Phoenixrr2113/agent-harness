@@ -85,9 +85,14 @@
 - [x] **Search/query command** — New `src/runtime/search.ts` with `searchPrimitives()` function that searches across all primitive directories by text query (matches id, tags, L0, L1, body content) and/or filters (tag, type, status, author). Type-aware directory filtering accepts both singular ("rule") and plural ("rules"). New `harness search [query]` CLI command with `--tag`, `--type`, `--status`, `--author` options. `SearchOptions` and `SearchResult` types exported. 20 new search tests.
 - [x] **Config CLI** — New `harness config show` displays full resolved configuration (merged defaults + file) as YAML. New `harness config get <key>` retrieves specific values by dot-notation path (e.g. `model.id`). New `harness config set <key> <value>` writes to config.yaml using YAML document API (preserves comments/formatting), with automatic type coercion (boolean, int, float) and post-write validation. Uses Commander.js nested subcommand pattern.
 
+## Completed (Loop 14)
+
+- [x] **Workflow retry with failure behavior** — Added `max_retries` and `retry_delay_ms` frontmatter fields to `FrontmatterSchema`. `Scheduler.executeWorkflow()` now retries failed workflows with exponential backoff (base delay * 2^attempt). New `onRetry` callback on `SchedulerOptions` reports each retry attempt. Defaults to 0 retries (no change in behavior for existing workflows). 4 new scheduler tests.
+- [x] **Remote URL-based capability install** — New `downloadCapability()` function in intake.ts fetches capability files from HTTPS URLs. Validates URL protocol (HTTPS only), response status, file size (max 1MB), and non-empty content. CLI `harness install` now accepts both local paths and HTTPS URLs, automatically detecting URL sources. `DownloadResult` type exported. 8 new download tests with mocked fetch.
+
 ## All Plan Items Complete
 
-All items from the original fix plan have been implemented across 13 loops.
+All items from the original fix plan have been implemented across 14 loops.
 
 ## Architecture Notes
 

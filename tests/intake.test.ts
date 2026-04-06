@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
-import { fixCapability, evaluateCapability, installCapability, processIntake } from '../src/runtime/intake.js';
+import { fixCapability, evaluateCapability, installCapability, processIntake, downloadCapability } from '../src/runtime/intake.js';
 
 const TEST_DIR = join(__dirname, '__test_intake__');
 const INTAKE_DIR = join(TEST_DIR, 'intake');
@@ -503,5 +503,80 @@ This should be skipped because it starts with a dot character.
 
     const results = processIntake(TEST_DIR);
     expect(results).toHaveLength(0);
+  });
+});
+
+// --- downloadCapability tests ---
+describe('downloadCapability', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should reject non-HTTPS URLs', async () => {
+    const result = await downloadCapability('http://example.com/rule.md');
+    expect(result.downloaded).toBe(false);
+    expect(result.error).toContain('HTTPS');
+  });
+
+  it('should reject invalid URLs', async () => {
+    const result = await downloadCapability('not-a-url');
+    expect(result.downloaded).toBe(false);
+    expect(result.error).toContain('Invalid URL');
+  });
+
+  it('should download valid HTTPS URLs', async () => {
+    const mockContent = `---\nid: remote-rule\ntags: [rule]\n---\n# Rule: Remote\n\nA rule from a remote URL.`;
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(mockContent, { status: 200 }));
+
+    const result = await downloadCapability('https://example.com/remote-rule.md');
+    expect(result.downloaded).toBe(true);
+    expect(result.localPath).toContain('remote-rule.md');
+    expect(existsSync(result.localPath)).toBe(true);
+
+    // Verify content was written
+    const content = readFileSync(result.localPath, 'utf-8');
+    expect(content).toContain('remote-rule');
+  });
+
+  it('should handle HTTP errors', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('Not Found', { status: 404, statusText: 'Not Found' }));
+
+    const result = await downloadCapability('https://example.com/missing.md');
+    expect(result.downloaded).toBe(false);
+    expect(result.error).toContain('404');
+  });
+
+  it('should reject empty responses', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 200 }));
+
+    const result = await downloadCapability('https://example.com/empty.md');
+    expect(result.downloaded).toBe(false);
+    expect(result.error).toContain('empty');
+  });
+
+  it('should reject files exceeding 1MB', async () => {
+    const bigContent = 'x'.repeat(1_048_577);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(bigContent, { status: 200 }));
+
+    const result = await downloadCapability('https://example.com/huge.md');
+    expect(result.downloaded).toBe(false);
+    expect(result.error).toContain('1MB');
+  });
+
+  it('should handle fetch network errors', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'));
+
+    const result = await downloadCapability('https://example.com/down.md');
+    expect(result.downloaded).toBe(false);
+    expect(result.error).toContain('ECONNREFUSED');
+  });
+
+  it('should append .md extension if missing from URL', async () => {
+    const mockContent = `---\nid: no-ext\ntags: [skill]\n---\n# Skill: No Ext\n\nA skill without .md in the URL.`;
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(mockContent, { status: 200 }));
+
+    const result = await downloadCapability('https://example.com/no-ext');
+    expect(result.downloaded).toBe(true);
+    expect(result.localPath).toContain('no-ext.md');
   });
 });

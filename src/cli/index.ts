@@ -516,15 +516,30 @@ program
     }
   });
 
-// --- INSTALL (install capability from file) ---
+// --- INSTALL (install capability from file or URL) ---
 program
-  .command('install <file>')
-  .description('Install a capability from a markdown file')
+  .command('install <source>')
+  .description('Install a capability from a local file or HTTPS URL')
   .option('-d, --dir <path>', 'Harness directory', '.')
-  .action(async (file: string, opts: { dir: string }) => {
-    const { installCapability } = await import('../runtime/intake.js');
+  .action(async (source: string, opts: { dir: string }) => {
+    const { installCapability, downloadCapability } = await import('../runtime/intake.js');
     const dir = resolve(opts.dir);
-    const filePath = resolve(file);
+
+    let filePath: string;
+
+    // Detect URL vs local path
+    if (source.startsWith('https://') || source.startsWith('http://')) {
+      console.log(`Downloading: ${source}`);
+      const dlResult = await downloadCapability(source);
+      if (!dlResult.downloaded) {
+        console.error(`✗ Download failed: ${dlResult.error}`);
+        process.exit(1);
+      }
+      filePath = dlResult.localPath;
+      console.log(`Downloaded to: ${filePath}`);
+    } else {
+      filePath = resolve(source);
+    }
 
     const result = installCapability(dir, filePath);
 

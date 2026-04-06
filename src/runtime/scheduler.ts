@@ -8,6 +8,10 @@ import { archiveOldFiles } from './sessions.js';
 import { log } from '../core/logger.js';
 import type { HarnessConfig, HarnessDocument } from '../core/types.js';
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * Check if the current time falls within quiet hours.
  * Quiet hours wrap around midnight (e.g. start: 23, end: 6 means 23:00–05:59).
@@ -61,6 +65,7 @@ export interface SchedulerOptions {
   onSchedule?: (workflowId: string, cron: string) => void;
   onSkipQuietHours?: (workflowId: string) => void;
   onArchival?: (sessionsArchived: number, journalsArchived: number) => void;
+  onRetry?: (workflowId: string, attempt: number, maxRetries: number, error: Error) => void;
 }
 
 export class Scheduler {
@@ -75,6 +80,7 @@ export class Scheduler {
   private onSchedule?: (workflowId: string, cron: string) => void;
   private onSkipQuietHours?: (workflowId: string) => void;
   private onArchival?: (sessionsArchived: number, journalsArchived: number) => void;
+  private onRetry?: (workflowId: string, attempt: number, maxRetries: number, error: Error) => void;
   private running = false;
 
   constructor(options: SchedulerOptions) {
@@ -87,6 +93,7 @@ export class Scheduler {
     this.onSchedule = options.onSchedule;
     this.onSkipQuietHours = options.onSkipQuietHours;
     this.onArchival = options.onArchival;
+    this.onRetry = options.onRetry;
   }
 
   start(): void {
@@ -151,25 +158,41 @@ export class Scheduler {
       return '';
     }
 
-    try {
-      // Create a harness instance for this workflow execution
-      const agent = createHarness({
-        dir: this.harnessDir,
-        apiKey: this.apiKey,
-      });
+    const maxRetries = doc.frontmatter.max_retries ?? 0;
+    const baseDelay = doc.frontmatter.retry_delay_ms ?? 1000;
+    let lastError: Error | null = null;
 
-      // The workflow body IS the prompt — it describes what to do
-      const prompt = `Execute this workflow:\n\n${doc.body}`;
-      const result = await agent.run(prompt);
-      await agent.shutdown();
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        // Create a harness instance for this workflow execution
+        const agent = createHarness({
+          dir: this.harnessDir,
+          apiKey: this.apiKey,
+        });
 
-      this.onRun?.(workflowId, result.text);
-      return result.text;
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      this.onError?.(workflowId, error);
-      throw error;
+        // The workflow body IS the prompt — it describes what to do
+        const prompt = `Execute this workflow:\n\n${doc.body}`;
+        const result = await agent.run(prompt);
+        await agent.shutdown();
+
+        this.onRun?.(workflowId, result.text);
+        return result.text;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+
+        if (attempt < maxRetries) {
+          // Exponential backoff: baseDelay * 2^attempt
+          const delay = baseDelay * Math.pow(2, attempt);
+          log.debug(`Workflow "${workflowId}" failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms`);
+          this.onRetry?.(workflowId, attempt + 1, maxRetries, lastError);
+          await sleep(delay);
+        }
+      }
     }
+
+    // All attempts exhausted
+    this.onError?.(workflowId, lastError!);
+    throw lastError;
   }
 
   async runOnce(workflowId: string): Promise<string> {

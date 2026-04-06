@@ -13,6 +13,8 @@ export const FrontmatterSchema = z.object({
   with: z.string().optional(),
   channel: z.string().optional(),
   duration_minutes: z.number().optional(),
+  max_retries: z.number().int().nonnegative().optional(),
+  retry_delay_ms: z.number().int().positive().optional(),
 });
 
 export type Frontmatter = z.infer<typeof FrontmatterSchema>;

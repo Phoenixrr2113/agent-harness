@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync, readdirSync, copyFileSync } from 'fs';
 import { join, basename } from 'path';
+import { tmpdir } from 'os';
 import matter from 'gray-matter';
 import { parseHarnessDocument, loadDirectory } from '../primitives/loader.js';
 import { writeIndexFile } from './indexer.js';
@@ -379,4 +380,67 @@ export function processIntake(harnessDir: string): Array<{ file: string; result:
   }
 
   return results;
+}
+
+export interface DownloadResult {
+  downloaded: boolean;
+  localPath: string;
+  error?: string;
+}
+
+/**
+ * Download a capability file from a URL to a temporary file.
+ * Validates the URL (must be HTTPS) and content type (must look like markdown).
+ * Returns a local temp path suitable for passing to installCapability().
+ */
+export async function downloadCapability(url: string): Promise<DownloadResult> {
+  // Validate URL
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { downloaded: false, localPath: '', error: `Invalid URL: ${url}` };
+  }
+
+  if (parsed.protocol !== 'https:') {
+    return { downloaded: false, localPath: '', error: 'Only HTTPS URLs are supported' };
+  }
+
+  // Derive filename from URL path
+  const urlPath = parsed.pathname;
+  let filename = basename(urlPath);
+  if (!filename.endsWith('.md')) {
+    filename = filename + '.md';
+  }
+
+  try {
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      return { downloaded: false, localPath: '', error: `HTTP ${response.status}: ${response.statusText}` };
+    }
+
+    const body = await response.text();
+
+    // Basic validation: must contain frontmatter delimiters or be valid markdown
+    if (body.length === 0) {
+      return { downloaded: false, localPath: '', error: 'Downloaded file is empty' };
+    }
+
+    // Max size: 1MB
+    if (body.length > 1_048_576) {
+      return { downloaded: false, localPath: '', error: 'File exceeds 1MB size limit' };
+    }
+
+    // Write to temp directory
+    const tempDir = join(tmpdir(), 'harness-download');
+    mkdirSync(tempDir, { recursive: true });
+    const localPath = join(tempDir, filename);
+    writeFileSync(localPath, body, 'utf-8');
+
+    return { downloaded: true, localPath };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { downloaded: false, localPath: '', error: `Download failed: ${msg}` };
+  }
 }

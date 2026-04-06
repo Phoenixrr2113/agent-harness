@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdirSync, writeFileSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { isQuietHours, Scheduler } from '../src/runtime/scheduler.js';
@@ -204,5 +204,114 @@ describe('Scheduler', () => {
     expect(scheduler.listScheduled()).toHaveLength(0);
 
     scheduler.stop();
+  });
+
+  it('should parse max_retries and retry_delay_ms from workflow frontmatter', () => {
+    const workflowDir = join(SCHED_TEST_DIR, 'workflows');
+    mkdirSync(workflowDir, { recursive: true });
+    writeFileSync(
+      join(workflowDir, 'retry-wf.md'),
+      `---\nid: retry-wf\ntags: [workflow]\nstatus: active\nschedule: "0 * * * *"\nmax_retries: 3\nretry_delay_ms: 500\n---\n# Workflow: Retry\n\nThis workflow has retry configuration in its frontmatter.`,
+      'utf-8',
+    );
+
+    const scheduler = new Scheduler({ harnessDir: SCHED_TEST_DIR, autoArchival: false });
+    scheduler.start();
+
+    const listed = scheduler.listScheduled();
+    expect(listed).toHaveLength(1);
+    expect(listed[0].id).toBe('retry-wf');
+
+    scheduler.stop();
+  });
+
+  it('should call onRetry callback during retry attempts', async () => {
+    // We test retry logic by calling executeWorkflow directly.
+    // Disable quiet hours so executeWorkflow proceeds to the LLM call
+    writeFileSync(
+      join(SCHED_TEST_DIR, 'config.yaml'),
+      `agent:\n  name: test\n  version: "0.1.0"\nmodel:\n  provider: openrouter\n  id: test-model\n  max_tokens: 200000\nruntime:\n  quiet_hours:\n    start: 0\n    end: 0\nmemory:\n  session_retention_days: 7\n  journal_retention_days: 365\n`,
+      'utf-8',
+    );
+
+    const workflowDir = join(SCHED_TEST_DIR, 'workflows');
+    mkdirSync(workflowDir, { recursive: true });
+    writeFileSync(
+      join(workflowDir, 'retry-test.md'),
+      `---\nid: retry-test\ntags: [workflow]\nstatus: active\nmax_retries: 2\nretry_delay_ms: 10\n---\n# Workflow: Retry Test\n\nThis workflow is configured to retry twice with 10ms base delay.`,
+      'utf-8',
+    );
+
+    const retries: Array<{ attempt: number; maxRetries: number }> = [];
+    let errorCalled = false;
+
+    const scheduler = new Scheduler({
+      harnessDir: SCHED_TEST_DIR,
+      autoArchival: false,
+      onRetry: (id, attempt, maxRetries) => {
+        retries.push({ attempt, maxRetries });
+      },
+      onError: () => {
+        errorCalled = true;
+      },
+    });
+
+    // executeWorkflow will fail because there's no API key / provider available
+    // This exercises the retry path
+    const { parseHarnessDocument } = await import('../src/primitives/loader.js');
+    const doc = parseHarnessDocument(join(workflowDir, 'retry-test.md'));
+
+    try {
+      await scheduler.executeWorkflow(doc);
+    } catch {
+      // Expected to fail after all retries
+    }
+
+    // Should have retried twice (attempt 1, attempt 2)
+    expect(retries).toHaveLength(2);
+    expect(retries[0].attempt).toBe(1);
+    expect(retries[0].maxRetries).toBe(2);
+    expect(retries[1].attempt).toBe(2);
+    expect(retries[1].maxRetries).toBe(2);
+    expect(errorCalled).toBe(true);
+  });
+
+  it('should not retry when max_retries is not set', async () => {
+    // Disable quiet hours
+    writeFileSync(
+      join(SCHED_TEST_DIR, 'config.yaml'),
+      `agent:\n  name: test\n  version: "0.1.0"\nmodel:\n  provider: openrouter\n  id: test-model\n  max_tokens: 200000\nruntime:\n  quiet_hours:\n    start: 0\n    end: 0\nmemory:\n  session_retention_days: 7\n  journal_retention_days: 365\n`,
+      'utf-8',
+    );
+
+    const workflowDir = join(SCHED_TEST_DIR, 'workflows');
+    mkdirSync(workflowDir, { recursive: true });
+    writeFileSync(
+      join(workflowDir, 'no-retry.md'),
+      `---\nid: no-retry\ntags: [workflow]\nstatus: active\n---\n# Workflow: No Retry\n\nThis workflow has no retry config and should fail immediately.`,
+      'utf-8',
+    );
+
+    const retries: number[] = [];
+
+    const scheduler = new Scheduler({
+      harnessDir: SCHED_TEST_DIR,
+      autoArchival: false,
+      onRetry: (id, attempt) => {
+        retries.push(attempt);
+      },
+    });
+
+    const { parseHarnessDocument } = await import('../src/primitives/loader.js');
+    const doc = parseHarnessDocument(join(workflowDir, 'no-retry.md'));
+
+    try {
+      await scheduler.executeWorkflow(doc);
+    } catch {
+      // Expected to fail
+    }
+
+    // No retries when max_retries is not set (defaults to 0)
+    expect(retries).toHaveLength(0);
   });
 });
