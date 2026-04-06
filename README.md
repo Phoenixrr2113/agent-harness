@@ -56,7 +56,7 @@ my-agent/
 │   └── research.md
 ├── playbooks/           # Adaptive guidance for outcomes
 │   └── ship-feature.md
-├── workflows/           # Cron-driven automations (coming soon)
+├── workflows/           # Cron-driven automations
 ├── tools/               # External service integrations
 ├── agents/              # Sub-agent roster
 └── memory/
@@ -129,25 +129,114 @@ Create a file in `skills/`. Skills include not just what the agent can do, but h
 ### Add a playbook
 Create a file in `playbooks/`. Playbooks are step-by-step guidance that the agent interprets and adapts, not rigid scripts.
 
+## Installing Content
+
+Install skills, rules, agents, and more from the community:
+
+```bash
+# Install from any source — file, URL, or name
+harness install https://raw.githubusercontent.com/.../skill.md
+
+# Search community sources
+harness discover search "code review"
+
+# Browse available sources
+harness sources list
+```
+
+The installer auto-detects format (Claude Code skills, raw markdown, bash hooks, MCP configs) and normalizes to harness convention with proper frontmatter.
+
+Share your own primitives as bundles:
+
+```bash
+harness bundle my-skills.tar --types skills,rules
+harness bundle-install my-skills.tar
+```
+
 ## CLI Commands
+
+### Core
 
 | Command | Description |
 |---------|-------------|
-| `harness init <name>` | Create a new agent harness |
+| `harness init [name]` | Create a new agent (interactive if no name given) |
 | `harness run <prompt>` | Run a single prompt |
 | `harness run <prompt> --stream` | Stream the response |
-| `harness run <prompt> -m gemma` | Use a model alias (gemma, qwen, glm, claude) |
+| `harness run <prompt> -m claude` | Use a model alias |
 | `harness chat` | Interactive REPL with conversation memory |
 | `harness chat --fresh` | Start a fresh conversation (clear history) |
 | `harness info` | Show loaded context and token budget |
 | `harness prompt` | Display the full assembled system prompt |
+| `harness status` | Show primitives, sessions, config, state |
+| `harness validate` | Validate harness structure and configuration |
+| `harness doctor` | Validate and auto-fix all fixable issues |
+
+### Development
+
+| Command | Description |
+|---------|-------------|
+| `harness dev` | Watch mode + auto-index + scheduler + web dashboard |
+| `harness dev --port 8080` | Custom dashboard port (default 3000) |
 | `harness index` | Rebuild all index files |
-| `harness dev` | Watch mode — auto-rebuild indexes on file changes |
+| `harness process` | Auto-fill missing frontmatter and L0/L1 summaries |
+| `harness search <query>` | Search primitives by text and tags |
+| `harness graph` | Analyze primitive dependency graph |
+| `harness serve` | Start HTTP API server for webhooks and integrations |
+
+### Learning
+
+| Command | Description |
+|---------|-------------|
 | `harness journal` | Synthesize today's sessions into a journal entry |
 | `harness learn` | Analyze sessions and propose new instincts |
 | `harness learn --install` | Auto-install proposed instincts |
-| `harness install <file>` | Install a capability from a markdown file |
-| `harness intake` | Process all pending files in intake/ |
+| `harness harvest --install` | Extract and install instinct candidates from journals |
+| `harness auto-promote` | Promote instinct patterns appearing 3+ times |
+
+### Intelligence
+
+| Command | Description |
+|---------|-------------|
+| `harness suggest` | Suggest skills/playbooks for frequent uncovered topics |
+| `harness contradictions` | Detect conflicts between rules and instincts |
+| `harness dead-primitives` | Find orphaned primitives not used in 30+ days |
+| `harness enrich` | Add topics, token counts, and references to sessions |
+| `harness gate run` | Run verification gates (pre-boot, pre-run, post-session, pre-deploy) |
+| `harness check-rules <action>` | Check an action against loaded rules |
+
+### MCP (Model Context Protocol)
+
+| Command | Description |
+|---------|-------------|
+| `harness mcp list` | List configured MCP servers and status |
+| `harness mcp test` | Test server connections and list tools |
+| `harness mcp discover` | Scan for servers from Claude Desktop, Cursor, VS Code, etc. |
+| `harness mcp search <query>` | Search the MCP registry |
+| `harness mcp install <query>` | Install an MCP server from the registry |
+
+### Installing and Sharing
+
+| Command | Description |
+|---------|-------------|
+| `harness install <source>` | Install from file, URL, or source name (auto-detects format) |
+| `harness discover search <query>` | Search all community sources for content |
+| `harness discover env` | Scan .env files for API keys, suggest MCP servers |
+| `harness discover project` | Detect tech stack, suggest rules/skills |
+| `harness bundle <output>` | Pack primitives into a shareable bundle |
+| `harness bundle-install <source>` | Install from a bundle |
+| `harness export [output]` | Export harness to a portable JSON bundle |
+| `harness import <bundle>` | Import a harness bundle |
+| `harness sources list` | List configured community content sources |
+
+### Monitoring
+
+| Command | Description |
+|---------|-------------|
+| `harness dashboard` | Unified view of health, costs, sessions, workflows |
+| `harness health` | System health status and metrics |
+| `harness costs` | View API spending |
+| `harness analytics` | Session analytics and usage patterns |
+| `harness metrics` | Workflow execution metrics |
 
 ### Model Aliases
 
@@ -162,6 +251,51 @@ Use `-m` with a shorthand instead of full OpenRouter model IDs:
 | `claude` | anthropic/claude-sonnet-4 |
 | `gpt4o` | openai/gpt-4o |
 
+## MCP Integration
+
+Agent Harness connects to [MCP servers](https://modelcontextprotocol.io/) to give your agent tools — file access, APIs, databases, and more.
+
+```yaml
+# config.yaml
+mcp:
+  servers:
+    filesystem:
+      transport: stdio
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+    my-api:
+      transport: http
+      url: https://example.com/mcp
+```
+
+Auto-discover servers already on your machine:
+
+```bash
+harness mcp discover       # Scans Claude Desktop, Cursor, VS Code, Cline, etc.
+harness mcp search github  # Search the MCP registry
+harness mcp install github # Install from registry into config.yaml
+```
+
+During `harness init`, MCP servers are auto-discovered and added to your config.
+
+## Dev Mode and Dashboard
+
+`harness dev` starts everything at once:
+
+- **File watcher** — auto-rebuilds indexes when you edit primitives
+- **Auto-processor** — fills missing frontmatter and L0/L1 summaries on save
+- **Scheduler** — runs cron-based workflows
+- **Web dashboard** — browse primitives, chat, view sessions at `localhost:3000`
+
+```bash
+harness dev                    # Start everything
+harness dev --port 8080        # Custom port
+harness dev --no-web           # Skip dashboard
+harness dev --no-auto-process  # Skip auto-processing
+```
+
+The dashboard includes: agent status, health checks, spending, sessions, workflows, primitives browser, file editor, MCP status, settings editor, and a chat interface.
+
 ## Using as a Library
 
 ```typescript
@@ -171,6 +305,8 @@ const agent = createHarness({
   dir: './my-agent',
   apiKey: process.env.OPENROUTER_API_KEY,
 });
+
+await agent.boot();
 
 // One-shot
 const result = await agent.run('What should I work on today?');
@@ -184,6 +320,19 @@ for await (const chunk of agent.stream('Explain this codebase')) {
 await agent.shutdown();
 ```
 
+### Fluent Builder API
+
+```typescript
+import { defineAgent } from 'agent-harness';
+
+const agent = defineAgent('./my-agent')
+  .model('anthropic/claude-sonnet-4')
+  .provider('openrouter')
+  .onBoot(({ config }) => console.log(`Booted ${config.agent.name}`))
+  .onError(({ error }) => console.error(error))
+  .build();
+```
+
 ## Configuration
 
 `config.yaml`:
@@ -194,24 +343,41 @@ agent:
   version: "0.1.0"
 
 model:
-  provider: openrouter
-  id: anthropic/claude-sonnet-4    # Any OpenRouter model
+  provider: openrouter           # openrouter | anthropic | openai
+  id: anthropic/claude-sonnet-4  # Any model ID for your provider
   max_tokens: 200000
+  # summary_model: google/gemma-4-26b-a4b-it  # Cheap model for auto-generation
+  # fast_model: google/gemma-4-26b-a4b-it     # Fast model for validation
 
 runtime:
   scratchpad_budget: 10000
   timezone: America/New_York
+  auto_process: true             # Auto-fill frontmatter/summaries on file changes
 
 memory:
   session_retention_days: 7
   journal_retention_days: 365
+
+# rate_limits:
+#   per_minute: 10
+#   per_hour: 100
+#   per_day: 500
+
+# budget:
+#   daily_limit_usd: 5.00
+#   monthly_limit_usd: 100.00
+#   enforce: true
 ```
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `OPENROUTER_API_KEY` | Yes | Your OpenRouter API key |
+| `OPENROUTER_API_KEY` | For OpenRouter | Your OpenRouter API key |
+| `ANTHROPIC_API_KEY` | For Anthropic | Direct Anthropic API key |
+| `OPENAI_API_KEY` | For OpenAI | Direct OpenAI API key |
+
+Set one based on your `model.provider` in config.yaml. The `.env` file in your harness directory is auto-loaded.
 
 ## How Context Loading Works
 

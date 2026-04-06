@@ -437,7 +437,12 @@ The harness should know where to find things — not just MCP servers but skills
   - All verification gates pass: pre-boot, pre-run, post-session, pre-deploy
   - validate: 13 checks passed, 0 errors, 9 primitives
   - status: 6 sessions, 1 journal, health OK
-- [ ] Documentation: README, API docs, getting-started guide
+- [x] Documentation: README, API docs, getting-started guide
+  - README expanded from 266 to 432 lines with full CLI reference (6 categorized sections, ~50 commands)
+  - Added MCP Integration, Dev Mode & Dashboard, Installing Content sections
+  - Updated Using as a Library with boot() and defineAgent() fluent builder
+  - Expanded Configuration with multi-provider, summary_model, rate_limits, budget
+  - Phase 10 is now COMPLETE — all items checked off
 
 
 <!-- DO NOT DO THESE TASKS -->
@@ -894,6 +899,16 @@ Adapters are webhook parsers. Each one knows how to normalize a specific service
   - validate: 13 checks, 0 errors, 9 primitives | gate run: all 4 gates pass
   - status: 6 sessions, 1 journal, 5 instincts, health OK
 - Phase 10 "Run full e2e validation" is now COMPLETE
+
+### Loop 60 (Phase 10 Complete — Documentation)
+- README expanded from 266 to 432 lines covering all Phases 1-10 features
+  - CLI commands organized into 6 categories: Core, Development, Learning, Intelligence, MCP, Installing/Sharing, Monitoring
+  - New sections: MCP Integration, Dev Mode & Dashboard, Installing Content
+  - Updated Using as a Library: `boot()` call, `defineAgent()` fluent builder
+  - Expanded Configuration: multi-provider, summary_model, fast_model, rate_limits, budget
+  - Environment Variables for 3 providers (OpenRouter, Anthropic, OpenAI)
+- **Phase 10 is now COMPLETE** — all items checked off
+- All 1027 tests passing, build clean, lint clean
 
 ### Stats
 - 1027 tests across 52 files — ALL PASSING
