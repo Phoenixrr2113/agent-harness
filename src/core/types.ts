@@ -74,6 +74,9 @@ export const HarnessConfigSchema = z.object({
   channels: z.object({
     primary: z.string().default('cli'),
   }).passthrough(),
+  extensions: z.object({
+    directories: z.array(z.string()).default([]),
+  }).passthrough().default({ directories: [] }),
 }).passthrough();
 
 export type HarnessConfig = z.infer<typeof HarnessConfigSchema>;
@@ -88,7 +91,22 @@ export const CONFIG_DEFAULTS: HarnessConfig = {
   },
   memory: { session_retention_days: 7, journal_retention_days: 365 },
   channels: { primary: 'cli' },
+  extensions: { directories: [] },
 };
+
+export const CORE_PRIMITIVE_DIRS = ['rules', 'instincts', 'skills', 'playbooks', 'workflows', 'tools', 'agents'] as const;
+
+export function getPrimitiveDirs(config?: HarnessConfig): string[] {
+  const dirs: string[] = [...CORE_PRIMITIVE_DIRS];
+  if (config?.extensions?.directories) {
+    for (const dir of config.extensions.directories) {
+      if (!dirs.includes(dir)) {
+        dirs.push(dir);
+      }
+    }
+  }
+  return dirs;
+}
 
 // --- Agent State ---
 export interface AgentState {

@@ -47,11 +47,17 @@ export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): Lo
   }
 
   // --- Step 4: Load all primitives at appropriate level ---
-  const primitives = loadAllPrimitives(harnessDir);
+  const extDirs = config.extensions?.directories ?? [];
+  const primitives = loadAllPrimitives(harnessDir, extDirs);
   const targetBudget = maxTokens * 0.15; // Use 15% of context for harness
 
-  // Priority order for loading primitives
+  // Priority order for loading primitives (core dirs first, extensions appended)
   const priorityOrder = ['rules', 'instincts', 'skills', 'playbooks', 'tools', 'workflows', 'agents'];
+  for (const dir of extDirs) {
+    if (!priorityOrder.includes(dir)) {
+      priorityOrder.push(dir);
+    }
+  }
 
   // Collect all docs to estimate total demand before deciding levels
   const allDocs: { category: string; doc: HarnessDocument }[] = [];

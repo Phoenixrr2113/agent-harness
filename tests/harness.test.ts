@@ -3,23 +3,50 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync
 import { join } from 'path';
 import { tmpdir } from 'os';
 
-// Mock the LLM provider BEFORE importing harness
-vi.mock('ai', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('ai')>();
+// vi.hoisted runs before vi.mock hoisting — safe to define the mock model here
+const { mockModel } = vi.hoisted(() => {
+  // Dynamic import not available in hoisted block, so we use the provider interface directly
+  return { mockModel: null as unknown };
+});
+
+vi.mock('../src/llm/provider.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/llm/provider.js')>();
+  const { MockLanguageModelV3 } = await import('ai/test');
+  const model = new MockLanguageModelV3({
+    provider: 'mock',
+    modelId: 'mock-model',
+    doGenerate: async () => ({
+      content: [{ type: 'text' as const, text: 'Mock response from the agent.' }],
+      finishReason: { type: 'stop' as const },
+      usage: {
+        inputTokens: { total: 100, noCache: 100, cacheRead: undefined, cacheWrite: undefined },
+        outputTokens: { total: 50, text: 50, reasoning: undefined },
+      },
+    }),
+    doStream: async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: 'text-start' as const, id: '1' });
+          controller.enqueue({ type: 'text-delta' as const, id: '1', delta: 'Mock ' });
+          controller.enqueue({ type: 'text-delta' as const, id: '1', delta: 'streamed ' });
+          controller.enqueue({ type: 'text-delta' as const, id: '1', delta: 'response.' });
+          controller.enqueue({ type: 'text-end' as const, id: '1' });
+          controller.enqueue({
+            type: 'finish' as const,
+            usage: {
+              inputTokens: { total: 80, noCache: 80, cacheRead: undefined, cacheWrite: undefined },
+              outputTokens: { total: 30, text: 30, reasoning: undefined },
+            },
+            finishReason: { type: 'stop' as const },
+          });
+          controller.close();
+        },
+      }),
+    }),
+  });
   return {
     ...actual,
-    generateText: vi.fn().mockResolvedValue({
-      text: 'Mock response from the agent.',
-      usage: { inputTokens: 100, outputTokens: 50 },
-    }),
-    streamText: vi.fn().mockReturnValue({
-      textStream: (async function* () {
-        yield 'Mock ';
-        yield 'streamed ';
-        yield 'response.';
-      })(),
-      usage: Promise.resolve({ inputTokens: 80, outputTokens: 30 }),
-    }),
+    getModel: vi.fn().mockReturnValue(model),
   };
 });
 
@@ -213,7 +240,6 @@ ${new Date().toISOString()}
     it('should write session after streaming completes', async () => {
       const agent = createHarness({ dir: testDir, apiKey: 'test-key' });
 
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       for await (const _chunk of agent.stream('Stream session test')) {
         // consume stream
       }

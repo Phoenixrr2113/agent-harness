@@ -52,6 +52,8 @@ model:
   provider: openrouter
   id: anthropic/claude-sonnet-4
   max_tokens: 200000
+  max_retries: 2
+  # timeout_ms: 60000
 
 runtime:
   scratchpad_budget: 10000
@@ -65,6 +67,9 @@ memory:
 
 channels:
   primary: cli
+
+extensions:
+  directories: []
 `;
 }
 

@@ -12,7 +12,7 @@ export type {
   IndexEntry,
   DeepPartial,
 } from './core/types.js';
-export { HarnessConfigSchema, FrontmatterSchema } from './core/types.js';
+export { HarnessConfigSchema, FrontmatterSchema, CORE_PRIMITIVE_DIRS, getPrimitiveDirs } from './core/types.js';
 export { loadConfig, writeDefaultConfig } from './core/config.js';
 export { createLogger, setGlobalLogLevel, getGlobalLogLevel, log } from './core/logger.js';
 export type { Logger, LogLevel } from './core/logger.js';

@@ -344,6 +344,52 @@ Rule content`
       expect(primitives.get('instincts')?.length).toBe(0);
       expect(primitives.get('skills')?.length).toBe(0);
     });
+
+    it('should load extension directories when provided', () => {
+      mkdirSync(join(testDir, 'rules'));
+      mkdirSync(join(testDir, 'protocols'));
+      writeFileSync(
+        join(testDir, 'rules', 'rule1.md'),
+        `---
+id: rule1
+status: active
+---
+Rule content`
+      );
+      writeFileSync(
+        join(testDir, 'protocols', 'proto1.md'),
+        `---
+id: proto1
+status: active
+---
+Protocol content`
+      );
+
+      const primitives = loadAllPrimitives(testDir, ['protocols']);
+
+      expect(primitives.has('rules')).toBe(true);
+      expect(primitives.has('protocols')).toBe(true);
+      expect(primitives.get('protocols')?.length).toBe(1);
+      expect(primitives.get('protocols')?.[0].frontmatter.id).toBe('proto1');
+    });
+
+    it('should not duplicate core dirs when passed as extension', () => {
+      mkdirSync(join(testDir, 'rules'));
+      writeFileSync(
+        join(testDir, 'rules', 'rule1.md'),
+        `---
+id: rule1
+status: active
+---
+Rule`
+      );
+
+      const primitives = loadAllPrimitives(testDir, ['rules']);
+
+      expect(primitives.get('rules')?.length).toBe(1);
+      // Should still have exactly 7 core + 0 new = 7 entries
+      expect(primitives.size).toBe(7);
+    });
   });
 
   describe('estimateTokens', () => {

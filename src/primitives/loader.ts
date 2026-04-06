@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, extname } from 'path';
 import matter from 'gray-matter';
-import { FrontmatterSchema, type HarnessDocument, type Frontmatter } from '../core/types.js';
+import { FrontmatterSchema, CORE_PRIMITIVE_DIRS, type HarnessDocument, type Frontmatter } from '../core/types.js';
 
 // Extract L0 and L1 from HTML comments at the top of the markdown body
 // Format: <!-- L0: one-line summary -->
@@ -78,18 +78,17 @@ export function loadDirectory(dirPath: string): HarnessDocument[] {
   return docs;
 }
 
-export function loadAllPrimitives(harnessDir: string): Map<string, HarnessDocument[]> {
+export function loadAllPrimitives(harnessDir: string, extraDirs?: string[]): Map<string, HarnessDocument[]> {
   const primitives = new Map<string, HarnessDocument[]>();
 
-  const directories = [
-    'rules',
-    'instincts',
-    'skills',
-    'playbooks',
-    'workflows',
-    'tools',
-    'agents',
-  ];
+  const directories: string[] = [...CORE_PRIMITIVE_DIRS];
+  if (extraDirs) {
+    for (const dir of extraDirs) {
+      if (!directories.includes(dir)) {
+        directories.push(dir);
+      }
+    }
+  }
 
   for (const dir of directories) {
     const docs = loadDirectory(join(harnessDir, dir));

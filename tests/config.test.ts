@@ -201,6 +201,39 @@ agent:
 
     expect(config.agent.name).toBe('test-agent');
     // Arrays should be replaced, not merged
-    expect((config.agent as any).tags).toEqual(['production', 'critical']);
+    expect((config.agent as Record<string, unknown>).tags).toEqual(['production', 'critical']);
+  });
+
+  it('should default extensions.directories to empty array', () => {
+    writeFileSync(
+      join(testDir, 'config.yaml'),
+      `agent:
+  name: test-agent
+model:
+  id: test/model
+`
+    );
+
+    const config = loadConfig(testDir);
+    expect(config.extensions).toBeDefined();
+    expect(config.extensions.directories).toEqual([]);
+  });
+
+  it('should load extension directories from config', () => {
+    writeFileSync(
+      join(testDir, 'config.yaml'),
+      `agent:
+  name: test-agent
+model:
+  id: test/model
+extensions:
+  directories:
+    - protocols
+    - templates
+`
+    );
+
+    const config = loadConfig(testDir);
+    expect(config.extensions.directories).toEqual(['protocols', 'templates']);
   });
 });

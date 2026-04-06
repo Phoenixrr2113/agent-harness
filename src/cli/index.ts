@@ -313,8 +313,9 @@ program
     console.log(`\n[dev] Watching "${config.agent.name}" harness at ${dir}`);
 
     // Initial index build
-    rebuildAllIndexes(dir);
-    console.log(`[dev] Indexes rebuilt`);
+    const extDirs = config.extensions?.directories ?? [];
+    rebuildAllIndexes(dir, extDirs);
+    console.log(`[dev] Indexes rebuilt${extDirs.length ? ` (+ ${extDirs.length} extension dir(s))` : ''}`);
 
     // Start scheduler if there are workflows
     let scheduler: InstanceType<typeof Scheduler> | null = null;
@@ -341,9 +342,10 @@ program
       }
     }
 
-    // Start watching
+    // Start watching (including extension directories)
     createWatcher({
       harnessDir: dir,
+      extraDirs: extDirs,
       onChange: (path, event) => {
         const rel = path.replace(dir + '/', '');
         console.log(`[dev] ${event}: ${rel}`);
@@ -372,9 +374,18 @@ program
   .option('-d, --dir <path>', 'Harness directory', '.')
   .action(async (opts: { dir: string }) => {
     const { rebuildAllIndexes } = await import('../runtime/indexer.js');
+    const { loadConfig } = await import('../core/config.js');
     const dir = resolve(opts.dir);
 
-    rebuildAllIndexes(dir);
+    let extDirs: string[] = [];
+    try {
+      const config = loadConfig(dir);
+      extDirs = config.extensions?.directories ?? [];
+    } catch {
+      // Config may not exist for index command — proceed with core dirs only
+    }
+
+    rebuildAllIndexes(dir, extDirs);
     console.log(`✓ All indexes rebuilt in ${dir}`);
   });
 
@@ -599,8 +610,11 @@ program
       warnings.push(`State parse issue: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    // Validate primitive directories
-    const primitiveDirs = ['rules', 'instincts', 'skills', 'playbooks', 'workflows', 'tools', 'agents'];
+    // Validate primitive directories (core + extensions)
+    const { getPrimitiveDirs } = await import('../core/types.js');
+    let validatedConfig: ReturnType<typeof loadConfig> | undefined;
+    try { validatedConfig = loadConfig(dir); } catch { /* validated below */ }
+    const primitiveDirs = getPrimitiveDirs(validatedConfig);
     let totalPrimitives = 0;
     let invalidPrimitives = 0;
 

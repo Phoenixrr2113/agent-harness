@@ -49,11 +49,15 @@
 - [x] **Structured logger** — New `src/core/logger.ts` module with `Logger` interface supporting `debug|info|warn|error` levels and `silent` mode. Global level control via `setGlobalLogLevel()`. Child loggers with colon-delimited prefixes (`[parent:child]`). Harness core uses `log` singleton. CLI gains `--quiet`, `--verbose`, and `--log-level <level>` global flags via commander `preAction` hook. 16 new logger tests.
 - [x] **CI/CD pipeline** — GitHub Actions workflow (`.github/workflows/ci.yml`) runs on push/PR to main. Matrix strategy: Node 20 + 22. Steps: install, build, test, verify CLI entry point.
 
-## Next Priority
+## Completed (Loop 8)
 
-### P3 — Future
+- [x] **Test migration to ai/test** — Replaced `vi.mock('ai')` (hand-rolled generateText/streamText mocks) with `ai/test` `MockLanguageModelV3`. Mock model implements the real LanguageModelV3 interface (`doGenerate`, `doStream`). Tests now exercise the actual AI SDK `generateText`/`streamText` against the mock model — better integration coverage. Mocking moved to provider layer (`getModel` returns mock) instead of SDK layer.
+- [x] **Extension directories (plugin system)** — Added `extensions.directories` config field to register custom primitive directories. Extension dirs are automatically: loaded by `loadAllPrimitives()`, included in context assembly (`buildSystemPrompt()`), indexed by `rebuildAllIndexes()`, watched by `createWatcher()`, and validated by `harness validate`. Centralized `CORE_PRIMITIVE_DIRS` constant and `getPrimitiveDirs()` helper exported from types.ts. 4 new tests. Zero code duplication for directory lists.
+- [x] **Template config refresh** — Updated all 4 template configs (base, claude-opus, gpt4, local) and `writeDefaultConfig()` with `max_retries`, `timeout_ms`, and `extensions.directories` fields.
 
-- [ ] **Plugin system** — Allow custom commands and primitives via a plugin directory.
+## All Plan Items Complete
+
+All items from the original fix plan have been implemented across 8 loops.
 
 ## Architecture Notes
 
@@ -64,9 +68,10 @@
 - CLI is well-organized with consistent option patterns
 - Scaffold creates a fully functional agent in one command
 - Multi-provider: OpenRouter, Anthropic, OpenAI all work via standard config
-- Programmatic API is fully tested with mocked LLM calls
+- Programmatic API tested with official `ai/test` MockLanguageModelV3
 - Structured logging with configurable verbosity
 - CI/CD: automated build + test on push/PR
+- Extension directories for custom primitive types
 
 ### Known Limitations
 - Token estimation is 1:4 char ratio — good enough but not precise

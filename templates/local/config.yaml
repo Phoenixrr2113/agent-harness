@@ -6,6 +6,8 @@ model:
   provider: openrouter
   id: meta-llama/llama-3.3-70b-instruct
   max_tokens: 131072
+  max_retries: 2
+  # timeout_ms: 60000
 
 runtime:
   scratchpad_budget: 5000
@@ -20,3 +22,6 @@ memory:
 
 channels:
   primary: cli
+
+extensions:
+  directories: []

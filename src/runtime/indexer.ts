@@ -1,9 +1,7 @@
 import { writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { loadDirectory } from '../primitives/loader.js';
-import type { IndexEntry } from '../core/types.js';
-
-const INDEXABLE_DIRS = ['rules', 'instincts', 'skills', 'playbooks', 'workflows', 'tools', 'agents'];
+import { CORE_PRIMITIVE_DIRS, type IndexEntry } from '../core/types.js';
 
 export function buildIndex(harnessDir: string, directory: string): IndexEntry[] {
   const dirPath = join(harnessDir, directory);
@@ -55,8 +53,14 @@ export function writeIndexFile(harnessDir: string, directory: string, options?: 
   writeFileSync(join(dirPath, '_index.md'), lines.join('\n'), 'utf-8');
 }
 
-export function rebuildAllIndexes(harnessDir: string): void {
-  for (const dir of INDEXABLE_DIRS) {
+export function rebuildAllIndexes(harnessDir: string, extraDirs?: string[]): void {
+  const dirs: string[] = [...CORE_PRIMITIVE_DIRS];
+  if (extraDirs) {
+    for (const dir of extraDirs) {
+      if (!dirs.includes(dir)) dirs.push(dir);
+    }
+  }
+  for (const dir of dirs) {
     const dirPath = join(harnessDir, dir);
     if (existsSync(dirPath)) {
       writeIndexFile(harnessDir, dir);

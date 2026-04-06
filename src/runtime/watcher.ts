@@ -1,19 +1,26 @@
 import { watch, type FSWatcher } from 'chokidar';
-import { dirname, relative } from 'path';
+import { relative } from 'path';
 import { writeIndexFile } from './indexer.js';
-
-const WATCHED_DIRS = ['rules', 'instincts', 'skills', 'playbooks', 'workflows', 'tools', 'agents'];
+import { CORE_PRIMITIVE_DIRS } from '../core/types.js';
 
 export interface WatcherOptions {
   harnessDir: string;
+  extraDirs?: string[];
   onChange?: (path: string, event: string) => void;
   onIndexRebuild?: (directory: string) => void;
 }
 
 export function createWatcher(options: WatcherOptions): FSWatcher {
-  const { harnessDir, onChange, onIndexRebuild } = options;
+  const { harnessDir, extraDirs, onChange, onIndexRebuild } = options;
 
-  const patterns = WATCHED_DIRS.map((dir) => `${harnessDir}/${dir}/**/*.md`);
+  const watchedDirs: string[] = [...CORE_PRIMITIVE_DIRS];
+  if (extraDirs) {
+    for (const dir of extraDirs) {
+      if (!watchedDirs.includes(dir)) watchedDirs.push(dir);
+    }
+  }
+
+  const patterns = watchedDirs.map((dir) => `${harnessDir}/${dir}/**/*.md`);
 
   const watcher = watch(patterns, {
     ignoreInitial: true,
@@ -30,7 +37,7 @@ export function createWatcher(options: WatcherOptions): FSWatcher {
     const rel = relative(harnessDir, filePath);
     const dir = rel.split('/')[0];
 
-    if (WATCHED_DIRS.includes(dir)) {
+    if (watchedDirs.includes(dir)) {
       // Rebuild index for this directory
       writeIndexFile(harnessDir, dir);
       onIndexRebuild?.(dir);
