@@ -80,9 +80,14 @@
 - [x] **Scheduled archival** — Scheduler now includes built-in daily auto-archival (cron `0 23 * * *` by default). New `autoArchival` and `archivalCron` options on `SchedulerOptions`. New `onArchival` callback. `runArchival()` public method reads retention config and calls `archiveOldFiles()`. Auto-archival enabled by default in `harness dev`. 5 new scheduler tests (start/stop, list workflows, archival, invalid cron).
 - [x] **Workflow CLI** — New `harness workflow list` shows all workflows with schedules, status, agent references, and L0 summaries. New `harness workflow run <id>` executes a single workflow on demand (bypasses quiet hours). Uses existing `Scheduler.runOnce()`.
 
+## Completed (Loop 13)
+
+- [x] **Search/query command** — New `src/runtime/search.ts` with `searchPrimitives()` function that searches across all primitive directories by text query (matches id, tags, L0, L1, body content) and/or filters (tag, type, status, author). Type-aware directory filtering accepts both singular ("rule") and plural ("rules"). New `harness search [query]` CLI command with `--tag`, `--type`, `--status`, `--author` options. `SearchOptions` and `SearchResult` types exported. 20 new search tests.
+- [x] **Config CLI** — New `harness config show` displays full resolved configuration (merged defaults + file) as YAML. New `harness config get <key>` retrieves specific values by dot-notation path (e.g. `model.id`). New `harness config set <key> <value>` writes to config.yaml using YAML document API (preserves comments/formatting), with automatic type coercion (boolean, int, float) and post-write validation. Uses Commander.js nested subcommand pattern.
+
 ## All Plan Items Complete
 
-All items from the original fix plan have been implemented across 12 loops.
+All items from the original fix plan have been implemented across 13 loops.
 
 ## Architecture Notes
 

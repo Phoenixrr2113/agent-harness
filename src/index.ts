@@ -40,3 +40,5 @@ export type { SessionRecord, CleanupResult, ArchiveResult } from './runtime/sess
 export { Conversation, parseJsonlContext, parseLegacyContext } from './runtime/conversation.js';
 export { delegateTo, delegateStream, findAgent, listAgents, loadAgentDocs, buildAgentPrompt } from './runtime/delegate.js';
 export type { DelegationResult, DelegateStreamResult, AgentInfo, DelegateOptions } from './runtime/delegate.js';
+export { searchPrimitives } from './runtime/search.js';
+export type { SearchOptions, SearchResult } from './runtime/search.js';

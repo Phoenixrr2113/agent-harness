@@ -944,6 +944,164 @@ workflowCmd
     }
   });
 
+// --- SEARCH (find primitives by query/filters) ---
+program
+  .command('search [query]')
+  .description('Search primitives by text query and/or filters')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('-t, --tag <tag>', 'Filter by tag')
+  .option('--type <type>', 'Filter by primitive type (e.g., rules, skills)')
+  .option('--status <status>', 'Filter by status (active, draft, archived, deprecated)')
+  .option('--author <author>', 'Filter by author (human, agent, infrastructure)')
+  .action(async (query: string | undefined, opts: { dir: string; tag?: string; type?: string; status?: string; author?: string }) => {
+    const { searchPrimitives } = await import('../runtime/search.js');
+    const { loadConfig } = await import('../core/config.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    let config;
+    try {
+      config = loadConfig(dir);
+    } catch {
+      // Proceed without config (uses core dirs only)
+    }
+
+    const results = searchPrimitives(dir, query, {
+      tag: opts.tag,
+      type: opts.type,
+      status: opts.status,
+      author: opts.author,
+    }, config);
+
+    if (results.length === 0) {
+      const filters = [query, opts.tag && `tag:${opts.tag}`, opts.type && `type:${opts.type}`, opts.status && `status:${opts.status}`, opts.author && `author:${opts.author}`].filter(Boolean).join(', ');
+      console.log(`\nNo results for: ${filters || '(no filters)'}\n`);
+      return;
+    }
+
+    console.log(`\n${results.length} result(s):\n`);
+    for (const r of results) {
+      const tags = r.doc.frontmatter.tags.length > 0 ? ` [${r.doc.frontmatter.tags.join(', ')}]` : '';
+      const status = r.doc.frontmatter.status !== 'active' ? ` (${r.doc.frontmatter.status})` : '';
+      console.log(`  ${r.directory}/${r.doc.frontmatter.id}${status}${tags}`);
+      console.log(`    ${r.matchReason}`);
+      if (r.doc.l0) console.log(`    ${r.doc.l0}`);
+    }
+    console.log();
+  });
+
+// --- CONFIG (show/get configuration) ---
+const configCmd = program
+  .command('config')
+  .description('Show or inspect configuration');
+
+configCmd
+  .command('show')
+  .description('Show full resolved configuration (merged defaults + file + env)')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .action(async (opts: { dir: string }) => {
+    const { loadConfig } = await import('../core/config.js');
+    const YAML = await import('yaml');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    try {
+      const config = loadConfig(dir);
+      console.log(`\n# Resolved config for: ${dir}\n`);
+      console.log(YAML.stringify(config).trimEnd());
+      console.log();
+    } catch (err: unknown) {
+      console.error(`Error: ${formatError(err)}`);
+      process.exit(1);
+    }
+  });
+
+configCmd
+  .command('get <key>')
+  .description('Get a specific config value (dot-notation, e.g. model.id)')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .action(async (key: string, opts: { dir: string }) => {
+    const { loadConfig } = await import('../core/config.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    try {
+      const config = loadConfig(dir);
+      const parts = key.split('.');
+      let value: unknown = config;
+      for (const part of parts) {
+        if (value === null || value === undefined || typeof value !== 'object') {
+          console.error(`Error: Key "${key}" not found (stopped at "${part}")`);
+          process.exit(1);
+        }
+        value = (value as Record<string, unknown>)[part];
+      }
+
+      if (value === undefined) {
+        console.error(`Error: Key "${key}" not found`);
+        process.exit(1);
+      }
+
+      if (typeof value === 'object' && value !== null) {
+        const YAML = await import('yaml');
+        console.log(YAML.stringify(value).trimEnd());
+      } else {
+        console.log(String(value));
+      }
+    } catch (err: unknown) {
+      console.error(`Error: ${formatError(err)}`);
+      process.exit(1);
+    }
+  });
+
+configCmd
+  .command('set <key> <value>')
+  .description('Set a config value (writes to config.yaml)')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .action(async (key: string, value: string, opts: { dir: string }) => {
+    const { readFileSync, writeFileSync, existsSync } = await import('fs');
+    const YAML = await import('yaml');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const configPath = join(dir, 'config.yaml');
+    if (!existsSync(configPath)) {
+      console.error(`Error: No config.yaml found in ${dir}`);
+      process.exit(1);
+    }
+
+    try {
+      const content = readFileSync(configPath, 'utf-8');
+      const doc = YAML.parseDocument(content);
+
+      // Parse the value — attempt number/boolean coercion
+      let parsed: unknown = value;
+      if (value === 'true') parsed = true;
+      else if (value === 'false') parsed = false;
+      else if (/^\d+$/.test(value)) parsed = parseInt(value, 10);
+      else if (/^\d+\.\d+$/.test(value)) parsed = parseFloat(value);
+
+      // Set using dot-notation path
+      const parts = key.split('.');
+      doc.setIn(parts, parsed);
+
+      writeFileSync(configPath, doc.toString(), 'utf-8');
+
+      // Validate the resulting config
+      const { loadConfig } = await import('../core/config.js');
+      try {
+        loadConfig(dir);
+        console.log(`✓ ${key} = ${String(parsed)}`);
+      } catch (err: unknown) {
+        console.error(`Warning: Config saved but validation failed: ${formatError(err)}`);
+        console.error(`You may want to revert: harness config set ${key} <previous-value>`);
+      }
+    } catch (err: unknown) {
+      console.error(`Error: ${formatError(err)}`);
+      process.exit(1);
+    }
+  });
+
 // --- AGENTS (list available sub-agents) ---
 program
   .command('agents')
