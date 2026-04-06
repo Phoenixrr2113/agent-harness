@@ -366,22 +366,31 @@ User just writes content, framework handles everything else.
 The harness should know where to find things — not just MCP servers but skills, agents, rules, playbooks, hooks, templates, everything. Ship a `sources.yaml` with known registries. `harness discover` searches all of them. `harness install <anything>` resolves from any source automatically.
 
 ### Source Registry
-- [ ] Ship `sources.yaml` in harness defaults listing known registries and repos:
-  - **MCP registries:** Official MCP registry, Smithery.ai, mcp.run, mcpservers.org, glama.ai/mcp/servers
-  - **Skills & agents:** ClawHub (clawhub.ai/skills), awesome-claude-code-toolkit, wshobson/agents (112 agents, 146 skills), faf-skills (31 skills), oh-my-claudecode (28 skills, 19 agents)
-  - **Hooks & rules:** claude-code-hooks (15 production hooks), VibeGuard (88 rules, 13 hooks), obey (17 lifecycle hooks)
-  - **Templates:** awesome-claude-code-toolkit (7 templates), Claude Code official plugins (13 plugins)
-- [ ] `harness sources list` — show all configured sources
-- [ ] `harness sources add <url>` — add a new source (GitHub repo, registry URL, or API endpoint)
-- [ ] `harness sources remove <name>` — remove a source
-- [ ] Sources are updatable — new sources can be added by community PR or user config
+- [x] Ship `sources.yaml` in harness defaults listing known registries and repos:
+  - **MCP registries:** Official MCP registry, Smithery.ai, mcp.run, Glama
+  - **Skills & agents:** ClawHub, awesome-claude-code-toolkit, wshobson/agents (112 agents, 146 skills), faf-skills (31 skills), oh-my-claudecode (28 skills, 19 agents)
+  - **Hooks & rules:** claude-code-hooks (15 hooks), VibeGuard (88 rules, 13 hooks), obey (17 hooks)
+  - **Templates:** Claude Code Plugins (13 plugins)
+  - 13 sources across 3 types (github, registry, api) with content tags and stats
+- [x] `harness sources list` — show all configured sources with --type filter, --json
+- [x] `harness sources add <url>` — add a new source (--name, --type, --content, --description)
+- [x] `harness sources remove <name>` — remove a source (case-insensitive)
+- [x] Sources are updatable — user sources in memory/sources.yaml, shipped sources in package root
+  - User sources override shipped sources with same name (deduplicated by name)
+  - `harness sources summary` — show content available by type across all sources
 
 ### Universal Discovery Agent
-- [ ] `harness discover <query>` — searches ALL sources (MCP registries + skill repos + agent repos + hook collections) in parallel, returns unified results
-- [ ] Discovery agent understands different formats: harness primitives, Claude Code skills (SKILL.md), faf-skills (.faf YAML), raw markdown agents, hooks (bash scripts), MCP server configs
-- [ ] Results ranked by relevance — exact name match > tag match > description match
-- [ ] `harness discover --type skill|agent|rule|playbook|mcp|hook|template` — filter by type
-- [ ] `harness discover --json` for programmatic consumption
+- [x] `harness discover <query>` — searches ALL sources, returns unified results ranked by relevance
+  - Relevance scoring: exact name match > tag match > description match > word overlap
+  - `--type skill|agent|rule|playbook|mcp|hook|template` — filter by content type
+  - `--max <n>` — limit results
+  - `--remote` — also search GitHub API (code search)
+  - `--json` for programmatic consumption
+- [x] `discoverSources()` — local metadata search (fast, offline)
+- [x] `discoverRemote()` — parallel GitHub API code search + registry search
+- [x] `fetchGitHubSource()` — GitHub code search API with content type inference
+- [x] `getSourcesForType()`, `getSourcesSummary()` — type-filtered source lists
+- [x] 28 tests: shipped loading, user CRUD, dedup, discovery, filtering, ranking
 
 ### Universal Installer (format normalization)
 - [ ] `harness install <url-or-name>` resolves from any source — GitHub raw URL, registry name, ClawHub slug, etc.
@@ -743,9 +752,24 @@ while (true) {
 - **Phase 8 is now COMPLETE** — all 9 items checked off
 - Total: 963 tests across 50 files
 
+### Loop 56 (Phase 9 — Source Registry + Universal Discovery)
+- Created `sources.yaml`: 13 curated community sources (MCP, skills, agents, hooks, rules, templates)
+- Created `sources.ts`: source registry management with local + remote discovery (340 lines)
+  - `loadShippedSources()` / `loadUserSources()` / `loadAllSources()` — merge + dedup by name
+  - `addSource()` / `removeSource()` — user source CRUD with persistence
+  - `discoverSources()` — local relevance-scored search across all sources
+  - `discoverRemote()` — parallel GitHub API code search
+  - `fetchGitHubSource()` — GitHub search with content type inference
+  - `getSourcesForType()` / `getSourcesSummary()` — type-filtered source queries
+- CLI: `harness sources list|add|remove|summary`, `harness discover <query>` with --type, --remote, --json
+- Exported 11 functions + 6 types from index.ts
+- Added `sources.yaml` to package.json files array
+- 28 new tests in sources.test.ts
+- Total: 991 tests across 51 files
+
 ### Stats
-- 963 tests across 50 files — ALL PASSING
-- 57+ source modules, 33,000+ lines
-- 82+ CLI commands
+- 991 tests across 51 files — ALL PASSING
+- 58+ source modules, 34,000+ lines
+- 88+ CLI commands
 - Build, lint, tests all green
 - Zero `any` types, zero empty catches

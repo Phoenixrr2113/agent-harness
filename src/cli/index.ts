@@ -4082,6 +4082,193 @@ program
     await new Promise<void>(() => { /* keep alive */ });
   });
 
+// ── Sources ──────────────────────────────────────────────────────────────────
+
+const sourcesCmd = program.command('sources').description('Manage content sources (skills, agents, rules, MCP servers)');
+
+sourcesCmd
+  .command('list')
+  .description('List all configured content sources')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--type <type>', 'Filter by content type (skills, agents, rules, hooks, mcp, etc.)')
+  .option('--json', 'Output as JSON')
+  .action(async (opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { loadAllSources, getSourcesForType } = await import('../runtime/sources.js');
+
+    const sources = opts.type
+      ? getSourcesForType(dir, opts.type as 'skills' | 'agents' | 'rules' | 'hooks' | 'mcp')
+      : loadAllSources(dir);
+
+    if (opts.json) {
+      console.log(JSON.stringify(sources, null, 2));
+    } else if (sources.length === 0) {
+      console.log('No sources configured.');
+    } else {
+      console.log(`${sources.length} source(s):\n`);
+      for (const s of sources) {
+        const types = s.content.join(', ');
+        const stats = s.stats ? ` (${Object.entries(s.stats).map(([k, v]) => `${v} ${k}`).join(', ')})` : '';
+        console.log(`  [${s.type}] ${s.name}${stats}`);
+        console.log(`    ${s.url}`);
+        console.log(`    Content: ${types}`);
+        if (s.description) console.log(`    ${s.description}`);
+        console.log();
+      }
+    }
+  });
+
+sourcesCmd
+  .command('add')
+  .description('Add a new content source')
+  .argument('<url>', 'Source URL (GitHub repo, registry API, or endpoint)')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('-n, --name <name>', 'Source display name')
+  .option('-t, --type <type>', 'Source type: github, registry, api', 'github')
+  .option('-c, --content <types>', 'Content types (comma-separated: skills,agents,rules,hooks,mcp)')
+  .option('--description <desc>', 'Source description')
+  .option('--json', 'Output as JSON')
+  .action(async (url: string, opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { addSource } = await import('../runtime/sources.js');
+
+    // Derive name from URL if not provided
+    const name = (opts.name as string) ?? url.replace(/https?:\/\//, '').replace(/github\.com\//, '').replace(/\/$/, '');
+    const content = opts.content
+      ? (opts.content as string).split(',').map((c: string) => c.trim())
+      : ['skills'];
+
+    const result = addSource(dir, {
+      name,
+      url,
+      type: (opts.type as 'github' | 'registry' | 'api'),
+      content: content as Array<'skills' | 'agents' | 'rules' | 'hooks' | 'mcp'>,
+      description: opts.description as string | undefined,
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else if (result) {
+      console.log(`Added source: ${result.name} (${result.url})`);
+    } else {
+      console.log('Source with that name already exists.');
+    }
+  });
+
+sourcesCmd
+  .command('remove')
+  .description('Remove a content source')
+  .argument('<name>', 'Source name to remove')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .action(async (name: string, opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { removeSource } = await import('../runtime/sources.js');
+
+    const removed = removeSource(dir, name);
+    if (removed) {
+      console.log(`Removed source: ${name}`);
+    } else {
+      console.log(`Source not found: ${name}`);
+    }
+  });
+
+sourcesCmd
+  .command('summary')
+  .description('Show content available by type across all sources')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--json', 'Output as JSON')
+  .action(async (opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { getSourcesSummary } = await import('../runtime/sources.js');
+
+    const summary = getSourcesSummary(dir);
+
+    if (opts.json) {
+      const json: Record<string, number> = {};
+      for (const [type, sources] of Object.entries(summary)) {
+        json[type] = sources.length;
+      }
+      console.log(JSON.stringify(json, null, 2));
+    } else {
+      console.log('Content sources by type:\n');
+      for (const [type, sources] of Object.entries(summary)) {
+        if (sources.length > 0) {
+          console.log(`  ${type}: ${sources.length} source(s)`);
+          for (const s of sources) {
+            console.log(`    - ${s.name}`);
+          }
+        }
+      }
+    }
+  });
+
+// ── Discover ─────────────────────────────────────────────────────────────────
+
+program
+  .command('discover')
+  .description('Search all content sources for skills, agents, rules, hooks, MCP servers')
+  .argument('<query>', 'Search query')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('-t, --type <type>', 'Filter by content type (skills, agents, rules, hooks, mcp, etc.)')
+  .option('-n, --max <n>', 'Maximum results', '20')
+  .option('--remote', 'Also search remote sources (GitHub API, registries)')
+  .option('--json', 'Output as JSON')
+  .action(async (query: string, opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+
+    const maxResults = parseInt(opts.max as string, 10);
+    const type = opts.type as string | undefined;
+
+    if (opts.remote) {
+      const { discoverRemote } = await import('../runtime/sources.js');
+      const results = await discoverRemote(dir, query, {
+        type: type as 'skills' | 'agents' | undefined,
+        maxResults,
+      });
+
+      if (opts.json) {
+        console.log(JSON.stringify(results, null, 2));
+      } else if (results.length === 0) {
+        console.log('No results found.');
+      } else {
+        console.log(`${results.length} result(s):\n`);
+        for (const r of results) {
+          console.log(`  [${r.type}] ${r.name} (score: ${r.score.toFixed(2)})`);
+          console.log(`    Source: ${r.source.name}`);
+          console.log(`    ${r.url}`);
+          if (r.description) console.log(`    ${r.description}`);
+          console.log();
+        }
+      }
+    } else {
+      const { discoverSources } = await import('../runtime/sources.js');
+      const results = discoverSources(dir, query, {
+        type: type as 'skills' | 'agents' | undefined,
+        maxResults,
+      });
+
+      if (opts.json) {
+        console.log(JSON.stringify(results, null, 2));
+      } else if (results.length === 0) {
+        console.log('No results found. Try --remote to search GitHub and registries.');
+      } else {
+        console.log(`${results.length} result(s):\n`);
+        for (const r of results) {
+          console.log(`  [${r.type}] ${r.name} (score: ${r.score.toFixed(2)})`);
+          console.log(`    Source: ${r.source.name}`);
+          console.log(`    ${r.url}`);
+          if (r.description) console.log(`    ${r.description}`);
+          console.log();
+        }
+      }
+    }
+  });
+
 // ── Semantic Search ──────────────────────────────────────────────────────────
 
 const semanticCmd = program.command('semantic').description('Semantic search over indexed primitives');

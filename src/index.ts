@@ -111,5 +111,7 @@ export { extractEmbeddableText, cosineSimilarity, loadEmbeddingStore, saveEmbedd
 export type { EmbeddingRecord, EmbeddingStore, SemanticSearchResult, EmbedFunction, SemanticSearchConfig } from './runtime/semantic-search.js';
 export { startServe } from './runtime/serve.js';
 export type { ServeOptions, WebhookRegistration, WebhookPayload, WebhookStore, ServeResult } from './runtime/serve.js';
+export { loadShippedSources, loadUserSources, saveUserSources, loadAllSources, addSource, removeSource, discoverSources, getSourcesForType, getSourcesSummary, fetchGitHubSource, discoverRemote } from './runtime/sources.js';
+export type { Source, SourceType, ContentType, SourcesFile, SourceDiscoveryResult, SourceDiscoveryOptions } from './runtime/sources.js';
 export { isGitRepo, initVersioning, snapshot, getVersionLog, getVersionDiff, rollback, listTags, tagVersion, getPendingChanges, getFileHistory, getFileAtVersion } from './runtime/versioning.js';
 export type { VersionEntry, VersionLog, RollbackResult, SnapshotResult, DiffEntry, VersionDiff } from './runtime/versioning.js';

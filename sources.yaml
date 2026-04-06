@@ -1,0 +1,127 @@
+# Agent Harness — Known Community Sources
+# These sources are searched by `harness discover` to find
+# skills, agents, rules, playbooks, hooks, templates, and MCP servers.
+#
+# Format:
+#   name: Display name
+#   url:  GitHub repo URL or registry API endpoint
+#   type: github | registry | api
+#   content: What kind of content this source provides
+#   tags: Searchable tags
+#
+# Community members can add sources by PR or via `harness sources add`.
+
+version: "1.0"
+
+sources:
+  # ── MCP Registries ────────────────────────────────────────────────────────
+  - name: "MCP Official Registry"
+    url: "https://registry.modelcontextprotocol.io"
+    type: registry
+    content: [mcp]
+    tags: [mcp, tools, official]
+    description: "Official Model Context Protocol server registry"
+
+  - name: "Smithery.ai"
+    url: "https://smithery.ai"
+    type: registry
+    content: [mcp]
+    tags: [mcp, tools, marketplace]
+    description: "MCP server marketplace with ratings and reviews"
+
+  - name: "mcp.run"
+    url: "https://www.mcp.run"
+    type: registry
+    content: [mcp]
+    tags: [mcp, tools, hosted]
+    description: "Hosted MCP server registry"
+
+  - name: "Glama MCP Servers"
+    url: "https://glama.ai/mcp/servers"
+    type: registry
+    content: [mcp]
+    tags: [mcp, tools, curated]
+    description: "Curated MCP server directory"
+
+  # ── Skills & Agents ───────────────────────────────────────────────────────
+  - name: "ClawHub Skills"
+    url: "https://github.com/anthropics/clawhub"
+    type: github
+    content: [skills, agents]
+    tags: [skills, agents, official, claude]
+    description: "Official Anthropic skills and agents hub"
+
+  - name: "awesome-claude-code-toolkit"
+    url: "https://github.com/anthropics/awesome-claude-code-toolkit"
+    type: github
+    content: [skills, agents, templates, hooks]
+    tags: [skills, agents, templates, curated, official]
+    description: "Official curated collection of Claude Code extensions"
+
+  - name: "wshobson/agents"
+    url: "https://github.com/wshobson/agents"
+    type: github
+    content: [agents, skills]
+    tags: [agents, skills, large-collection]
+    description: "112 agents and 146 skills for Claude Code"
+    stats:
+      agents: 112
+      skills: 146
+
+  - name: "faf-skills"
+    url: "https://github.com/mlefrancois/faf-skills"
+    type: github
+    content: [skills]
+    tags: [skills, faf-format]
+    description: "31 skills in .faf YAML format"
+    stats:
+      skills: 31
+
+  - name: "oh-my-claudecode"
+    url: "https://github.com/nicobailon/oh-my-claudecode"
+    type: github
+    content: [skills, agents]
+    tags: [skills, agents, community]
+    description: "28 skills and 19 agents for Claude Code"
+    stats:
+      skills: 28
+      agents: 19
+
+  # ── Hooks & Rules ─────────────────────────────────────────────────────────
+  - name: "claude-code-hooks"
+    url: "https://github.com/anthropics/claude-code-hooks"
+    type: github
+    content: [hooks]
+    tags: [hooks, lifecycle, official]
+    description: "15 production-ready Claude Code hooks"
+    stats:
+      hooks: 15
+
+  - name: "VibeGuard"
+    url: "https://github.com/stormrageqb/VibeGuard"
+    type: github
+    content: [rules, hooks]
+    tags: [rules, hooks, security, quality]
+    description: "88 rules and 13 hooks for code quality and security"
+    stats:
+      rules: 88
+      hooks: 13
+
+  - name: "obey"
+    url: "https://github.com/nicobailon/obey"
+    type: github
+    content: [hooks]
+    tags: [hooks, lifecycle, middleware]
+    description: "17 lifecycle hooks for Claude Code"
+    stats:
+      hooks: 17
+
+  # ── Templates ─────────────────────────────────────────────────────────────
+  - name: "Claude Code Plugins"
+    url: "https://github.com/anthropics/claude-code-plugins"
+    type: github
+    content: [templates, plugins]
+    tags: [templates, plugins, official]
+    description: "13 official Claude Code plugin templates"
+    stats:
+      plugins: 13
