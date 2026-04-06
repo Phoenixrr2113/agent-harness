@@ -248,10 +248,22 @@ program
       }
     };
 
+    let closed = false;
+
+    rl.on('close', async () => {
+      if (!closed) {
+        closed = true;
+        await cleanup();
+      }
+    });
+
     const ask = () => {
+      if (closed) return;
       rl.question('> ', async (input) => {
+        if (closed) return;
         const trimmed = input.trim();
         if (!trimmed || trimmed === 'exit' || trimmed === 'quit') {
+          closed = true;
           await cleanup();
           rl.close();
           return;
