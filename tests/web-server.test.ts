@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { createWebApp } from '../src/runtime/web-server.js';
@@ -179,9 +179,184 @@ describe('web-server', () => {
       expect(res.status).toBe(200);
       const html = await res.text();
       expect(html).toContain('<!DOCTYPE html>');
-      expect(html).toContain('Agent Harness Dashboard');
-      expect(html).toContain('/api/snapshot');
+      expect(html).toContain('test-agent');
+      expect(html).toContain('Dashboard');
+      // Dashboard JS calls api('snapshot') which fetches /api/snapshot
+      expect(html).toContain("api('snapshot')");
       expect(html).toContain('EventSource');
+    });
+
+    it('GET / should include navigation and panels', async () => {
+      const { app } = createWebApp(harnessDir);
+      const res = await fetch(app, '/');
+      const html = await res.text();
+      // Sidebar navigation
+      expect(html).toContain('data-p="dashboard"');
+      expect(html).toContain('data-p="chat"');
+      expect(html).toContain('data-p="files"');
+      expect(html).toContain('data-p="mcp"');
+      expect(html).toContain('data-p="settings"');
+      // Panels
+      expect(html).toContain('id="p-dashboard"');
+      expect(html).toContain('id="p-chat"');
+      expect(html).toContain('id="p-files"');
+      expect(html).toContain('id="p-mcp"');
+      expect(html).toContain('id="p-settings"');
+    });
+  });
+
+  describe('Chat API', () => {
+    it('POST /api/chat should reject empty message', async () => {
+      const { app } = createWebApp(harnessDir);
+      const res = await fetch(app, '/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: '' }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('POST /api/chat should reject missing message field', async () => {
+      const { app } = createWebApp(harnessDir);
+      const res = await fetch(app, '/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'hello' }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('POST /api/chat/reset should return ok', async () => {
+      const { app } = createWebApp(harnessDir);
+      const res = await fetch(app, '/api/chat/reset', { method: 'POST' });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.ok).toBe(true);
+    });
+  });
+
+  describe('MCP API', () => {
+    it('GET /api/mcp should return MCP status', async () => {
+      const { app } = createWebApp(harnessDir);
+      const res = await fetch(app, '/api/mcp');
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.serverCount).toBeDefined();
+      expect(data.enabledCount).toBeDefined();
+      expect(Array.isArray(data.servers)).toBe(true);
+      expect(Array.isArray(data.errors)).toBe(true);
+    });
+
+    it('GET /api/mcp should detect invalid servers', async () => {
+      // Append MCP config with an invalid server (stdio transport, no command)
+      const configPath = join(harnessDir, 'config.yaml');
+      const config = readFileSync(configPath, 'utf-8');
+      writeFileSync(configPath, config + '\nmcp:\n  servers:\n    bad-server:\n      transport: stdio\n      enabled: true\n', 'utf-8');
+
+      const { app } = createWebApp(harnessDir);
+      const res = await fetch(app, '/api/mcp');
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.serverCount).toBe(1);
+      // Should report error for missing command
+      expect(data.errors.length).toBeGreaterThan(0);
+      expect(data.errors[0].server).toBe('bad-server');
+    });
+  });
+
+  describe('File Tree API', () => {
+    it('GET /api/files should return file tree', async () => {
+      const { app } = createWebApp(harnessDir);
+      const res = await fetch(app, '/api/files');
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(Array.isArray(data)).toBe(true);
+      // Should contain rules, instincts, etc.
+      const names = data.map((n: { name: string }) => n.name);
+      expect(names).toContain('rules');
+      expect(names).toContain('instincts');
+      expect(names).toContain('CORE.md');
+    });
+
+    it('GET /api/files/* should read a file', async () => {
+      const { app } = createWebApp(harnessDir);
+      const res = await fetch(app, '/api/files/CORE.md');
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.path).toBe('CORE.md');
+      expect(data.content).toContain('test-agent');
+      expect(data.size).toBeGreaterThan(0);
+      expect(data.modified).toBeDefined();
+    });
+
+    it('GET /api/files/* should return 404 for missing file', async () => {
+      const { app } = createWebApp(harnessDir);
+      const res = await fetch(app, '/api/files/nonexistent.md');
+      expect(res.status).toBe(404);
+    });
+
+    it('PUT /api/files/* should write a file in primitive dirs', async () => {
+      writeFileSync(join(harnessDir, 'rules', 'test.md'), '# Test');
+      const { app } = createWebApp(harnessDir);
+      const res = await fetch(app, '/api/files/rules/test.md', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: '# Updated Test' }),
+      });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.ok).toBe(true);
+
+      // Verify written
+      const content = readFileSync(join(harnessDir, 'rules', 'test.md'), 'utf-8');
+      expect(content).toBe('# Updated Test');
+    });
+
+    it('PUT /api/files/* should reject writes outside allowed dirs', async () => {
+      const { app } = createWebApp(harnessDir);
+      const res = await fetch(app, '/api/files/memory/scratch.md', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: 'hacked' }),
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it('PUT /api/files/* should allow writing core files', async () => {
+      const { app } = createWebApp(harnessDir);
+      const originalCore = readFileSync(join(harnessDir, 'CORE.md'), 'utf-8');
+      const res = await fetch(app, '/api/files/CORE.md', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: originalCore + '\n\n## Extra Section' }),
+      });
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe('Config Update API', () => {
+    it('PUT /api/config should update and validate config', async () => {
+      const { app } = createWebApp(harnessDir);
+      const configContent = readFileSync(join(harnessDir, 'config.yaml'), 'utf-8');
+      const res = await fetch(app, '/api/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: configContent }),
+      });
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.ok).toBe(true);
+      expect(data.agent).toBe('test-agent');
+    });
+
+    it('PUT /api/config should reject missing content field', async () => {
+      const { app } = createWebApp(harnessDir);
+      const res = await fetch(app, '/api/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ yaml: 'wrong' }),
+      });
+      expect(res.status).toBe(400);
     });
   });
 

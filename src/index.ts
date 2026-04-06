@@ -90,4 +90,4 @@ export type { ProjectSignal, ProjectSuggestion, ProjectDiscoveryResult, ProjectD
 export { autoProcessFile, autoProcessAll } from './runtime/auto-processor.js';
 export type { AutoProcessResult, AutoProcessOptions } from './runtime/auto-processor.js';
 export { createWebApp, startWebServer } from './runtime/web-server.js';
-export type { WebServerOptions, ServerSentEvent } from './runtime/web-server.js';
+export type { WebServerOptions, ServerSentEvent, CreateWebAppOptions } from './runtime/web-server.js';

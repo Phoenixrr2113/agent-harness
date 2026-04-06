@@ -650,6 +650,7 @@ program
       webServer = startWebServer({
         harnessDir: dir,
         port,
+        apiKey: opts.apiKey,
         onStart: (p) => console.log(`[dev] Dashboard: http://localhost:${p}`),
       });
     }

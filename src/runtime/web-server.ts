@@ -1,16 +1,19 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve } from '@hono/node-server';
-import { readFileSync, existsSync, writeFileSync } from 'fs';
-import { join, basename } from 'path';
+import { readFileSync, existsSync, writeFileSync, readdirSync, statSync } from 'fs';
+import { join, basename, relative } from 'path';
 import { collectSnapshot } from './telemetry.js';
 import { loadConfig } from '../core/config.js';
 import { loadState, saveState } from './state.js';
 import { loadAllPrimitives, loadDirectory, parseHarnessDocument } from '../primitives/loader.js';
 import { listSessions } from './sessions.js';
+import { validateMcpConfig } from './mcp.js';
+import { Conversation } from './conversation.js';
 import { CORE_PRIMITIVE_DIRS } from '../core/types.js';
 import { log } from '../core/logger.js';
 import type { HarnessDocument } from '../core/types.js';
+import type { ConversationSendResult } from './conversation.js';
 import type { Server } from 'http';
 
 // --- Types ---
@@ -18,6 +21,8 @@ import type { Server } from 'http';
 export interface WebServerOptions {
   harnessDir: string;
   port?: number;
+  /** API key for LLM calls (chat) */
+  apiKey?: string;
   /** Callback when server starts */
   onStart?: (port: number) => void;
 }
@@ -68,11 +73,69 @@ class SSEBroadcaster {
   }
 }
 
+// --- File Tree Helpers ---
+
+interface FileTreeNode {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  children?: FileTreeNode[];
+  size?: number;
+  modified?: string;
+}
+
+function buildFileTree(baseDir: string, dirPath: string, maxDepth = 3, depth = 0): FileTreeNode[] {
+  if (depth >= maxDepth || !existsSync(dirPath)) return [];
+
+  const entries = readdirSync(dirPath);
+  const nodes: FileTreeNode[] = [];
+
+  for (const entry of entries) {
+    if (entry.startsWith('.') && entry !== '.gitignore') continue;
+    if (entry === 'node_modules') continue;
+
+    const fullPath = join(dirPath, entry);
+    const relPath = relative(baseDir, fullPath);
+
+    try {
+      const stat = statSync(fullPath);
+      if (stat.isDirectory()) {
+        nodes.push({
+          name: entry,
+          path: relPath,
+          type: 'directory',
+          children: buildFileTree(baseDir, fullPath, maxDepth, depth + 1),
+        });
+      } else {
+        nodes.push({
+          name: entry,
+          path: relPath,
+          type: 'file',
+          size: stat.size,
+          modified: stat.mtime.toISOString(),
+        });
+      }
+    } catch {
+      // Skip inaccessible files
+    }
+  }
+
+  return nodes.sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
 // --- Hono App Factory ---
 
-export function createWebApp(harnessDir: string): { app: Hono; broadcaster: SSEBroadcaster } {
+export interface CreateWebAppOptions {
+  apiKey?: string;
+}
+
+export function createWebApp(harnessDir: string, options?: CreateWebAppOptions): { app: Hono; broadcaster: SSEBroadcaster } {
   const app = new Hono();
   const broadcaster = new SSEBroadcaster();
+  let conversation: Conversation | null = null;
 
   // CORS for local development
   app.use('*', cors({
@@ -238,6 +301,176 @@ export function createWebApp(harnessDir: string): { app: Hono; broadcaster: SSEB
     }
   });
 
+  // --- Chat API ---
+
+  // Send a message and get a response
+  app.post('/api/chat', async (c) => {
+    try {
+      const body = await c.req.json() as { message: string };
+      if (typeof body.message !== 'string' || !body.message.trim()) {
+        return c.json({ error: 'Request body must have a non-empty "message" string field' }, 400);
+      }
+
+      // Initialize conversation on first message
+      if (!conversation) {
+        conversation = new Conversation(harnessDir, options?.apiKey);
+        await conversation.init();
+      }
+
+      const result: ConversationSendResult = await conversation.send(body.message);
+
+      // Broadcast to SSE clients
+      broadcaster.broadcast({
+        type: 'chat_response',
+        data: { text: result.text, usage: result.usage, steps: result.steps },
+        timestamp: new Date().toISOString(),
+      });
+
+      return c.json({
+        text: result.text,
+        usage: result.usage,
+        steps: result.steps,
+        toolCalls: result.toolCalls,
+      });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : 'Chat error' }, 500);
+    }
+  });
+
+  // Reset conversation (clear history)
+  app.post('/api/chat/reset', (c) => {
+    conversation = null;
+    return c.json({ ok: true });
+  });
+
+  // --- MCP Status API ---
+
+  app.get('/api/mcp', (c) => {
+    try {
+      const config = loadConfig(harnessDir);
+      const errors = validateMcpConfig(config);
+      const errorServerNames = new Set(errors.map((e) => e.server));
+
+      const servers = Object.entries(config.mcp.servers).map(([name, server]) => ({
+        name,
+        transport: server.transport,
+        enabled: server.enabled,
+        valid: !errorServerNames.has(name),
+        command: server.command,
+        url: server.url,
+        error: errors.find((e) => e.server === name)?.error,
+      }));
+
+      return c.json({
+        serverCount: servers.length,
+        enabledCount: servers.filter((s) => s.enabled).length,
+        servers,
+        errors,
+      });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : 'MCP status error' }, 500);
+    }
+  });
+
+  // --- File Tree API ---
+
+  // Get full file tree
+  app.get('/api/files', (c) => {
+    try {
+      const tree = buildFileTree(harnessDir, harnessDir);
+      return c.json(tree);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : 'Failed to build file tree' }, 500);
+    }
+  });
+
+  // Read a file by relative path (supports nested paths via wildcard)
+  app.get('/api/files/*', (c) => {
+    const relPath = c.req.path.replace('/api/files/', '');
+    if (!relPath) {
+      return c.json({ error: 'File path required' }, 400);
+    }
+
+    const filePath = join(harnessDir, relPath);
+
+    // Security: prevent path traversal
+    if (!filePath.startsWith(harnessDir)) {
+      return c.json({ error: 'Access denied: path traversal detected' }, 403);
+    }
+    if (!existsSync(filePath)) {
+      return c.json({ error: 'File not found' }, 404);
+    }
+
+    try {
+      const stat = statSync(filePath);
+      if (stat.isDirectory()) {
+        return c.json({ error: 'Path is a directory, not a file' }, 400);
+      }
+      const content = readFileSync(filePath, 'utf-8');
+      return c.json({ path: relPath, content, size: stat.size, modified: stat.mtime.toISOString() });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : 'Failed to read file' }, 500);
+    }
+  });
+
+  // Write a file (only within primitive dirs + core files)
+  app.put('/api/files/*', async (c) => {
+    const relPath = c.req.path.replace('/api/files/', '');
+    if (!relPath) {
+      return c.json({ error: 'File path required' }, 400);
+    }
+
+    const filePath = join(harnessDir, relPath);
+    if (!filePath.startsWith(harnessDir)) {
+      return c.json({ error: 'Access denied: path traversal detected' }, 403);
+    }
+
+    // Only allow editing within primitive dirs + top-level md/yaml files
+    const allowedPrefixes = ['rules/', 'instincts/', 'skills/', 'playbooks/', 'workflows/', 'tools/', 'agents/'];
+    const allowedFiles = ['CORE.md', 'SYSTEM.md', 'state.md', 'config.yaml'];
+    const isAllowed = allowedPrefixes.some((p) => relPath.startsWith(p)) || allowedFiles.includes(relPath);
+    if (!isAllowed) {
+      return c.json({ error: 'Cannot edit files outside primitive directories and core files' }, 403);
+    }
+
+    try {
+      const body = await c.req.json() as { content: string };
+      if (typeof body.content !== 'string') {
+        return c.json({ error: 'Request body must have a "content" string field' }, 400);
+      }
+      writeFileSync(filePath, body.content, 'utf-8');
+      return c.json({ ok: true, path: relPath });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : 'Failed to write file' }, 500);
+    }
+  });
+
+  // --- Config Update API ---
+
+  app.put('/api/config', async (c) => {
+    try {
+      const configPath = join(harnessDir, 'config.yaml');
+      const body = await c.req.json() as { content: string };
+      if (typeof body.content !== 'string') {
+        return c.json({ error: 'Request body must have a "content" string field' }, 400);
+      }
+      writeFileSync(configPath, body.content, 'utf-8');
+
+      // Validate by reloading
+      const config = loadConfig(harnessDir);
+
+      broadcaster.broadcast({
+        type: 'config_change',
+        data: { model: config.model.id },
+        timestamp: new Date().toISOString(),
+      });
+
+      return c.json({ ok: true, agent: config.agent.name });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : 'Failed to update config' }, 500);
+    }
+  });
+
   // SSE Events stream
   app.get('/api/events', (c) => {
     const stream = new ReadableStream({
@@ -275,7 +508,7 @@ export function createWebApp(harnessDir: string): { app: Hono; broadcaster: SSEB
 
   // --- Dashboard HTML ---
   app.get('/', (c) => {
-    return c.html(buildDashboardHtml());
+    return c.html(buildDashboardHtml(harnessDir));
   });
 
   return { app, broadcaster };
@@ -284,8 +517,8 @@ export function createWebApp(harnessDir: string): { app: Hono; broadcaster: SSEB
 // --- Server Lifecycle ---
 
 export function startWebServer(options: WebServerOptions): { server: Server; broadcaster: SSEBroadcaster } {
-  const { harnessDir, port = 3000, onStart } = options;
-  const { app, broadcaster } = createWebApp(harnessDir);
+  const { harnessDir, port = 3000, apiKey, onStart } = options;
+  const { app, broadcaster } = createWebApp(harnessDir, { apiKey });
 
   const server = serve({
     fetch: app.fetch,
@@ -312,284 +545,242 @@ function serializeDoc(doc: HarnessDocument): Record<string, unknown> {
 
 // --- Inline Dashboard HTML ---
 
-function buildDashboardHtml(): string {
+function buildDashboardHtml(harnessDir: string): string {
+  let agentName = 'Agent';
+  try {
+    const config = loadConfig(harnessDir);
+    agentName = config.agent.name;
+  } catch { /* ignore */ }
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agent Harness Dashboard</title>
+<title>${escapeHtml(agentName)} Dashboard</title>
 <style>
-  :root {
-    --bg: #0d1117; --surface: #161b22; --border: #30363d;
-    --text: #c9d1d9; --text-muted: #8b949e; --accent: #58a6ff;
-    --green: #3fb950; --red: #f85149; --yellow: #d29922;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
-    background: var(--bg); color: var(--text); padding: 1rem; }
-  .header { display: flex; justify-content: space-between; align-items: center;
-    border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 1rem; }
-  .header h1 { font-size: 1.4rem; color: var(--accent); }
-  .status { font-size: 0.85rem; color: var(--text-muted); }
-  .status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-    margin-right: 4px; vertical-align: middle; }
-  .dot.ok { background: var(--green); } .dot.warn { background: var(--yellow); }
-  .dot.err { background: var(--red); }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 1rem; margin-bottom: 1.5rem; }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
-    padding: 1rem; }
-  .card h2 { font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase;
-    letter-spacing: 0.05em; margin-bottom: 0.75rem; }
-  .metric { display: flex; justify-content: space-between; align-items: baseline;
-    padding: 0.3rem 0; }
-  .metric .label { color: var(--text-muted); font-size: 0.85rem; }
-  .metric .value { font-size: 1rem; font-weight: 600; }
-  .value.green { color: var(--green); } .value.red { color: var(--red); }
-  .value.yellow { color: var(--yellow); }
-  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-  th { text-align: left; color: var(--text-muted); padding: 0.4rem 0.5rem;
-    border-bottom: 1px solid var(--border); }
-  td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
-  .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 12px;
-    font-size: 0.75rem; font-weight: 500; }
-  .badge.green { background: rgba(63,185,80,0.15); color: var(--green); }
-  .badge.red { background: rgba(248,81,73,0.15); color: var(--red); }
-  .badge.yellow { background: rgba(210,153,34,0.15); color: var(--yellow); }
-  .events { max-height: 200px; overflow-y: auto; font-size: 0.8rem;
-    font-family: monospace; background: var(--bg); padding: 0.5rem;
-    border-radius: 4px; border: 1px solid var(--border); }
-  .events .event { padding: 0.2rem 0; color: var(--text-muted); }
-  .events .event .type { color: var(--accent); margin-right: 0.5rem; }
-  .events .event .time { color: var(--text-muted); opacity: 0.6; margin-right: 0.5rem; }
-  #error { display: none; background: rgba(248,81,73,0.1); border: 1px solid var(--red);
-    color: var(--red); padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; }
-  .refresh-btn { background: var(--surface); border: 1px solid var(--border);
-    color: var(--accent); padding: 0.3rem 0.75rem; border-radius: 4px; cursor: pointer;
-    font-size: 0.8rem; }
-  .refresh-btn:hover { background: var(--border); }
+:root{--bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#c9d1d9;--dim:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;--yellow:#d29922;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,monospace}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13px;line-height:1.5}
+.layout{display:grid;grid-template-columns:200px 1fr;grid-template-rows:44px 1fr;height:100vh}
+.topbar{grid-column:1/-1;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 16px;gap:12px}
+.topbar h1{font-size:14px;font-weight:600;color:var(--accent)}
+.topbar .status{font-size:11px;color:var(--dim);display:flex;align-items:center;gap:4px}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.dot.ok{background:var(--green)}.dot.warn{background:var(--yellow)}.dot.err{background:var(--red)}
+.sidebar{background:var(--surface);border-right:1px solid var(--border);overflow-y:auto;padding-top:8px}
+.nav{display:block;padding:6px 16px;color:var(--dim);cursor:pointer;border:none;background:none;width:100%;text-align:left;font:inherit;font-size:12px}
+.nav:hover{background:var(--border);color:var(--text)}.nav.active{color:var(--accent);background:rgba(88,166,255,.1)}
+.main{overflow-y:auto;padding:16px}
+.panel{display:none}.panel.active{display:block}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px}
+.card h3{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.m{display:flex;justify-content:space-between;padding:2px 0;font-size:12px}
+.m .l{color:var(--dim)}.m .v{font-weight:600}
+.v.g{color:var(--green)}.v.r{color:var(--red)}.v.y{color:var(--yellow)}
+.badge{display:inline-block;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:500}
+.badge.g{background:rgba(63,185,80,.15);color:var(--green)}
+.badge.r{background:rgba(248,81,73,.15);color:var(--red)}
+.badge.y{background:rgba(210,153,34,.15);color:var(--yellow)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;color:var(--dim);padding:4px 6px;border-bottom:1px solid var(--border);font-size:10px;text-transform:uppercase}
+td{padding:4px 6px;border-bottom:1px solid var(--border)}
+.events{max-height:180px;overflow-y:auto;font-size:11px;font-family:monospace;background:var(--bg);padding:6px;border-radius:4px;border:1px solid var(--border)}
+.events .ev{padding:1px 0;color:var(--dim)}.events .ev .t{color:var(--accent);margin-right:6px}
+.chat-wrap{display:flex;flex-direction:column;height:calc(100vh - 76px)}
+.chat-msgs{flex:1;overflow-y:auto;padding:8px 0}
+.msg{padding:6px 0}.msg .role{font-size:10px;font-weight:600;margin-bottom:1px}
+.msg .role.user{color:var(--accent)}.msg .role.assistant{color:var(--green)}
+.msg .body{white-space:pre-wrap;word-wrap:break-word}.msg .meta{font-size:10px;color:var(--dim);margin-top:2px}
+.chat-bar{display:flex;gap:6px;padding:8px 0;border-top:1px solid var(--border)}
+.chat-bar input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:8px 10px;color:var(--text);font:inherit;outline:none}
+.chat-bar input:focus{border-color:var(--accent)}
+.chat-bar button{background:var(--accent);color:#fff;border:none;border-radius:4px;padding:8px 16px;cursor:pointer;font:inherit;font-weight:600}
+.chat-bar button:disabled{opacity:.5;cursor:not-allowed}
+.editor-wrap{display:grid;grid-template-columns:220px 1fr;gap:12px;height:calc(100vh - 76px)}
+.tree{font-size:11px;overflow-y:auto}
+.tree .d{cursor:pointer;padding:2px 0}.tree .d::before{content:'\\25b8 ';color:var(--dim)}.tree .d.open::before{content:'\\25be '}
+.tree .f{padding:2px 0 2px 14px;cursor:pointer;color:var(--dim)}.tree .f:hover{color:var(--accent)}
+.tree .ch{padding-left:14px;display:none}.tree .d.open+.ch{display:block}
+.ed-area{display:flex;flex-direction:column}
+.ed-head{padding:6px 0;font-size:11px;color:var(--dim);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.ed-ta{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:10px;color:var(--text);font:inherit;font-size:11px;resize:none;outline:none;tab-size:2}
+.ed-ta:focus{border-color:var(--accent)}
+.save-btn{background:var(--green);color:var(--bg);border:none;border-radius:3px;padding:3px 10px;cursor:pointer;font:inherit;font-size:10px;font-weight:600}
+.config-block{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;white-space:pre-wrap;font-size:11px;font-family:monospace;overflow-x:auto;min-height:200px}
+.toast-box{position:fixed;bottom:16px;right:16px;z-index:1000}
+.toast{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:8px 12px;margin-top:6px;font-size:11px}
 </style>
 </head>
 <body>
-<div class="header">
-  <h1 id="title">Agent Harness</h1>
-  <div>
-    <span class="status" id="connection"><span class="dot warn"></span> Connecting...</span>
-    <button class="refresh-btn" onclick="refresh()">Refresh</button>
-  </div>
+<div class="layout">
+<div class="topbar">
+  <h1 id="title">${escapeHtml(agentName)}</h1>
+  <div class="status"><span class="dot warn" id="sdot"></span><span id="stxt">connecting</span></div>
+  <div style="flex:1"></div>
+  <div class="status"><span class="dot ok" style="animation:pulse 2s infinite"></span>live</div>
 </div>
-<div id="error"></div>
+<div class="sidebar">
+  <button class="nav active" data-p="dashboard">Dashboard</button>
+  <button class="nav" data-p="chat">Chat</button>
+  <button class="nav" data-p="files">Files</button>
+  <button class="nav" data-p="mcp">MCP Servers</button>
+  <button class="nav" data-p="settings">Settings</button>
+</div>
+<div class="main">
 
-<div class="grid">
-  <div class="card">
-    <h2>Agent</h2>
-    <div id="agent-info">Loading...</div>
-  </div>
-  <div class="card">
-    <h2>Health</h2>
-    <div id="health-info">Loading...</div>
-  </div>
-  <div class="card">
-    <h2>Spending</h2>
-    <div id="spending-info">Loading...</div>
-  </div>
-  <div class="card">
-    <h2>Sessions</h2>
-    <div id="sessions-info">Loading...</div>
+<!-- Dashboard -->
+<div class="panel active" id="p-dashboard">
+  <div class="grid" id="dash-cards"></div>
+  <div class="grid">
+    <div class="card"><h3>Health Checks</h3><div id="dash-health"></div></div>
+    <div class="card"><h3>MCP Servers</h3><div id="dash-mcp"></div></div>
+    <div class="card"><h3>Live Events</h3><div class="events" id="evlog"></div></div>
   </div>
 </div>
 
-<div class="grid">
-  <div class="card">
-    <h2>Workflows</h2>
-    <div id="workflows-info">Loading...</div>
-  </div>
-  <div class="card">
-    <h2>Primitives</h2>
-    <div id="primitives-info">Loading...</div>
-  </div>
-  <div class="card">
-    <h2>MCP Servers</h2>
-    <div id="mcp-info">Loading...</div>
-  </div>
-  <div class="card">
-    <h2>Live Events</h2>
-    <div class="events" id="events-log"></div>
+<!-- Chat -->
+<div class="panel" id="p-chat">
+  <div class="chat-wrap">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:6px">
+      <strong>Chat</strong>
+      <button class="save-btn" onclick="resetChat()">Reset</button>
+    </div>
+    <div class="chat-msgs" id="chat-msgs"></div>
+    <div class="chat-bar">
+      <input type="text" id="chat-in" placeholder="Type a message..." autocomplete="off">
+      <button id="chat-btn">Send</button>
+    </div>
   </div>
 </div>
 
+<!-- Files -->
+<div class="panel" id="p-files">
+  <div class="editor-wrap">
+    <div class="tree" id="ftree"></div>
+    <div class="ed-area">
+      <div class="ed-head"><span id="ed-path">Select a file</span><button class="save-btn" id="ed-save" style="display:none" onclick="saveFile()">Save</button></div>
+      <textarea class="ed-ta" id="ed-ta" disabled placeholder="Select a file..."></textarea>
+    </div>
+  </div>
+</div>
+
+<!-- MCP -->
+<div class="panel" id="p-mcp">
+  <h2 style="margin-bottom:12px">MCP Servers</h2>
+  <div id="mcp-detail"></div>
+</div>
+
+<!-- Settings -->
+<div class="panel" id="p-settings">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <h2>config.yaml</h2>
+    <button class="save-btn" onclick="saveConfig()">Save Config</button>
+  </div>
+  <textarea class="config-block" id="cfg-ta" style="width:100%;min-height:400px;resize:vertical"></textarea>
+</div>
+
+</div>
+</div>
+<div class="toast-box" id="toasts"></div>
+<style>@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}</style>
 <script>
-let eventSource;
-const eventsLog = document.getElementById('events-log');
+(function(){
+let curPanel='dashboard',curFile=null,sending=false;
 
-function showError(msg) {
-  const el = document.getElementById('error');
-  el.textContent = msg; el.style.display = 'block';
-  setTimeout(() => el.style.display = 'none', 5000);
-}
+// Nav
+document.querySelectorAll('.nav').forEach(b=>{b.addEventListener('click',()=>{
+  document.querySelectorAll('.nav').forEach(n=>n.classList.remove('active'));b.classList.add('active');
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  const p=b.dataset.p;document.getElementById('p-'+p).classList.add('active');curPanel=p;
+  if(p==='dashboard')loadDash();if(p==='files')loadTree();if(p==='mcp')loadMcp();if(p==='settings')loadCfg();
+})});
 
-function setConnection(ok) {
-  const el = document.getElementById('connection');
-  el.innerHTML = ok
-    ? '<span class="dot ok"></span> Connected'
-    : '<span class="dot err"></span> Disconnected';
-}
+// Helpers
+async function api(path,opts){const r=await fetch('/api/'+path,opts);if(!r.ok){const e=await r.json().catch(()=>({error:r.statusText}));throw new Error(e.error||r.statusText)}return r.json()}
+function toast(m){const e=document.createElement('div');e.className='toast';e.textContent=m;document.getElementById('toasts').appendChild(e);setTimeout(()=>e.remove(),4000)}
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function mt(l,v,c){return '<div class="m"><span class="l">'+esc(l)+'</span><span class="v'+(c?' '+c:'')+'">'+v+'</span></div>'}
+function bg(t,c){return '<span class="badge '+c+'">'+esc(t)+'</span>'}
+function f$(v){return '$'+(v||0).toFixed(2)}
 
-function metric(label, value, cls) {
-  return '<div class="metric"><span class="label">' + label + '</span>'
-    + '<span class="value' + (cls ? ' ' + cls : '') + '">' + value + '</span></div>';
-}
+// Dashboard
+async function loadDash(){try{
+  const s=await api('snapshot');
+  document.getElementById('title').textContent=s.agent.name;document.title=s.agent.name+' Dashboard';
+  const c=document.getElementById('dash-cards');c.innerHTML='';
+  function card(l,v,sub){c.innerHTML+='<div class="card"><h3>'+esc(l)+'</h3><div style="font-size:18px;font-weight:700">'+esc(String(v))+'</div>'+(sub?'<div style="font-size:10px;color:var(--dim);margin-top:2px">'+esc(sub)+'</div>':'')+'</div>'}
+  card('Status',s.health.status,s.agent.mode);
+  card('Sessions',s.sessions.total,s.sessions.totalTokens.toLocaleString()+' tokens');
+  card('Today',f$(s.spending.today.total_cost_usd),s.spending.today.entries+' calls');
+  card('Monthly',f$(s.spending.thisMonth.total_cost_usd));
+  card('Workflows',s.workflows.totalRuns+' runs',s.workflows.overallSuccessRate.toFixed(0)+'% success');
+  card('Primitives',s.storage.primitiveCount,s.storage.sessionCount+' sessions');
+  card('MCP',s.mcp.enabledCount+'/'+s.mcp.serverCount+' servers');
+  card('Last Active',s.agent.lastInteraction==='never'?'never':new Date(s.agent.lastInteraction).toLocaleString());
+  // Health dot
+  const dot=document.getElementById('sdot');const txt=document.getElementById('stxt');
+  dot.className='dot '+(s.health.status==='healthy'?'ok':s.health.status==='degraded'?'warn':'err');
+  txt.textContent=s.health.status;
+  // Health checks
+  const hh=document.getElementById('dash-health');
+  hh.innerHTML=s.health.checks.length===0?'<span style="color:var(--dim)">No checks</span>':
+    '<table><tr><th>Check</th><th>Status</th><th>Message</th></tr>'+s.health.checks.map(c=>'<tr><td>'+esc(c.name)+'</td><td>'+bg(c.status,c.status==='pass'?'g':c.status==='warn'?'y':'r')+'</td><td>'+esc(c.message)+'</td></tr>').join('')+'</table>';
+  // MCP summary
+  const mm=document.getElementById('dash-mcp');
+  mm.innerHTML=s.mcp.servers.length===0?'<span style="color:var(--dim)">None configured</span>':
+    '<table><tr><th>Name</th><th>Transport</th><th>Status</th></tr>'+s.mcp.servers.map(s=>'<tr><td>'+esc(s.name)+'</td><td>'+esc(s.transport)+'</td><td>'+(s.enabled?(s.valid?bg('ok','g'):bg('error','r')):bg('disabled','y'))+'</td></tr>').join('')+'</table>';
+}catch(e){toast('Dashboard: '+e.message)}}
 
-function badge(text, cls) {
-  return '<span class="badge ' + cls + '">' + text + '</span>';
-}
+// Chat
+const chatIn=document.getElementById('chat-in'),chatBtn=document.getElementById('chat-btn'),chatMsgs=document.getElementById('chat-msgs');
+function addMsg(role,text,meta){const d=document.createElement('div');d.className='msg';d.innerHTML='<div class="role '+role+'">'+role+'</div><div class="body">'+esc(text)+'</div>'+(meta?'<div class="meta">'+esc(meta)+'</div>':'');chatMsgs.appendChild(d);chatMsgs.scrollTop=chatMsgs.scrollHeight}
+async function sendChat(){const m=chatIn.value.trim();if(!m||sending)return;sending=true;chatBtn.disabled=true;chatIn.value='';addMsg('user',m);
+  try{const r=await api('chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:m})});addMsg('assistant',r.text,r.usage?r.usage.totalTokens+' tokens, '+r.steps+' step(s)':'');if(r.toolCalls&&r.toolCalls.length>0)addMsg('assistant','Tools: '+r.toolCalls.map(t=>t.toolName).join(', '))}catch(e){addMsg('assistant','Error: '+e.message)}
+  sending=false;chatBtn.disabled=false;chatIn.focus()}
+chatBtn.addEventListener('click',sendChat);chatIn.addEventListener('keydown',e=>{if(e.key==='Enter')sendChat()});
+async function resetChat(){try{await api('chat/reset',{method:'POST'});chatMsgs.innerHTML='';toast('Chat reset')}catch(e){toast('Reset error: '+e.message)}}
+window.resetChat=resetChat;
 
-function fmt$(v) { return '$' + (v || 0).toFixed(2); }
+// Files
+async function loadTree(){try{const tree=await api('files');const el=document.getElementById('ftree');el.innerHTML=renderTree(tree);bindTree(el)}catch(e){toast('File tree: '+e.message)}}
+function renderTree(nodes){return nodes.map(n=>{if(n.type==='directory')return '<div class="d" data-p="'+esc(n.path)+'">'+esc(n.name)+'</div><div class="ch">'+renderTree(n.children||[])+'</div>';return '<div class="f" data-p="'+esc(n.path)+'">'+esc(n.name)+'</div>'}).join('')}
+function bindTree(el){el.querySelectorAll('.d').forEach(d=>d.addEventListener('click',()=>d.classList.toggle('open')));el.querySelectorAll('.f').forEach(f=>f.addEventListener('click',()=>openFile(f.dataset.p)))}
+async function openFile(path){try{const f=await api('files/'+path);curFile=path;document.getElementById('ed-path').textContent=path;document.getElementById('ed-ta').value=f.content;document.getElementById('ed-ta').disabled=false;document.getElementById('ed-save').style.display='inline-block'}catch(e){toast('Open: '+e.message)}}
+async function saveFile(){if(!curFile)return;try{await api('files/'+curFile,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:document.getElementById('ed-ta').value})});toast('Saved: '+curFile)}catch(e){toast('Save: '+e.message)}}
+window.saveFile=saveFile;
 
-function renderSnapshot(s) {
-  document.getElementById('title').textContent = s.agent.name + ' Dashboard';
-  document.title = s.agent.name + ' — Dashboard';
+// MCP
+async function loadMcp(){try{const d=await api('mcp');const el=document.getElementById('mcp-detail');
+  if(d.servers.length===0){el.innerHTML='<p style="color:var(--dim)">No MCP servers configured.</p>';return}
+  el.innerHTML='<table><tr><th>Name</th><th>Transport</th><th>Enabled</th><th>Valid</th><th>Details</th></tr>'+d.servers.map(s=>'<tr><td>'+esc(s.name)+'</td><td>'+esc(s.transport)+'</td><td>'+(s.enabled?bg('yes','g'):bg('no','y'))+'</td><td>'+(s.valid?bg('valid','g'):bg('invalid','r'))+'</td><td style="font-size:10px;color:var(--dim)">'+esc(s.command||s.url||'')+'</td></tr>').join('')+'</table>';
+  if(d.errors.length>0)el.innerHTML+='<h3 style="margin:12px 0 6px;color:var(--red)">Errors</h3><ul>'+d.errors.map(e=>'<li style="color:var(--red);font-size:11px">'+esc(e.server+': '+e.error)+'</li>').join('')+'</ul>'}catch(e){toast('MCP: '+e.message)}}
 
-  // Agent
-  document.getElementById('agent-info').innerHTML =
-    metric('Name', s.agent.name) +
-    metric('Version', s.agent.version) +
-    metric('Mode', badge(s.agent.mode, s.agent.mode === 'idle' ? 'green' : 'yellow')) +
-    metric('Last Active', new Date(s.agent.lastInteraction).toLocaleString());
+// Settings
+async function loadCfg(){try{const f=await api('files/config.yaml');document.getElementById('cfg-ta').value=f.content}catch(e){toast('Config: '+e.message)}}
+async function saveConfig(){try{await api('config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:document.getElementById('cfg-ta').value})});toast('Config saved and reloaded')}catch(e){toast('Config save: '+e.message)}}
+window.saveConfig=saveConfig;
 
-  // Health
-  const h = s.health;
-  const hClass = h.status === 'healthy' ? 'green' : h.status === 'degraded' ? 'yellow' : 'red';
-  document.getElementById('health-info').innerHTML =
-    metric('Status', badge(h.status, hClass)) +
-    metric('Uptime', h.uptimeSeconds ? Math.floor(h.uptimeSeconds / 60) + 'm' : 'N/A') +
-    metric('Consecutive OK', h.consecutiveSuccesses || 0, 'green') +
-    metric('Consecutive Fail', h.consecutiveFailures || 0, h.consecutiveFailures > 0 ? 'red' : '');
+// SSE
+const evlog=document.getElementById('evlog');
+function addEv(type,data){const t=new Date().toLocaleTimeString();const e=document.createElement('div');e.className='ev';e.innerHTML='<span style="color:var(--dim);opacity:.6;margin-right:4px">'+t+'</span><span class="t">'+type+'</span>'+esc(typeof data==='string'?data:JSON.stringify(data));evlog.prepend(e);while(evlog.children.length>50)evlog.removeChild(evlog.lastChild)}
+function connectSSE(){const es=new EventSource('/api/events');
+  es.addEventListener('connected',()=>{document.getElementById('sdot').className='dot ok';document.getElementById('stxt').textContent='connected';addEv('connected','SSE established');loadDash()});
+  es.addEventListener('file_change',e=>{const d=JSON.parse(e.data);addEv('file_change',d.path+' ('+d.event+')');if(curPanel==='dashboard')loadDash();if(curPanel==='files')loadTree()});
+  es.addEventListener('index_rebuild',e=>{addEv('index_rebuild',JSON.parse(e.data).directory)});
+  es.addEventListener('auto_process',e=>{const d=JSON.parse(e.data);addEv('auto_process',d.path+': '+(d.fixes||[]).join(', '))});
+  es.addEventListener('config_change',()=>{addEv('config_change','reloaded');if(curPanel==='dashboard')loadDash();if(curPanel==='settings')loadCfg()});
+  es.addEventListener('chat_response',e=>{addEv('chat',JSON.parse(e.data).text?.slice(0,60)||'...')});
+  es.onerror=()=>{document.getElementById('sdot').className='dot err';document.getElementById('stxt').textContent='disconnected'}}
 
-  // Spending
-  const sp = s.spending;
-  document.getElementById('spending-info').innerHTML =
-    metric('Today', fmt$(sp.today.totalCost)) +
-    metric('This Month', fmt$(sp.thisMonth.totalCost)) +
-    metric('All Time', fmt$(sp.allTime.totalCost)) +
-    metric('Tokens Today', (sp.today.totalInputTokens + sp.today.totalOutputTokens).toLocaleString());
-
-  // Sessions
-  document.getElementById('sessions-info').innerHTML =
-    metric('Total', s.sessions.total) +
-    metric('Total Tokens', s.sessions.totalTokens.toLocaleString()) +
-    metric('Avg Tokens/Session', Math.round(s.sessions.avgTokensPerSession).toLocaleString()) +
-    metric('Delegations', s.sessions.delegationCount);
-
-  // Workflows
-  const w = s.workflows;
-  if (w.stats.length === 0) {
-    document.getElementById('workflows-info').innerHTML =
-      '<div style="color:var(--text-muted)">No workflow runs yet.</div>';
-  } else {
-    let html = metric('Total Runs', w.totalRuns) +
-      metric('Success Rate', (w.overallSuccessRate * 100).toFixed(0) + '%',
-        w.overallSuccessRate >= 0.9 ? 'green' : w.overallSuccessRate >= 0.7 ? 'yellow' : 'red');
-    html += '<table><tr><th>Workflow</th><th>Runs</th><th>Rate</th></tr>';
-    for (const ws of w.stats) {
-      const rate = ws.runs > 0 ? ((ws.successes / ws.runs) * 100).toFixed(0) + '%' : 'N/A';
-      html += '<tr><td>' + ws.id + '</td><td>' + ws.runs + '</td><td>' + rate + '</td></tr>';
-    }
-    html += '</table>';
-    document.getElementById('workflows-info').innerHTML = html;
-  }
-
-  // Primitives (storage)
-  const st = s.storage;
-  document.getElementById('primitives-info').innerHTML =
-    metric('Total Primitives', st.primitiveCount) +
-    metric('Sessions', st.sessionCount) +
-    metric('Journal Entries', st.journalCount) +
-    metric('Weekly Summaries', st.weeklyCount);
-
-  // MCP
-  const m = s.mcp;
-  if (m.serverCount === 0) {
-    document.getElementById('mcp-info').innerHTML =
-      '<div style="color:var(--text-muted)">No MCP servers configured.</div>';
-  } else {
-    let html = metric('Servers', m.serverCount) + metric('Enabled', m.enabledCount);
-    html += '<table><tr><th>Name</th><th>Transport</th><th>Status</th></tr>';
-    for (const srv of m.servers) {
-      const status = srv.valid ? badge('OK', 'green') : badge(srv.error || 'Invalid', 'red');
-      html += '<tr><td>' + srv.name + '</td><td>' + srv.transport + '</td><td>' + status + '</td></tr>';
-    }
-    html += '</table>';
-    document.getElementById('mcp-info').innerHTML = html;
-  }
-}
-
-function addEvent(type, data) {
-  const time = new Date().toLocaleTimeString();
-  const el = document.createElement('div');
-  el.className = 'event';
-  el.innerHTML = '<span class="time">' + time + '</span>'
-    + '<span class="type">' + type + '</span>'
-    + '<span>' + (typeof data === 'string' ? data : JSON.stringify(data)) + '</span>';
-  eventsLog.prepend(el);
-  // Keep max 50 events
-  while (eventsLog.children.length > 50) eventsLog.removeChild(eventsLog.lastChild);
-}
-
-async function refresh() {
-  try {
-    const res = await fetch('/api/snapshot');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const snapshot = await res.json();
-    renderSnapshot(snapshot);
-  } catch (e) {
-    showError('Failed to load: ' + e.message);
-  }
-}
-
-function connectSSE() {
-  if (eventSource) eventSource.close();
-  eventSource = new EventSource('/api/events');
-  eventSource.addEventListener('connected', (e) => {
-    setConnection(true);
-    addEvent('connected', 'SSE stream established');
-    refresh();
-  });
-  eventSource.addEventListener('file_change', (e) => {
-    const data = JSON.parse(e.data);
-    addEvent('file_change', data.path + ' (' + data.event + ')');
-    // Auto-refresh on file changes
-    refresh();
-  });
-  eventSource.addEventListener('index_rebuild', (e) => {
-    const data = JSON.parse(e.data);
-    addEvent('index_rebuild', data.directory);
-  });
-  eventSource.addEventListener('auto_process', (e) => {
-    const data = JSON.parse(e.data);
-    addEvent('auto_process', data.path + ': ' + (data.fixes || []).join(', '));
-  });
-  eventSource.addEventListener('config_change', () => {
-    addEvent('config_change', 'Config reloaded');
-    refresh();
-  });
-  eventSource.addEventListener('snapshot', (e) => {
-    const snapshot = JSON.parse(e.data);
-    renderSnapshot(snapshot);
-  });
-  eventSource.onerror = () => {
-    setConnection(false);
-    // Auto-reconnect is built into EventSource
-  };
-}
-
-// Boot
-refresh();
-connectSSE();
-// Periodic refresh every 30s as fallback
-setInterval(refresh, 30000);
+loadDash();connectSSE();setInterval(()=>{if(curPanel==='dashboard')loadDash()},30000);
+})();
 </script>
 </body>
 </html>`;
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
