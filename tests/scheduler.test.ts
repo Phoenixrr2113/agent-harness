@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdirSync, writeFileSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { isQuietHours, Scheduler } from '../src/runtime/scheduler.js';
+import { HarnessConfigSchema } from '../src/core/types.js';
 import type { HarnessConfig } from '../src/core/types.js';
 
 function makeConfig(start: number, end: number, timezone = 'America/New_York'): HarnessConfig {
@@ -306,6 +307,126 @@ describe('Scheduler', () => {
     await expect(scheduler.executeWorkflow(doc)).rejects.toThrow();
   });
 
+  it('should schedule auto-journal task when autoJournal is enabled', () => {
+    const scheduler = new Scheduler({
+      harnessDir: SCHED_TEST_DIR,
+      autoArchival: false,
+      autoJournal: true,
+    });
+    scheduler.start();
+    expect(scheduler.isRunning()).toBe(true);
+    // Should start and stop without error — the cron task is registered internally
+    scheduler.stop();
+    expect(scheduler.isRunning()).toBe(false);
+  });
+
+  it('should schedule auto-journal with custom cron', () => {
+    const scheduler = new Scheduler({
+      harnessDir: SCHED_TEST_DIR,
+      autoArchival: false,
+      autoJournal: '0 21 * * *',
+    });
+    scheduler.start();
+    expect(scheduler.isRunning()).toBe(true);
+    scheduler.stop();
+    expect(scheduler.isRunning()).toBe(false);
+  });
+
+  it('should not schedule auto-journal when disabled', () => {
+    const scheduler = new Scheduler({
+      harnessDir: SCHED_TEST_DIR,
+      autoArchival: false,
+      autoJournal: false,
+    });
+    scheduler.start();
+    expect(scheduler.isRunning()).toBe(true);
+    scheduler.stop();
+  });
+
+  it('should enforce proactive cooldown rate limits', () => {
+    const config = makeConfig(0, 0);
+    (config as Record<string, unknown>).proactive = {
+      enabled: true,
+      max_per_hour: 3,
+      cooldown_minutes: 0,
+    };
+
+    const scheduler = new Scheduler({
+      harnessDir: SCHED_TEST_DIR,
+      autoArchival: false,
+    });
+
+    // First 3 calls should be allowed
+    expect(scheduler.checkProactiveCooldown('test-wf', config)).toBe(true);
+    expect(scheduler.checkProactiveCooldown('test-wf', config)).toBe(true);
+    expect(scheduler.checkProactiveCooldown('test-wf', config)).toBe(true);
+
+    // 4th call should be blocked (max_per_hour = 3)
+    expect(scheduler.checkProactiveCooldown('test-wf', config)).toBe(false);
+
+    // Different workflow should still be allowed
+    expect(scheduler.checkProactiveCooldown('other-wf', config)).toBe(true);
+  });
+
+  it('should enforce proactive cooldown minutes', () => {
+    const config = makeConfig(0, 0);
+    (config as Record<string, unknown>).proactive = {
+      enabled: true,
+      max_per_hour: 100,
+      cooldown_minutes: 60, // 60 min cooldown — any call within the hour will be blocked
+    };
+
+    const scheduler = new Scheduler({
+      harnessDir: SCHED_TEST_DIR,
+      autoArchival: false,
+    });
+
+    // First call allowed
+    expect(scheduler.checkProactiveCooldown('test-wf', config)).toBe(true);
+    // Second call blocked — within cooldown
+    expect(scheduler.checkProactiveCooldown('test-wf', config)).toBe(false);
+  });
+
+  it('should allow proactive execution when proactive is not enabled', () => {
+    const config = makeConfig(0, 0);
+    // proactive not set at all — should return true (no restrictions)
+
+    const scheduler = new Scheduler({
+      harnessDir: SCHED_TEST_DIR,
+      autoArchival: false,
+    });
+
+    expect(scheduler.checkProactiveCooldown('test-wf', config)).toBe(true);
+    expect(scheduler.checkProactiveCooldown('test-wf', config)).toBe(true);
+  });
+
+  it('should clear proactive history on stop', () => {
+    const config = makeConfig(0, 0);
+    (config as Record<string, unknown>).proactive = {
+      enabled: true,
+      max_per_hour: 1,
+      cooldown_minutes: 0,
+    };
+
+    const scheduler = new Scheduler({
+      harnessDir: SCHED_TEST_DIR,
+      autoArchival: false,
+    });
+    scheduler.start();
+
+    // Use up the quota
+    expect(scheduler.checkProactiveCooldown('test-wf', config)).toBe(true);
+    expect(scheduler.checkProactiveCooldown('test-wf', config)).toBe(false);
+
+    // Stop clears history
+    scheduler.stop();
+    scheduler.start();
+
+    // Should be allowed again after restart
+    expect(scheduler.checkProactiveCooldown('test-wf', config)).toBe(true);
+    scheduler.stop();
+  });
+
   it('should not retry when max_retries is not set', async () => {
     // Disable quiet hours
     writeFileSync(
@@ -343,5 +464,68 @@ describe('Scheduler', () => {
 
     // No retries when max_retries is not set (defaults to 0)
     expect(retries).toHaveLength(0);
+  });
+});
+
+const BASE_CONFIG_INPUT = {
+  agent: { name: 'test' },
+  model: { id: 'test-model' },
+  runtime: { scratchpad_budget: 10000, quiet_hours: { start: 23, end: 6 }, timezone: 'UTC' },
+  memory: { session_retention_days: 7, journal_retention_days: 365 },
+  channels: { primary: 'cli' },
+};
+
+describe('HarnessConfigSchema intelligence & proactive', () => {
+  it('should parse intelligence config with defaults', () => {
+    const config = HarnessConfigSchema.parse({ ...BASE_CONFIG_INPUT });
+
+    expect(config.intelligence.auto_journal).toBe(false);
+    expect(config.intelligence.auto_learn).toBe(false);
+  });
+
+  it('should accept auto_journal as boolean true', () => {
+    const config = HarnessConfigSchema.parse({
+      ...BASE_CONFIG_INPUT,
+      intelligence: { auto_journal: true },
+    });
+
+    expect(config.intelligence.auto_journal).toBe(true);
+    expect(config.intelligence.auto_learn).toBe(false);
+  });
+
+  it('should accept auto_journal as cron string', () => {
+    const config = HarnessConfigSchema.parse({
+      ...BASE_CONFIG_INPUT,
+      intelligence: { auto_journal: '0 21 * * *', auto_learn: true },
+    });
+
+    expect(config.intelligence.auto_journal).toBe('0 21 * * *');
+    expect(config.intelligence.auto_learn).toBe(true);
+  });
+
+  it('should parse proactive config with defaults', () => {
+    const config = HarnessConfigSchema.parse({ ...BASE_CONFIG_INPUT });
+
+    expect(config.proactive.enabled).toBe(false);
+    expect(config.proactive.max_per_hour).toBe(5);
+    expect(config.proactive.cooldown_minutes).toBe(30);
+    expect(config.proactive.quiet_hours).toBeUndefined();
+  });
+
+  it('should accept custom proactive config', () => {
+    const config = HarnessConfigSchema.parse({
+      ...BASE_CONFIG_INPUT,
+      proactive: {
+        enabled: true,
+        max_per_hour: 10,
+        cooldown_minutes: 15,
+        quiet_hours: { start: 22, end: 7 },
+      },
+    });
+
+    expect(config.proactive.enabled).toBe(true);
+    expect(config.proactive.max_per_hour).toBe(10);
+    expect(config.proactive.cooldown_minutes).toBe(15);
+    expect(config.proactive.quiet_hours).toEqual({ start: 22, end: 7 });
   });
 });

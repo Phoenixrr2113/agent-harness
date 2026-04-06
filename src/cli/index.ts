@@ -617,6 +617,8 @@ program
       scheduler = new Scheduler({
         harnessDir: dir,
         apiKey: opts.apiKey,
+        autoJournal: config.intelligence?.auto_journal ?? false,
+        autoLearn: config.intelligence?.auto_learn ?? false,
         onRun: (id, result) => {
           console.log(`[scheduler] ✓ ${id}: ${result.slice(0, 100)}`);
         },
@@ -631,14 +633,24 @@ program
             console.log(`[scheduler] Archived ${sessions} session(s), ${journals} journal(s)`);
           }
         },
+        onJournal: (date, sessionsCount) => {
+          console.log(`[scheduler] Auto-journal: synthesized ${sessionsCount} session(s) for ${date}`);
+        },
+        onLearn: (installed, skipped) => {
+          console.log(`[scheduler] Auto-learn: ${installed} instinct(s) installed, ${skipped} skipped`);
+        },
       });
       scheduler.start();
 
       const scheduled = scheduler.listScheduled();
-      if (scheduled.length > 0) {
-        console.log(`[dev] Scheduler started with ${scheduled.length} workflow(s)`);
+      const features: string[] = [];
+      if (scheduled.length > 0) features.push(`${scheduled.length} workflow(s)`);
+      if (config.intelligence?.auto_journal) features.push('auto-journal');
+      if (config.intelligence?.auto_learn) features.push('auto-learn');
+      if (features.length > 0) {
+        console.log(`[dev] Scheduler started: ${features.join(', ')}`);
       } else {
-        console.log(`[dev] Scheduler running (no workflows with schedule: set)`);
+        console.log(`[dev] Scheduler running (no workflows or intelligence features configured)`);
       }
     }
 

@@ -515,13 +515,20 @@ Adapters are webhook parsers. Each one knows how to normalize a specific service
 - [ ] Runtime loads only what's listed in `context:` when executing the workflow. Falls back to full harness loading if `context:` is not specified. -->
 
 ### Proactive config
-- [ ] `proactive` config section: `enabled` (default false), `max_per_hour`, `cooldown_minutes`, `quiet_hours`
-- [ ] Scheduler checks cooldown config before executing proactive workflows — skip if rate limit hit or quiet hours
+- [x] `proactive` config section: `enabled` (default false), `max_per_hour`, `cooldown_minutes`, `quiet_hours`
+- [x] Scheduler checks cooldown config before executing proactive workflows — skip if rate limit hit or quiet hours
+  - `checkProactiveCooldown()`: per-workflow rate limiting + cooldown enforcement
+  - Workflow frontmatter `proactive: true` triggers cooldown checks
+  - Proactive history cleared on scheduler stop/restart
 
 ### Continuous learning (opt-in config flags)
-- [ ] `intelligence.auto_journal: true` — journal synthesis runs automatically at configured time. Default: off.
-- [ ] `intelligence.auto_learn: true` — instinct proposals run after journal synthesis. Default: off.
-- [ ] These are config flags that enable existing journal + learn to run on the scheduler. No new systems.
+- [x] `intelligence.auto_journal: true` — journal synthesis runs automatically at configured time. Default: off.
+- [x] `intelligence.auto_learn: true` — instinct proposals run after journal synthesis. Default: off.
+- [x] These are config flags that enable existing journal + learn to run on the scheduler. No new systems.
+  - Scheduler `autoJournal` option: boolean or cron string (default "0 22 * * *" when true)
+  - Scheduler `autoLearn` option: runs `learnFromSessions(dir, true)` after journal synthesis
+  - `onJournal` and `onLearn` callbacks for reporting
+  - Wired into `harness dev` via `config.intelligence.auto_journal/auto_learn`
 
 ### Starter workflow packs (installable bundles)
 - [ ] Ship example workflow bundles: `pack:daily-briefs` (morning + evening workflows), `pack:weekly-review`, `pack:code-review-workflow`
@@ -910,9 +917,25 @@ Adapters are webhook parsers. Each one knows how to normalize a specific service
 - **Phase 10 is now COMPLETE** — all items checked off
 - All 1027 tests passing, build clean, lint clean
 
+### Loop 61 (Continuous Learning + Proactive Config)
+- Added `intelligence` config section: `auto_journal` (boolean | cron string), `auto_learn` (boolean)
+- Added `proactive` config section: `enabled`, `max_per_hour` (default 5), `cooldown_minutes` (default 30), `quiet_hours`
+- Scheduler enhanced:
+  - Auto-journal synthesis: cron-scheduled, calls `synthesizeJournal()` for unjournaled sessions
+  - Auto-learn: runs `learnFromSessions(dir, true)` after journal synthesis if enabled
+  - `runJournalSynthesis()` method with error handling and callbacks
+  - `checkProactiveCooldown()`: per-workflow hourly rate limit + cooldown enforcement
+  - Proactive workflows tagged with `proactive: true` in frontmatter are rate-limited
+- CLI `harness dev` wired to read `config.intelligence.auto_journal/auto_learn`
+  - Shows enabled features in startup message (auto-journal, auto-learn)
+  - `onJournal` and `onLearn` callbacks log to console
+- CONFIG_DEFAULTS updated with `intelligence` and `proactive` sections
+- 12 new tests: auto-journal scheduling (3), proactive cooldown (4), config schema validation (5)
+- All 1039 tests passing, build clean, lint clean
+
 ### Stats
-- 1027 tests across 52 files — ALL PASSING
-- 58+ source modules, 34,000+ lines
+- 1039 tests across 52 files — ALL PASSING
+- 58+ source modules, 35,000+ lines
 - 88+ CLI commands
 - Build, lint, tests all green
 - Zero `any` types, zero empty catches, zero `require()` calls

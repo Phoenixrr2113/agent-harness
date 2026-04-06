@@ -9,6 +9,8 @@ import { archiveOldFiles } from './sessions.js';
 import { recordRun } from './metrics.js';
 import { log } from '../core/logger.js';
 import { recordSuccess, recordFailure } from './health.js';
+import { synthesizeJournal, listUnjournaled } from './journal.js';
+import { learnFromSessions } from './instinct-learner.js';
 import type { HarnessConfig, HarnessDocument } from '../core/types.js';
 
 function sleep(ms: number): Promise<void> {
@@ -63,12 +65,18 @@ export interface SchedulerOptions {
   autoArchival?: boolean;
   /** Cron expression for auto-archival (default: "0 23 * * *" = daily at 23:00) */
   archivalCron?: string;
+  /** Enable auto-journal synthesis (cron string or true for default "0 22 * * *") */
+  autoJournal?: boolean | string;
+  /** Enable auto-learn after journal synthesis (default: false) */
+  autoLearn?: boolean;
   onRun?: (workflowId: string, result: string) => void;
   onError?: (workflowId: string, error: Error) => void;
   onSchedule?: (workflowId: string, cron: string) => void;
   onSkipQuietHours?: (workflowId: string) => void;
   onArchival?: (sessionsArchived: number, journalsArchived: number) => void;
   onRetry?: (workflowId: string, attempt: number, maxRetries: number, error: Error) => void;
+  onJournal?: (date: string, sessionsCount: number) => void;
+  onLearn?: (installed: number, skipped: number) => void;
 }
 
 export class Scheduler {
@@ -78,12 +86,19 @@ export class Scheduler {
   private autoArchival: boolean;
   private archivalCron: string;
   private archivalTask: ReturnType<typeof cron.schedule> | null = null;
+  private autoJournal: boolean | string;
+  private autoLearn: boolean;
+  private journalTask: ReturnType<typeof cron.schedule> | null = null;
+  /** Tracks proactive executions: workflowId → timestamps of recent runs */
+  private proactiveHistory: Map<string, number[]> = new Map();
   private onRun?: (workflowId: string, result: string) => void;
   private onError?: (workflowId: string, error: Error) => void;
   private onSchedule?: (workflowId: string, cron: string) => void;
   private onSkipQuietHours?: (workflowId: string) => void;
   private onArchival?: (sessionsArchived: number, journalsArchived: number) => void;
   private onRetry?: (workflowId: string, attempt: number, maxRetries: number, error: Error) => void;
+  private onJournal?: (date: string, sessionsCount: number) => void;
+  private onLearn?: (installed: number, skipped: number) => void;
   private running = false;
 
   constructor(options: SchedulerOptions) {
@@ -91,12 +106,16 @@ export class Scheduler {
     this.apiKey = options.apiKey;
     this.autoArchival = options.autoArchival ?? true;
     this.archivalCron = options.archivalCron ?? '0 23 * * *';
+    this.autoJournal = options.autoJournal ?? false;
+    this.autoLearn = options.autoLearn ?? false;
     this.onRun = options.onRun;
     this.onError = options.onError;
     this.onSchedule = options.onSchedule;
     this.onSkipQuietHours = options.onSkipQuietHours;
     this.onArchival = options.onArchival;
     this.onRetry = options.onRetry;
+    this.onJournal = options.onJournal;
+    this.onLearn = options.onLearn;
   }
 
   start(): void {
@@ -109,6 +128,19 @@ export class Scheduler {
         this.runArchival();
       });
       log.debug(`Auto-archival scheduled: ${this.archivalCron}`);
+    }
+
+    // Schedule auto-journal synthesis
+    if (this.autoJournal) {
+      const journalCron = typeof this.autoJournal === 'string' ? this.autoJournal : '0 22 * * *';
+      if (cron.validate(journalCron)) {
+        this.journalTask = cron.schedule(journalCron, () => {
+          void this.runJournalSynthesis();
+        });
+        log.debug(`Auto-journal scheduled: ${journalCron}${this.autoLearn ? ' (with auto-learn)' : ''}`);
+      } else {
+        log.warn(`Invalid auto_journal cron: ${journalCron}`);
+      }
     }
 
     // Load all workflows
@@ -148,10 +180,16 @@ export class Scheduler {
       this.archivalTask = null;
     }
 
+    if (this.journalTask) {
+      this.journalTask.stop();
+      this.journalTask = null;
+    }
+
     for (const [, workflow] of this.workflows) {
       workflow.task?.stop();
     }
     this.workflows.clear();
+    this.proactiveHistory.clear();
   }
 
   async executeWorkflow(doc: HarnessDocument): Promise<string> {
@@ -164,6 +202,13 @@ export class Scheduler {
       try { this.onSkipQuietHours?.(workflowId); } catch (e) {
         log.warn(`onSkipQuietHours hook failed: ${e instanceof Error ? e.message : String(e)}`);
       }
+      return '';
+    }
+
+    // Check proactive cooldown — if workflow has proactive: true in frontmatter
+    const isProactive = (doc.frontmatter as Record<string, unknown>)['proactive'] === true;
+    if (isProactive && !this.checkProactiveCooldown(workflowId, config)) {
+      log.debug(`Skipping proactive workflow "${workflowId}" — rate limited or in cooldown`);
       return '';
     }
 
@@ -304,6 +349,88 @@ export class Scheduler {
         log.warn(`onError hook failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
+  }
+
+  /**
+   * Synthesize today's journal from unjournaled sessions.
+   * Optionally runs instinct learning after synthesis if auto_learn is enabled.
+   */
+  async runJournalSynthesis(): Promise<void> {
+    try {
+      const unjournaled = listUnjournaled(this.harnessDir);
+      if (unjournaled.length === 0) {
+        log.debug('Auto-journal: no unjournaled sessions, skipping');
+        return;
+      }
+
+      // Synthesize today's journal
+      const today = new Date().toISOString().slice(0, 10);
+      log.info(`Auto-journal: synthesizing ${unjournaled.length} unjournaled date(s)`);
+      const entry = await synthesizeJournal(this.harnessDir, today, this.apiKey);
+
+      try { this.onJournal?.(today, entry.sessions.length); } catch (e) {
+        log.warn(`onJournal hook failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+
+      // Auto-learn if enabled
+      if (this.autoLearn) {
+        log.info('Auto-learn: running instinct learning after journal synthesis');
+        const learnResult = await learnFromSessions(this.harnessDir, true, this.apiKey);
+        try { this.onLearn?.(learnResult.installed.length, learnResult.skipped.length); } catch (e) {
+          log.warn(`onLearn hook failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      log.error(`Auto-journal failed: ${error.message}`);
+      try { this.onError?.('__auto_journal__', error); } catch (e) {
+        log.warn(`onError hook failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  /**
+   * Check if a proactive workflow is allowed to run based on rate limits and cooldown.
+   * Returns true if the workflow should proceed, false if it should be skipped.
+   */
+  checkProactiveCooldown(workflowId: string, config: HarnessConfig): boolean {
+    const proactive = config.proactive;
+    if (!proactive?.enabled) return true; // proactive not enabled — no restrictions
+
+    const now = Date.now();
+    const oneHourAgo = now - 3_600_000;
+    const cooldownMs = (proactive.cooldown_minutes ?? 30) * 60_000;
+    const maxPerHour = proactive.max_per_hour ?? 5;
+
+    // Get or create history for this workflow
+    let history = this.proactiveHistory.get(workflowId);
+    if (!history) {
+      history = [];
+      this.proactiveHistory.set(workflowId, history);
+    }
+
+    // Prune entries older than 1 hour
+    const recent = history.filter(ts => ts > oneHourAgo);
+    this.proactiveHistory.set(workflowId, recent);
+
+    // Check hourly rate limit
+    if (recent.length >= maxPerHour) {
+      log.debug(`Proactive cooldown: ${workflowId} hit max_per_hour (${maxPerHour})`);
+      return false;
+    }
+
+    // Check cooldown since last run
+    if (recent.length > 0) {
+      const lastRun = recent[recent.length - 1];
+      if (now - lastRun < cooldownMs) {
+        log.debug(`Proactive cooldown: ${workflowId} within cooldown (${proactive.cooldown_minutes}min)`);
+        return false;
+      }
+    }
+
+    // Allowed — record this execution
+    recent.push(now);
+    return true;
   }
 
   isRunning(): boolean {

@@ -124,6 +124,27 @@ export const HarnessConfigSchema = z.object({
       enabled: z.boolean().default(true),
     }).passthrough()).default({}),
   }).passthrough().default({ servers: {} }),
+  /** Intelligence & continuous learning config */
+  intelligence: z.object({
+    /** Auto-run journal synthesis on a cron schedule (default: off). Set to cron string e.g. "0 22 * * *" or true for default "0 22 * * *". */
+    auto_journal: z.union([z.boolean(), z.string()]).default(false),
+    /** Auto-run instinct learning after journal synthesis (default: off) */
+    auto_learn: z.boolean().default(false),
+  }).passthrough().default({ auto_journal: false, auto_learn: false }),
+  /** Proactive execution config (scheduler rate-limiting) */
+  proactive: z.object({
+    /** Enable proactive scheduled workflows (default: false) */
+    enabled: z.boolean().default(false),
+    /** Max proactive workflow executions per hour (default: 5) */
+    max_per_hour: z.number().int().positive().default(5),
+    /** Cooldown in minutes between proactive runs of the same workflow (default: 30) */
+    cooldown_minutes: z.number().int().nonnegative().default(30),
+    /** Override quiet hours for proactive execution (start/end hours, inherits runtime.quiet_hours if not set) */
+    quiet_hours: z.object({
+      start: z.number().int().min(0).max(23).optional(),
+      end: z.number().int().min(0).max(23).optional(),
+    }).passthrough().optional(),
+  }).passthrough().default({ enabled: false, max_per_hour: 5, cooldown_minutes: 30 }),
   /** Primitive bundle registries for search/install */
   registries: z.array(z.object({
     /** Registry URL (HTTPS endpoint) */
@@ -151,6 +172,8 @@ export const CONFIG_DEFAULTS: HarnessConfig = {
   extensions: { directories: [] },
   rate_limits: {},
   budget: { enforce: true },
+  intelligence: { auto_journal: false, auto_learn: false },
+  proactive: { enabled: false, max_per_hour: 5, cooldown_minutes: 30 },
   mcp: { servers: {} },
   registries: [],
 };
