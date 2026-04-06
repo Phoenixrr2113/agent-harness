@@ -101,3 +101,9 @@ export { parseRulesFromDoc, loadRules, checkRules, enforceRules } from './runtim
 export type { ParsedRule, RuleAction, RuleCheckInput, RuleViolation, RuleCheckResult } from './runtime/rule-engine.js';
 export { extractGates, loadGates, getGatesForPlaybook, checkGate, checkAllGates } from './runtime/verification-gate.js';
 export type { VerificationCriterion, VerificationGate, GateCheckResult, GateExtractResult } from './runtime/verification-gate.js';
+export { createAgent, checkRuleViolation, checkAction, createCliApproval, createWebhookApproval } from './runtime/agent-framework.js';
+export type { AgentDefinition, AgentLifecycleHooks, BeforeRunContext, BeforeRunResult, AfterRunContext, AgentMiddleware, DefinedAgent, GuardrailEnforcementConfig, AgentRuleViolation, ApprovalGateConfig } from './runtime/agent-framework.js';
+export { mergeState, applyStateChange, loadOwnership, saveOwnership } from './runtime/state-merge.js';
+export type { StateOwner, StateOwnership, OwnedStateChange, MergeStrategy, MergeResult, StateConflict } from './runtime/state-merge.js';
+export { loadEmotionalState, saveEmotionalState, applySignals, deriveSignals, summarizeEmotionalState, resetEmotionalState, getEmotionalTrends } from './runtime/emotional-state.js';
+export type { EmotionalState, EmotionalSignal, EmotionalSnapshot, EmotionalTrend } from './runtime/emotional-state.js';
