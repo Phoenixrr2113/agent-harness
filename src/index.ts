@@ -95,3 +95,9 @@ export { createManifest, writeManifest, readManifest, packBundle, writeBundleDir
 export type { BundleManifest, BundleFileEntry, PackedBundle, PrimitiveInstallResult, PrimitiveUninstallResult, PrimitiveUpdateResult, RegistryConfig, BundleSearchResult, BundleSearchResponse, BundleSearchHit, MultiBundleSearchResponse } from './runtime/primitive-registry.js';
 export { autoPromoteInstincts, detectDeadPrimitives, detectContradictions, enrichSessions, suggestCapabilities, classifyFailure, getRecoveryStrategies, analyzeFailures, FAILURE_TAXONOMY, runGate, runAllGates, listGates } from './runtime/intelligence.js';
 export type { PatternOccurrence, AutoPromoteResult, DeadPrimitive, DeadPrimitiveResult, Contradiction, ContradictionResult, SessionEnrichment, EnrichmentResult, CapabilitySuggestion, CapabilitySuggestionResult, FailureMode, FailureRecord, FailureTaxonomy, FailureAnalysis, GateStatus, GateCheck, VerificationGateResult } from './runtime/intelligence.js';
+export { defineAgent } from './runtime/define-agent.js';
+export type { AgentBuilder } from './runtime/define-agent.js';
+export { parseRulesFromDoc, loadRules, checkRules, enforceRules } from './runtime/rule-engine.js';
+export type { ParsedRule, RuleAction, RuleCheckInput, RuleViolation, RuleCheckResult } from './runtime/rule-engine.js';
+export { extractGates, loadGates, getGatesForPlaybook, checkGate, checkAllGates } from './runtime/verification-gate.js';
+export type { VerificationCriterion, VerificationGate, GateCheckResult, GateExtractResult } from './runtime/verification-gate.js';

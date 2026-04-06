@@ -3739,4 +3739,111 @@ gateCmd
     }
   });
 
+// ── Rule Engine ──────────────────────────────────────────────────────────────
+
+program
+  .command('check-rules')
+  .description('Check an action against loaded rules')
+  .argument('<action>', 'Action to check (e.g., "deploy", "run", "tool_call")')
+  .option('-d, --dir <path>', 'Harness directory', process.cwd())
+  .option('--description <text>', 'Description of the action')
+  .option('--tags <tags>', 'Comma-separated tags')
+  .option('--tool <name>', 'Tool name (for tool_call actions)')
+  .option('--json', 'Output as JSON')
+  .action(async (action: string, opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { enforceRules } = await import('../runtime/rule-engine.js');
+
+    const tags = opts.tags ? (opts.tags as string).split(',').map((t: string) => t.trim()) : undefined;
+    const result = enforceRules(dir, {
+      action,
+      description: opts.description as string | undefined,
+      tags,
+      toolName: opts.tool as string | undefined,
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(result.allowed ? '[OK] ' + result.summary : '[BLOCKED] ' + result.summary);
+      for (const v of result.violations) {
+        console.log(`  [${v.severity.toUpperCase()}] ${v.directive} (rule: ${v.ruleId})`);
+      }
+      for (const w of result.warnings) {
+        console.log(`  [WARN] ${w.directive} (rule: ${w.ruleId})`);
+      }
+    }
+  });
+
+program
+  .command('list-rules')
+  .description('List all parsed rules from the harness')
+  .option('-d, --dir <path>', 'Harness directory', process.cwd())
+  .option('--json', 'Output as JSON')
+  .action(async (opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { loadRules } = await import('../runtime/rule-engine.js');
+
+    const rules = loadRules(dir);
+    if (opts.json) {
+      console.log(JSON.stringify(rules, null, 2));
+    } else {
+      if (rules.length === 0) {
+        console.log('No enforceable rules found.');
+      } else {
+        console.log(`${rules.length} rule(s) loaded:\n`);
+        for (const rule of rules) {
+          const icon = rule.action === 'deny' ? '[DENY]' : rule.action === 'warn' ? '[WARN]' : rule.action === 'require_approval' ? '[APPROVAL]' : '[ALLOW]';
+          console.log(`  ${icon} ${rule.directive} (from: ${rule.ruleId})`);
+        }
+      }
+    }
+  });
+
+// ── Playbook Gates ───────────────────────────────────────────────────────────
+
+program
+  .command('playbook-gates')
+  .description('Extract and check verification gates from playbooks/workflows')
+  .argument('[playbook-id]', 'Specific playbook/workflow ID')
+  .option('-d, --dir <path>', 'Harness directory', process.cwd())
+  .option('--json', 'Output as JSON')
+  .action(async (playbookId: string | undefined, opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { loadGates, getGatesForPlaybook } = await import('../runtime/verification-gate.js');
+
+    if (playbookId) {
+      const gates = getGatesForPlaybook(dir, playbookId);
+      if (opts.json) {
+        console.log(JSON.stringify(gates, null, 2));
+      } else if (gates.length === 0) {
+        console.log(`No verification gates found for "${playbookId}".`);
+      } else {
+        console.log(`${gates.length} gate(s) for "${playbookId}":\n`);
+        for (const gate of gates) {
+          console.log(`  Gate: ${gate.stage} (${gate.id})`);
+          for (const c of gate.criteria) {
+            const icon = c.manual ? '[MANUAL]' : '[AUTO]';
+            console.log(`    ${icon} ${c.description}`);
+          }
+        }
+      }
+    } else {
+      const { gates, sources } = loadGates(dir);
+      if (opts.json) {
+        console.log(JSON.stringify({ gates, sources }, null, 2));
+      } else if (gates.length === 0) {
+        console.log('No verification gates found in playbooks or workflows.');
+      } else {
+        console.log(`${gates.length} gate(s) from ${sources.length} source(s):\n`);
+        for (const gate of gates) {
+          console.log(`  [${gate.sourceId}] ${gate.stage} — ${gate.criteria.length} criterion(s)`);
+        }
+      }
+    }
+  });
+
 program.parse();
