@@ -429,9 +429,10 @@ The harness should know where to find things — not just MCP servers but skills
   - Context assembly is sub-10ms — no optimization needed
 - [ ] Run full e2e validation again with real LLM after all phases
 - [ ] Documentation: README, API docs, getting-started guide
-- [ ] npm publish v0.1.0
 
-## Phase 11 — Always-On Infrastructure (opt-in, no daemon required)
+
+<!-- DO NOT DO THESE TASKS -->
+<!-- ## Phase 11 — Always-On Infrastructure (opt-in, no daemon required)
 
 The harness is stateless-per-invocation. State persists on disk (state.md, sessions/, event store). No long-running daemon needed. Any invocation — webhook, cron, CLI — loads state, does work, saves state. Like a web app: the server handles requests, the database persists state.
 
@@ -497,7 +498,7 @@ Adapters are webhook parsers. Each one knows how to normalize a specific service
     - tools/calendar
     - instincts
   ```
-- [ ] Runtime loads only what's listed in `context:` when executing the workflow. Falls back to full harness loading if `context:` is not specified.
+- [ ] Runtime loads only what's listed in `context:` when executing the workflow. Falls back to full harness loading if `context:` is not specified. -->
 
 ### Proactive config
 - [ ] `proactive` config section: `enabled` (default false), `max_per_hour`, `cooldown_minutes`, `quiet_hours`
@@ -856,9 +857,24 @@ Adapters are webhook parsers. Each one knows how to normalize a specific service
 - All 1027 tests passing, build clean, lint clean
 - Total: 1027 tests across 52 files
 
+### Loop 58 (Phase 10 — Gate Fixes, ESM Cleanup, CLI Validation)
+- Fixed pre-run gate: rate-limit check was using wrong API (require + wrong args + wrong field names)
+  - Replaced `require('../runtime/rate-limiter.js')` with proper ESM import of `checkRateLimit`
+  - Now uses `buildRateLimits(config)` to convert per_minute/hour/day to `RateLimit[]`
+  - Checks each limit individually with correct `retry_after_ms` field
+  - Shows "No rate limits configured" when none set (previously showed FAIL with `undefinedms`)
+- Fixed pre-run gate: budget check was using require() + wrong `checkBudget` signature
+  - Replaced `require('../runtime/cost-tracker.js')` with proper ESM import
+  - Now passes `config.budget` instead of `config` as second arg
+  - Checks `daily_remaining_usd` and `monthly_remaining_usd` properly
+- Fixed pre-deploy gate: replaced `require('../runtime/validator.js')` with ESM import
+- Zero `require()` calls remaining in src/ — fully ESM-clean codebase
+- Verified all CLI commands: --help, subcommands, discover, install, gate run, info, validate, dashboard all work
+- All 1027 tests passing, build clean, lint clean
+
 ### Stats
 - 1027 tests across 52 files — ALL PASSING
 - 58+ source modules, 34,000+ lines
 - 88+ CLI commands
 - Build, lint, tests all green
-- Zero `any` types, zero empty catches
+- Zero `any` types, zero empty catches, zero `require()` calls

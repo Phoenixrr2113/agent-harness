@@ -8,6 +8,10 @@ import { loadConfig } from '../core/config.js';
 import type { InstinctCandidate } from './instinct-learner.js';
 import { installInstinct } from './instinct-learner.js';
 import { log } from '../core/logger.js';
+import { checkRateLimit } from './rate-limiter.js';
+import { buildRateLimits } from './guardrails.js';
+import { checkBudget } from './cost-tracker.js';
+import { validateHarness } from './validator.js';
 
 // --- Auto-Promote Instincts ---
 
@@ -1296,33 +1300,40 @@ export const BUILTIN_GATES: GateDefinition[] = [
 
       // Budget check
       try {
-        const { checkBudget } = require('../runtime/cost-tracker.js') as { checkBudget: (dir: string, cfg: HarnessConfig) => { daily: { exceeded: boolean }; monthly: { exceeded: boolean } } };
-        const budget = checkBudget(harnessDir, config);
-        if (budget.daily.exceeded || budget.monthly.exceeded) {
-          checks.push({ name: 'budget', description: 'Budget not exceeded', status: 'fail', message: 'Budget limit exceeded', details: budget });
+        const budgetStatus = checkBudget(harnessDir, config.budget);
+        const exceeded = (budgetStatus.daily_remaining_usd !== null && budgetStatus.daily_remaining_usd <= 0) ||
+          (budgetStatus.monthly_remaining_usd !== null && budgetStatus.monthly_remaining_usd <= 0);
+        if (exceeded) {
+          checks.push({ name: 'budget', description: 'Budget not exceeded', status: 'fail', message: 'Budget limit exceeded', details: { ...budgetStatus } });
         } else {
           checks.push({ name: 'budget', description: 'Budget not exceeded', status: 'pass', message: 'Within budget' });
         }
-      } catch {
-        checks.push({ name: 'budget', description: 'Budget not exceeded', status: 'skip', message: 'Budget check unavailable' });
+      } catch (err) {
+        checks.push({ name: 'budget', description: 'Budget not exceeded', status: 'skip', message: `Budget check unavailable: ${err instanceof Error ? err.message : String(err)}` });
       }
 
       // Rate limit check
       try {
-        const { checkRateLimit } = require('../runtime/rate-limiter.js') as { checkRateLimit: (dir: string, limits: Record<string, number | undefined>) => { allowed: boolean; retryAfterMs: number } };
-        const limits = {
-          per_minute: config.rate_limits.per_minute,
-          per_hour: config.rate_limits.per_hour,
-          per_day: config.rate_limits.per_day,
-        };
-        const rateCheck = checkRateLimit(harnessDir, limits);
-        if (!rateCheck.allowed) {
-          checks.push({ name: 'rate-limit', description: 'Rate limit not hit', status: 'fail', message: `Rate limited, retry after ${rateCheck.retryAfterMs}ms` });
+        const limits = buildRateLimits(config);
+        if (limits.length === 0) {
+          checks.push({ name: 'rate-limit', description: 'Rate limit not hit', status: 'pass', message: 'No rate limits configured' });
         } else {
-          checks.push({ name: 'rate-limit', description: 'Rate limit not hit', status: 'pass', message: 'Within rate limits' });
+          let blocked = false;
+          for (const limit of limits) {
+            const rateCheck = checkRateLimit(harnessDir, limit);
+            if (!rateCheck.allowed) {
+              const windowLabel = limit.window_ms <= 60_000 ? 'minute' : limit.window_ms <= 3_600_000 ? 'hour' : 'day';
+              checks.push({ name: 'rate-limit', description: 'Rate limit not hit', status: 'fail', message: `Rate limited (${windowLabel}): ${rateCheck.current}/${rateCheck.max}. Retry after ${Math.ceil(rateCheck.retry_after_ms / 1000)}s` });
+              blocked = true;
+              break;
+            }
+          }
+          if (!blocked) {
+            checks.push({ name: 'rate-limit', description: 'Rate limit not hit', status: 'pass', message: 'Within rate limits' });
+          }
         }
-      } catch {
-        checks.push({ name: 'rate-limit', description: 'Rate limit not hit', status: 'skip', message: 'Rate limit check unavailable' });
+      } catch (err) {
+        checks.push({ name: 'rate-limit', description: 'Rate limit not hit', status: 'skip', message: `Rate limit check unavailable: ${err instanceof Error ? err.message : String(err)}` });
       }
 
       // Health check
@@ -1388,7 +1399,6 @@ export const BUILTIN_GATES: GateDefinition[] = [
 
       // Run validator
       try {
-        const { validateHarness } = require('../runtime/validator.js') as { validateHarness: (dir: string) => { errors: string[]; warnings: string[] } };
         const validation = validateHarness(harnessDir);
         if (validation.errors.length > 0) {
           checks.push({ name: 'validator', description: 'Validator passes', status: 'fail', message: `${validation.errors.length} error(s)`, details: { errors: validation.errors } });
