@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import YAML from 'yaml';
-import { CONFIG_DEFAULTS, type HarnessConfig } from './types.js';
+import { CONFIG_DEFAULTS, HarnessConfigSchema, type HarnessConfig } from './types.js';
 
 const CONFIG_FILENAMES = ['config.yaml', 'config.yml', 'harness.yaml', 'harness.yml'];
 
@@ -18,19 +18,28 @@ export function loadConfig(dir: string, overrides?: Partial<HarnessConfig>): Har
   }
 
   // Deep merge: defaults <- file <- overrides
-  const merged = deepMerge(
+  let merged = deepMerge(
     CONFIG_DEFAULTS as unknown as Record<string, unknown>,
     raw,
-  ) as unknown as HarnessConfig;
+  ) as unknown as Record<string, unknown>;
 
   if (overrides) {
-    return deepMerge(
-      merged as unknown as Record<string, unknown>,
+    merged = deepMerge(
+      merged,
       overrides as unknown as Record<string, unknown>,
-    ) as unknown as HarnessConfig;
+    );
   }
 
-  return merged;
+  // Validate with Zod — parse applies defaults and coerces types
+  const result = HarnessConfigSchema.safeParse(merged);
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((i) => `  ${i.path.join('.')}: ${i.message}`)
+      .join('\n');
+    throw new Error(`Invalid config:\n${issues}`);
+  }
+
+  return result.data;
 }
 
 export function writeDefaultConfig(_dir: string, agentName: string = 'my-agent'): string {

@@ -10,6 +10,7 @@ const DIRECTORIES = [
   'workflows',
   'tools',
   'agents',
+  'intake',
   'memory/sessions',
   'memory/journal',
 ];

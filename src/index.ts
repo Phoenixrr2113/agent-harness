@@ -11,6 +11,7 @@ export type {
   ContextBudget,
   IndexEntry,
 } from './core/types.js';
+export { HarnessConfigSchema, FrontmatterSchema } from './core/types.js';
 export { loadConfig, writeDefaultConfig } from './core/config.js';
 export { parseHarnessDocument, loadDirectory, loadAllPrimitives, estimateTokens, getAtLevel } from './primitives/loader.js';
 export { buildSystemPrompt } from './runtime/context-loader.js';
@@ -24,4 +25,6 @@ export { Scheduler } from './runtime/scheduler.js';
 export { synthesizeJournal, listJournals } from './runtime/journal.js';
 export { proposeInstincts, installInstinct, learnFromSessions } from './runtime/instinct-learner.js';
 export { evaluateCapability, installCapability, processIntake } from './runtime/intake.js';
+export { createSessionId, writeSession, cleanupOldFiles, listSessions, listExpiredFiles } from './runtime/sessions.js';
+export type { SessionRecord, CleanupResult } from './runtime/sessions.js';
 export { Conversation } from './runtime/conversation.js';

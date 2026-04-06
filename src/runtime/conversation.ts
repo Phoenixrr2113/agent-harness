@@ -3,26 +3,35 @@ import { join } from 'path';
 import { getModel, generateWithMessages, streamWithMessages } from '../llm/provider.js';
 import { loadConfig } from '../core/config.js';
 import { buildSystemPrompt } from './context-loader.js';
+import { estimateTokens } from '../primitives/loader.js';
 import type { ModelMessage } from '@ai-sdk/provider-utils';
 import type { HarnessConfig } from '../core/types.js';
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
+  tokens: number;
 }
+
+// Reserve 50% of remaining context (after system prompt) for conversation history
+const CONVERSATION_BUDGET_RATIO = 0.50;
+// Minimum messages to always keep (latest exchange)
+const MIN_MESSAGES = 2;
+// Hard cap on message count regardless of tokens
+const MAX_MESSAGES = 100;
 
 export class Conversation {
   private messages: Message[] = [];
   private harnessDir: string;
   private apiKey?: string;
   private systemPrompt: string = '';
-  private maxHistory: number;
+  private systemPromptTokens: number = 0;
+  private maxContextTokens: number = 200000;
   private modelOverride?: string;
 
-  constructor(harnessDir: string, apiKey?: string, maxHistory: number = 20) {
+  constructor(harnessDir: string, apiKey?: string) {
     this.harnessDir = harnessDir;
     this.apiKey = apiKey;
-    this.maxHistory = maxHistory;
   }
 
   setModelOverride(modelId: string): void {
@@ -33,35 +42,14 @@ export class Conversation {
     const config = this.getConfig();
     const ctx = buildSystemPrompt(this.harnessDir, config);
     this.systemPrompt = ctx.systemPrompt;
+    this.systemPromptTokens = ctx.budget.used_tokens;
+    this.maxContextTokens = config.model.max_tokens;
 
     // Load persisted context if exists
     const contextPath = join(this.harnessDir, 'memory', 'context.md');
     if (existsSync(contextPath)) {
       const raw = readFileSync(contextPath, 'utf-8');
-      const lines = raw.split('\n');
-      let currentRole: 'user' | 'assistant' | null = null;
-      let currentContent: string[] = [];
-
-      for (const line of lines) {
-        if (line.startsWith('### User')) {
-          if (currentRole && currentContent.length > 0) {
-            this.messages.push({ role: currentRole, content: currentContent.join('\n').trim() });
-          }
-          currentRole = 'user';
-          currentContent = [];
-        } else if (line.startsWith('### Assistant')) {
-          if (currentRole && currentContent.length > 0) {
-            this.messages.push({ role: currentRole, content: currentContent.join('\n').trim() });
-          }
-          currentRole = 'assistant';
-          currentContent = [];
-        } else if (currentRole) {
-          currentContent.push(line);
-        }
-      }
-      if (currentRole && currentContent.length > 0) {
-        this.messages.push({ role: currentRole, content: currentContent.join('\n').trim() });
-      }
+      this.messages = parseContextMd(raw);
     }
   }
 
@@ -76,6 +64,37 @@ export class Conversation {
     return config;
   }
 
+  /**
+   * Token budget available for conversation messages.
+   * Allocates CONVERSATION_BUDGET_RATIO of (max_tokens - system_prompt) to messages.
+   */
+  private getMessageBudget(): number {
+    const available = this.maxContextTokens - this.systemPromptTokens;
+    return Math.floor(available * CONVERSATION_BUDGET_RATIO);
+  }
+
+  /**
+   * Trim oldest messages until token budget is satisfied.
+   * Always retains at least MIN_MESSAGES.
+   */
+  private trimToTokenBudget(): void {
+    const budget = this.getMessageBudget();
+
+    // Hard cap on count
+    while (this.messages.length > MAX_MESSAGES) {
+      this.messages.shift();
+    }
+
+    // Trim by token budget — drop oldest messages first
+    let totalTokens = this.messages.reduce((sum, m) => sum + m.tokens, 0);
+    while (totalTokens > budget && this.messages.length > MIN_MESSAGES) {
+      const removed = this.messages.shift();
+      if (removed) {
+        totalTokens -= removed.tokens;
+      }
+    }
+  }
+
   private toModelMessages(): ModelMessage[] {
     return this.messages.map((m): ModelMessage => ({
       role: m.role,
@@ -84,12 +103,13 @@ export class Conversation {
   }
 
   async send(userMessage: string): Promise<string> {
-    this.messages.push({ role: 'user', content: userMessage });
+    this.messages.push({
+      role: 'user',
+      content: userMessage,
+      tokens: estimateTokens(userMessage),
+    });
 
-    // Trim to maxHistory
-    while (this.messages.length > this.maxHistory) {
-      this.messages.shift();
-    }
+    this.trimToTokenBudget();
 
     const config = this.getConfig();
     const model = getModel(config, this.apiKey);
@@ -100,18 +120,24 @@ export class Conversation {
       messages: this.toModelMessages(),
     });
 
-    this.messages.push({ role: 'assistant', content: result.text });
+    this.messages.push({
+      role: 'assistant',
+      content: result.text,
+      tokens: estimateTokens(result.text),
+    });
     this.save();
 
     return result.text;
   }
 
   async *sendStream(userMessage: string): AsyncIterable<string> {
-    this.messages.push({ role: 'user', content: userMessage });
+    this.messages.push({
+      role: 'user',
+      content: userMessage,
+      tokens: estimateTokens(userMessage),
+    });
 
-    while (this.messages.length > this.maxHistory) {
-      this.messages.shift();
-    }
+    this.trimToTokenBudget();
 
     const config = this.getConfig();
     const model = getModel(config, this.apiKey);
@@ -129,7 +155,11 @@ export class Conversation {
       yield chunk;
     }
 
-    this.messages.push({ role: 'assistant', content: fullResponse });
+    this.messages.push({
+      role: 'assistant',
+      content: fullResponse,
+      tokens: estimateTokens(fullResponse),
+    });
     this.save();
   }
 
@@ -158,7 +188,54 @@ export class Conversation {
     }
   }
 
-  getHistory(): Message[] {
-    return [...this.messages];
+  getHistory(): Array<{ role: string; content: string }> {
+    return this.messages.map((m) => ({ role: m.role, content: m.content }));
   }
+
+  /** Token usage stats for the conversation window */
+  getTokenStats(): { messageTokens: number; budget: number; messageCount: number } {
+    const messageTokens = this.messages.reduce((sum, m) => sum + m.tokens, 0);
+    return {
+      messageTokens,
+      budget: this.getMessageBudget(),
+      messageCount: this.messages.length,
+    };
+  }
+}
+
+/**
+ * Parse context.md back into Message array.
+ * Format: ### User / ### Assistant sections.
+ */
+function parseContextMd(raw: string): Message[] {
+  const messages: Message[] = [];
+  const lines = raw.split('\n');
+  let currentRole: 'user' | 'assistant' | null = null;
+  let currentContent: string[] = [];
+
+  for (const line of lines) {
+    if (line.startsWith('### User')) {
+      if (currentRole && currentContent.length > 0) {
+        const content = currentContent.join('\n').trim();
+        messages.push({ role: currentRole, content, tokens: estimateTokens(content) });
+      }
+      currentRole = 'user';
+      currentContent = [];
+    } else if (line.startsWith('### Assistant')) {
+      if (currentRole && currentContent.length > 0) {
+        const content = currentContent.join('\n').trim();
+        messages.push({ role: currentRole, content, tokens: estimateTokens(content) });
+      }
+      currentRole = 'assistant';
+      currentContent = [];
+    } else if (currentRole) {
+      currentContent.push(line);
+    }
+  }
+  if (currentRole && currentContent.length > 0) {
+    const content = currentContent.join('\n').trim();
+    messages.push({ role: currentRole, content, tokens: estimateTokens(content) });
+  }
+
+  return messages;
 }

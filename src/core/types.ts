@@ -45,34 +45,36 @@ export interface Primitive {
 }
 
 // --- Config ---
-export interface HarnessConfig {
-  agent: {
-    name: string;
-    version: string;
-  };
-  model: {
-    provider: string;
-    id: string;
-    max_tokens: number;
-  };
-  runtime: {
-    scratchpad_budget: number;
-    heartbeat?: string;
-    daily_summary?: string;
-    quiet_hours: {
-      start: number;
-      end: number;
-    };
-    timezone: string;
-  };
-  memory: {
-    session_retention_days: number;
-    journal_retention_days: number;
-  };
-  channels: {
-    primary: string;
-  };
-}
+export const HarnessConfigSchema = z.object({
+  agent: z.object({
+    name: z.string().min(1),
+    version: z.string().default('0.1.0'),
+  }).passthrough(),
+  model: z.object({
+    provider: z.string().default('openrouter'),
+    id: z.string().min(1),
+    max_tokens: z.number().int().positive().default(200000),
+  }).passthrough(),
+  runtime: z.object({
+    scratchpad_budget: z.number().int().nonnegative().default(10000),
+    heartbeat: z.string().optional(),
+    daily_summary: z.string().optional(),
+    quiet_hours: z.object({
+      start: z.number().int().min(0).max(23).default(23),
+      end: z.number().int().min(0).max(23).default(6),
+    }).passthrough().default({ start: 23, end: 6 }),
+    timezone: z.string().default('America/New_York'),
+  }).passthrough(),
+  memory: z.object({
+    session_retention_days: z.number().int().positive().default(7),
+    journal_retention_days: z.number().int().positive().default(365),
+  }).passthrough(),
+  channels: z.object({
+    primary: z.string().default('cli'),
+  }).passthrough(),
+}).passthrough();
+
+export type HarnessConfig = z.infer<typeof HarnessConfigSchema>;
 
 export const CONFIG_DEFAULTS: HarnessConfig = {
   agent: { name: 'agent', version: '0.1.0' },

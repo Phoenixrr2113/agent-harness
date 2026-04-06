@@ -232,16 +232,19 @@ program
     }
   });
 
-// --- DEV (watch mode) ---
+// --- DEV (watch mode + scheduler) ---
 program
   .command('dev')
-  .description('Start dev mode — watches for file changes and rebuilds indexes')
+  .description('Start dev mode — watches for file changes, rebuilds indexes, runs scheduled workflows')
   .option('-d, --dir <path>', 'Harness directory', '.')
-  .action(async (opts: { dir: string }) => {
+  .option('--no-schedule', 'Disable workflow scheduler')
+  .action(async (opts: { dir: string; schedule: boolean }) => {
     const { loadConfig } = await import('../core/config.js');
     const { rebuildAllIndexes } = await import('../runtime/indexer.js');
     const { createWatcher } = await import('../runtime/watcher.js');
+    const { Scheduler } = await import('../runtime/scheduler.js');
     const dir = resolve(opts.dir);
+    loadEnvFromDir(dir);
 
     if (!existsSync(join(dir, 'CORE.md'))) {
       console.error(`Error: No harness found in ${dir}`);
@@ -254,6 +257,31 @@ program
     // Initial index build
     rebuildAllIndexes(dir);
     console.log(`[dev] Indexes rebuilt`);
+
+    // Start scheduler if there are workflows
+    let scheduler: InstanceType<typeof Scheduler> | null = null;
+    if (opts.schedule) {
+      scheduler = new Scheduler({
+        harnessDir: dir,
+        onRun: (id, result) => {
+          console.log(`[scheduler] ✓ ${id}: ${result.slice(0, 100)}`);
+        },
+        onError: (id, error) => {
+          console.error(`[scheduler] ✗ ${id}: ${error.message}`);
+        },
+        onSchedule: (id, cron) => {
+          console.log(`[scheduler] Scheduled: ${id} (${cron})`);
+        },
+      });
+      scheduler.start();
+
+      const scheduled = scheduler.listScheduled();
+      if (scheduled.length > 0) {
+        console.log(`[dev] Scheduler started with ${scheduled.length} workflow(s)`);
+      } else {
+        console.log(`[dev] Scheduler running (no workflows with schedule: set)`);
+      }
+    }
 
     // Start watching
     createWatcher({
@@ -268,6 +296,15 @@ program
     });
 
     console.log(`[dev] Watching for changes... (Ctrl+C to stop)\n`);
+
+    // Graceful shutdown
+    const cleanup = () => {
+      console.log(`\n[dev] Shutting down...`);
+      if (scheduler) scheduler.stop();
+      process.exit(0);
+    };
+    process.on('SIGINT', cleanup);
+    process.on('SIGTERM', cleanup);
   });
 
 // --- INDEX (rebuild all indexes) ---
@@ -517,6 +554,93 @@ program
 
     if (errors.length > 0) {
       process.exit(1);
+    }
+  });
+
+// --- CLEANUP (remove old sessions/journals per retention policy) ---
+program
+  .command('cleanup')
+  .description('Remove sessions and journals older than retention period')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--dry-run', 'Show what would be removed without deleting', false)
+  .action(async (opts: { dir: string; dryRun: boolean }) => {
+    const { loadConfig } = await import('../core/config.js');
+    const { cleanupOldFiles, listSessions } = await import('../runtime/sessions.js');
+    const dir = resolve(opts.dir);
+
+    const config = loadConfig(dir);
+    const sessionDays = config.memory.session_retention_days;
+    const journalDays = config.memory.journal_retention_days;
+
+    if (opts.dryRun) {
+      console.log(`\nDry run — retention policy:`);
+      console.log(`  Sessions: ${sessionDays} days`);
+      console.log(`  Journals: ${journalDays} days\n`);
+    }
+
+    if (opts.dryRun) {
+      // Preview mode: use listExpired to show without deleting
+      const { listExpiredFiles } = await import('../runtime/sessions.js');
+      const expired = listExpiredFiles(dir, sessionDays, journalDays);
+      console.log(`Would remove ${expired.sessionFiles.length} session(s):`);
+      expired.sessionFiles.forEach((f) => console.log(`  - ${f}`));
+      console.log(`Would remove ${expired.journalFiles.length} journal(s):`);
+      expired.journalFiles.forEach((f) => console.log(`  - ${f}`));
+      return;
+    }
+
+    const result = cleanupOldFiles(dir, sessionDays, journalDays);
+
+    console.log(`\n✓ Cleanup complete`);
+    console.log(`  Sessions removed: ${result.sessionsRemoved} (retention: ${sessionDays} days)`);
+    console.log(`  Journals removed: ${result.journalsRemoved} (retention: ${journalDays} days)`);
+    if (result.sessionFiles.length > 0) {
+      result.sessionFiles.forEach((f) => console.log(`    - ${f}`));
+    }
+    if (result.journalFiles.length > 0) {
+      result.journalFiles.forEach((f) => console.log(`    - ${f}`));
+    }
+    console.log();
+  });
+
+// --- SCRATCH (write to working memory) ---
+program
+  .command('scratch')
+  .description('Write a note to scratch.md (working memory)')
+  .argument('<note...>', 'Note to write')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--clear', 'Clear scratch before writing', false)
+  .option('--show', 'Show current scratch contents', false)
+  .action(async (note: string[], opts: { dir: string; clear: boolean; show: boolean }) => {
+    const { readFileSync, writeFileSync, existsSync, mkdirSync } = await import('fs');
+    const scratchPath = join(resolve(opts.dir), 'memory', 'scratch.md');
+    const memoryDir = join(resolve(opts.dir), 'memory');
+
+    if (!existsSync(memoryDir)) {
+      mkdirSync(memoryDir, { recursive: true });
+    }
+
+    if (opts.show) {
+      if (existsSync(scratchPath)) {
+        const content = readFileSync(scratchPath, 'utf-8');
+        console.log(content || '(empty)');
+      } else {
+        console.log('(no scratch.md)');
+      }
+      return;
+    }
+
+    const noteText = note.join(' ');
+
+    if (opts.clear) {
+      writeFileSync(scratchPath, noteText + '\n', 'utf-8');
+      console.log('✓ Scratch cleared and updated');
+    } else {
+      const existing = existsSync(scratchPath) ? readFileSync(scratchPath, 'utf-8') : '';
+      const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      const entry = `[${timestamp}] ${noteText}\n`;
+      writeFileSync(scratchPath, existing + entry, 'utf-8');
+      console.log('✓ Note added to scratch');
     }
   });
 
