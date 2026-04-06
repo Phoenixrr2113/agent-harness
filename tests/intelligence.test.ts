@@ -9,6 +9,13 @@ import {
   detectContradictions,
   enrichSessions,
   suggestCapabilities,
+  classifyFailure,
+  getRecoveryStrategies,
+  analyzeFailures,
+  FAILURE_TAXONOMY,
+  runGate,
+  runAllGates,
+  listGates,
 } from '../src/runtime/intelligence.js';
 
 describe('intelligence', () => {
@@ -419,6 +426,153 @@ describe('intelligence', () => {
 
       expect(result.sessionsScanned).toBe(0);
       expect(result.suggestions).toHaveLength(0);
+    });
+  });
+
+  // --- Failure Taxonomy ---
+
+  describe('failure taxonomy', () => {
+    it('should have all failure modes defined', () => {
+      const modes = Object.keys(FAILURE_TAXONOMY.modes);
+      expect(modes.length).toBeGreaterThanOrEqual(14);
+      expect(modes).toContain('context_overflow');
+      expect(modes).toContain('budget_exhausted');
+      expect(modes).toContain('rate_limited');
+      expect(modes).toContain('llm_timeout');
+      expect(modes).toContain('tool_execution_error');
+      expect(modes).toContain('unknown');
+    });
+
+    it('should classify errors into correct failure modes', () => {
+      expect(classifyFailure('Context length exceeded maximum')).toBe('context_overflow');
+      expect(classifyFailure('Budget limit exceeded')).toBe('budget_exhausted');
+      expect(classifyFailure('Rate limit hit: 429 Too Many Requests')).toBe('rate_limited');
+      expect(classifyFailure('Request timed out after 30s')).toBe('llm_timeout');
+      expect(classifyFailure('Tool execution failed: write_file')).toBe('tool_execution_error');
+      expect(classifyFailure('MCP server connection failed')).toBe('mcp_connection_failed');
+      expect(classifyFailure('YAML parse error in frontmatter')).toBe('parse_error');
+      expect(classifyFailure('Config validation failed')).toBe('config_invalid');
+      expect(classifyFailure('Something completely unexpected')).toBe('unknown');
+    });
+
+    it('should classify Error objects', () => {
+      expect(classifyFailure(new Error('Context overflow detected'))).toBe('context_overflow');
+      expect(classifyFailure(new Error('HTTP 429 rate limit'))).toBe('rate_limited');
+    });
+
+    it('should return recovery strategies for each mode', () => {
+      const strategies = getRecoveryStrategies('context_overflow');
+      expect(strategies.length).toBeGreaterThanOrEqual(1);
+      expect(strategies.some((s) => s.toLowerCase().includes('trim'))).toBe(true);
+
+      const budgetStrategies = getRecoveryStrategies('budget_exhausted');
+      expect(budgetStrategies.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should return fallback strategy for unknown mode', () => {
+      const strategies = getRecoveryStrategies('unknown');
+      expect(strategies.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should analyze failures from harness directory', () => {
+      const analysis = analyzeFailures(harnessDir);
+      expect(analysis.recentFailures).toBeDefined();
+      expect(analysis.modeFrequency).toBeDefined();
+      expect(analysis.healthImplication).toBeDefined();
+      expect(['healthy', 'degraded', 'unhealthy']).toContain(analysis.healthImplication);
+    });
+
+    it('should detect failures from health.json', () => {
+      const memoryDir = join(harnessDir, 'memory');
+      mkdirSync(memoryDir, { recursive: true });
+      writeFileSync(
+        join(memoryDir, 'health.json'),
+        JSON.stringify({
+          lastError: 'Context length exceeded maximum token limit',
+          lastFailure: '2024-01-01T00:00:00Z',
+          consecutiveFailures: 2,
+        }),
+      );
+
+      const analysis = analyzeFailures(harnessDir);
+      expect(analysis.recentFailures.length).toBeGreaterThanOrEqual(1);
+      expect(analysis.recentFailures[0].mode).toBe('context_overflow');
+    });
+  });
+
+  // --- Verification Gates ---
+
+  describe('verification gates', () => {
+    it('should list available gates', () => {
+      const gates = listGates();
+      expect(gates.length).toBeGreaterThanOrEqual(4);
+      expect(gates.map((g) => g.name)).toContain('pre-boot');
+      expect(gates.map((g) => g.name)).toContain('pre-run');
+      expect(gates.map((g) => g.name)).toContain('post-session');
+      expect(gates.map((g) => g.name)).toContain('pre-deploy');
+    });
+
+    it('should run pre-boot gate successfully on valid harness', () => {
+      const result = runGate('pre-boot', harnessDir);
+
+      expect(result.gateName).toBe('pre-boot');
+      expect(result.checks.length).toBeGreaterThanOrEqual(2);
+
+      // CORE.md should pass (scaffold creates it)
+      const coreCheck = result.checks.find((c) => c.name === 'core-md');
+      expect(coreCheck).toBeDefined();
+      expect(coreCheck!.status).toBe('pass');
+
+      // Config check should exist (scaffold creates config.yaml)
+      const configCheck = result.checks.find((c) => c.name === 'config-valid');
+      expect(configCheck).toBeDefined();
+      // Config status depends on scaffold template — just verify the gate ran
+      expect(['pass', 'fail']).toContain(configCheck!.status);
+    });
+
+    it('should fail pre-boot gate when CORE.md is missing', () => {
+      const fs = require('fs');
+      fs.unlinkSync(join(harnessDir, 'CORE.md'));
+
+      const result = runGate('pre-boot', harnessDir);
+
+      const coreCheck = result.checks.find((c) => c.name === 'core-md');
+      expect(coreCheck).toBeDefined();
+      expect(coreCheck!.status).toBe('fail');
+      expect(result.passed).toBe(false);
+    });
+
+    it('should run post-session gate', () => {
+      const result = runGate('post-session', harnessDir);
+
+      expect(result.gateName).toBe('post-session');
+      expect(result.checks.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should run pre-deploy gate', () => {
+      const result = runGate('pre-deploy', harnessDir);
+
+      expect(result.gateName).toBe('pre-deploy');
+      expect(result.checks.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should handle unknown gate name', () => {
+      const result = runGate('nonexistent-gate', harnessDir);
+
+      expect(result.passed).toBe(false);
+      expect(result.checks[0].status).toBe('fail');
+      expect(result.summary).toContain('not found');
+    });
+
+    it('should run all gates at once', () => {
+      const results = runAllGates(harnessDir);
+
+      expect(results.length).toBeGreaterThanOrEqual(4);
+      for (const r of results) {
+        expect(r.gateName).toBeDefined();
+        expect(r.checks.length).toBeGreaterThanOrEqual(1);
+        expect(r.summary).toBeDefined();
+      }
     });
   });
 });

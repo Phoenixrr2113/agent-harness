@@ -4,6 +4,7 @@ import { loadDirectoryWithErrors, loadDirectory } from '../primitives/loader.js'
 import { buildDependencyGraph } from './graph.js';
 import { getPrimitiveDirs } from '../core/types.js';
 import type { HarnessConfig, HarnessDocument } from '../core/types.js';
+import { loadConfig } from '../core/config.js';
 import type { InstinctCandidate } from './instinct-learner.js';
 import { installInstinct } from './instinct-learner.js';
 import { log } from '../core/logger.js';
@@ -824,4 +825,647 @@ export function suggestCapabilities(
     topicsAnalyzed: topicOccurrences.size,
     sessionsScanned,
   };
+}
+
+// --- Failure Taxonomy ---
+
+/**
+ * Named failure modes with recovery strategies.
+ * Based on common agent failure patterns (context overflow, tool errors,
+ * budget exhaustion, hallucination, stale primitives, circular delegation).
+ */
+export type FailureMode =
+  | 'context_overflow'
+  | 'tool_execution_error'
+  | 'budget_exhausted'
+  | 'rate_limited'
+  | 'llm_timeout'
+  | 'llm_error'
+  | 'hallucination_detected'
+  | 'stale_primitive'
+  | 'circular_delegation'
+  | 'missing_dependency'
+  | 'parse_error'
+  | 'config_invalid'
+  | 'mcp_connection_failed'
+  | 'state_corruption'
+  | 'unknown';
+
+export interface FailureRecord {
+  mode: FailureMode;
+  timestamp: string;
+  sessionId?: string;
+  message: string;
+  context?: Record<string, unknown>;
+  recoveryAttempted?: string;
+  recovered: boolean;
+}
+
+export interface FailureTaxonomy {
+  modes: Record<FailureMode, {
+    description: string;
+    severity: 'low' | 'medium' | 'high' | 'critical';
+    recoveryStrategies: string[];
+    autoRecoverable: boolean;
+  }>;
+}
+
+/**
+ * The canonical failure taxonomy for agent-harness.
+ * Each mode has a description, severity level, recovery strategies,
+ * and whether automatic recovery is possible.
+ */
+export const FAILURE_TAXONOMY: FailureTaxonomy = {
+  modes: {
+    context_overflow: {
+      description: 'System prompt + conversation exceeds model context window',
+      severity: 'high',
+      recoveryStrategies: [
+        'Trim oldest messages from conversation history',
+        'Reduce primitive loading level (L2 → L1 → L0)',
+        'Archive old sessions to free memory budget',
+        'Split into sub-conversations with summarized context',
+      ],
+      autoRecoverable: true,
+    },
+    tool_execution_error: {
+      description: 'An MCP or HTTP tool call failed during execution',
+      severity: 'medium',
+      recoveryStrategies: [
+        'Retry with exponential backoff',
+        'Fall back to alternative tool if available',
+        'Report error to LLM and ask for alternative approach',
+        'Skip tool and proceed with available context',
+      ],
+      autoRecoverable: true,
+    },
+    budget_exhausted: {
+      description: 'Daily or monthly spending limit has been reached',
+      severity: 'critical',
+      recoveryStrategies: [
+        'Wait until next budget period',
+        'Switch to cheaper model (fast_model or summary_model)',
+        'Queue non-urgent tasks for later execution',
+        'Alert operator to increase budget',
+      ],
+      autoRecoverable: false,
+    },
+    rate_limited: {
+      description: 'LLM API rate limit hit (per-minute/hour/day)',
+      severity: 'medium',
+      recoveryStrategies: [
+        'Wait for retryAfterMs from rate limiter',
+        'Reduce request frequency',
+        'Queue and batch requests',
+      ],
+      autoRecoverable: true,
+    },
+    llm_timeout: {
+      description: 'LLM API call timed out without response',
+      severity: 'medium',
+      recoveryStrategies: [
+        'Retry with same prompt',
+        'Retry with shorter prompt (reduce context)',
+        'Switch to faster model',
+        'Increase timeout_ms in config',
+      ],
+      autoRecoverable: true,
+    },
+    llm_error: {
+      description: 'LLM API returned an error response (4xx/5xx)',
+      severity: 'high',
+      recoveryStrategies: [
+        'Retry with exponential backoff (max_retries in config)',
+        'Switch to fallback model',
+        'Check API key validity',
+        'Log error details for debugging',
+      ],
+      autoRecoverable: true,
+    },
+    hallucination_detected: {
+      description: 'LLM output contains fabricated facts or references to non-existent primitives',
+      severity: 'medium',
+      recoveryStrategies: [
+        'Re-prompt with explicit grounding: "Only reference primitives that exist"',
+        'Validate output against known primitive IDs',
+        'Add validation step before acting on LLM output',
+        'Record in journal for future training',
+      ],
+      autoRecoverable: false,
+    },
+    stale_primitive: {
+      description: 'A referenced primitive is outdated, deprecated, or orphaned',
+      severity: 'low',
+      recoveryStrategies: [
+        'Run detectDeadPrimitives() to identify stale files',
+        'Archive deprecated primitives',
+        'Update references to point to current versions',
+        'Auto-flag via validator',
+      ],
+      autoRecoverable: true,
+    },
+    circular_delegation: {
+      description: 'Agent delegation loop detected (A delegates to B delegates to A)',
+      severity: 'high',
+      recoveryStrategies: [
+        'Track delegation chain and break on cycle detection',
+        'Set max delegation depth (default: 3)',
+        'Return partial result from last agent in chain',
+        'Log delegation graph for debugging',
+      ],
+      autoRecoverable: true,
+    },
+    missing_dependency: {
+      description: 'A required dependency (primitive, MCP server, API key) is missing',
+      severity: 'high',
+      recoveryStrategies: [
+        'Run doctorHarness() to auto-fix missing files',
+        'Check .env for required API keys',
+        'Install missing MCP servers',
+        'Prompt user to install missing bundle',
+      ],
+      autoRecoverable: false,
+    },
+    parse_error: {
+      description: 'A primitive file has invalid YAML frontmatter or malformed content',
+      severity: 'medium',
+      recoveryStrategies: [
+        'Run fixCapability() to auto-repair frontmatter',
+        'Skip the malformed file and log a warning',
+        'Use default frontmatter values',
+        'Report to user for manual fix',
+      ],
+      autoRecoverable: true,
+    },
+    config_invalid: {
+      description: 'config.yaml fails schema validation',
+      severity: 'critical',
+      recoveryStrategies: [
+        'Fall back to CONFIG_DEFAULTS',
+        'Report specific validation errors to user',
+        'Run harness doctor to attempt repair',
+      ],
+      autoRecoverable: false,
+    },
+    mcp_connection_failed: {
+      description: 'Failed to connect to an MCP server (process spawn or HTTP)',
+      severity: 'medium',
+      recoveryStrategies: [
+        'Retry connection with backoff',
+        'Disable the server and continue without its tools',
+        'Check command/URL/env configuration',
+        'Fall back to built-in tools only',
+      ],
+      autoRecoverable: true,
+    },
+    state_corruption: {
+      description: 'state.md is unreadable or contains invalid data',
+      severity: 'high',
+      recoveryStrategies: [
+        'Fall back to DEFAULT_STATE',
+        'Rebuild state from session history',
+        'Reset state.md and log the event',
+      ],
+      autoRecoverable: true,
+    },
+    unknown: {
+      description: 'An unclassified error occurred',
+      severity: 'high',
+      recoveryStrategies: [
+        'Log full error with stack trace',
+        'Record in health.json failure counter',
+        'Alert operator',
+        'Graceful shutdown if critical path',
+      ],
+      autoRecoverable: false,
+    },
+  },
+};
+
+export interface FailureAnalysis {
+  recentFailures: FailureRecord[];
+  modeFrequency: Record<string, number>;
+  mostCommonMode: FailureMode | null;
+  suggestedRecovery: string[];
+  healthImplication: 'healthy' | 'degraded' | 'unhealthy';
+}
+
+/**
+ * Classify an error into a failure mode.
+ */
+export function classifyFailure(error: Error | string, context?: Record<string, unknown>): FailureMode {
+  const msg = typeof error === 'string' ? error.toLowerCase() : error.message.toLowerCase();
+
+  if (msg.includes('context') && (msg.includes('overflow') || msg.includes('too long') || msg.includes('exceed'))) {
+    return 'context_overflow';
+  }
+  if (msg.includes('tool') && (msg.includes('fail') || msg.includes('error') || msg.includes('timeout'))) {
+    return 'tool_execution_error';
+  }
+  if (msg.includes('budget') || msg.includes('spending') || msg.includes('limit exceeded')) {
+    return 'budget_exhausted';
+  }
+  if (msg.includes('rate limit') || msg.includes('429') || msg.includes('too many requests')) {
+    return 'rate_limited';
+  }
+  if (msg.includes('timeout') || msg.includes('timed out') || msg.includes('ETIMEDOUT')) {
+    return 'llm_timeout';
+  }
+  if (msg.includes('mcp') && (msg.includes('connect') || msg.includes('spawn') || msg.includes('failed'))) {
+    return 'mcp_connection_failed';
+  }
+  if (msg.includes('parse') || msg.includes('yaml') || msg.includes('frontmatter') || msg.includes('malformed')) {
+    return 'parse_error';
+  }
+  if (msg.includes('config') && (msg.includes('invalid') || msg.includes('validation'))) {
+    return 'config_invalid';
+  }
+  if (msg.includes('state') && (msg.includes('corrupt') || msg.includes('invalid') || msg.includes('unreadable'))) {
+    return 'state_corruption';
+  }
+  if (msg.includes('circular') || msg.includes('delegation loop') || msg.includes('cycle')) {
+    return 'circular_delegation';
+  }
+  if (msg.includes('missing') || msg.includes('not found') || msg.includes('dependency')) {
+    return 'missing_dependency';
+  }
+  if (msg.includes('401') || msg.includes('403') || msg.includes('500') || msg.includes('502') || msg.includes('503')) {
+    return 'llm_error';
+  }
+
+  return 'unknown';
+}
+
+/**
+ * Get recovery strategies for a failure mode.
+ */
+export function getRecoveryStrategies(mode: FailureMode): string[] {
+  return FAILURE_TAXONOMY.modes[mode]?.recoveryStrategies ?? ['Log error and alert operator'];
+}
+
+/**
+ * Analyze failure patterns from session history and health data.
+ * Returns frequency analysis and recovery suggestions.
+ */
+export function analyzeFailures(
+  harnessDir: string,
+  options?: { days?: number },
+): FailureAnalysis {
+  const days = options?.days ?? 7;
+  const now = Date.now();
+  const cutoffMs = days * 24 * 60 * 60 * 1000;
+
+  const recentFailures: FailureRecord[] = [];
+
+  // Scan health.json for failures
+  const healthPath = join(harnessDir, 'memory', 'health.json');
+  if (existsSync(healthPath)) {
+    try {
+      const health = JSON.parse(readFileSync(healthPath, 'utf-8'));
+      if (health.lastError) {
+        const mode = classifyFailure(health.lastError);
+        recentFailures.push({
+          mode,
+          timestamp: health.lastFailure || new Date().toISOString(),
+          message: health.lastError,
+          recovered: health.consecutiveFailures === 0,
+        });
+      }
+    } catch {
+      // Malformed health.json
+    }
+  }
+
+  // Scan sessions for error indicators
+  const sessionsDir = join(harnessDir, 'memory', 'sessions');
+  if (existsSync(sessionsDir)) {
+    const files = readdirSync(sessionsDir)
+      .filter((f) => f.endsWith('.md') && !f.startsWith('.'))
+      .sort()
+      .reverse();
+
+    for (const file of files) {
+      const dateMatch = file.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (dateMatch) {
+        const fileDate = new Date(dateMatch[1]).getTime();
+        if (now - fileDate > cutoffMs) break;
+      }
+
+      try {
+        const content = readFileSync(join(sessionsDir, file), 'utf-8');
+        // Look for error patterns in session content
+        const errorLines = content.split('\n').filter((l) =>
+          l.toLowerCase().includes('error') ||
+          l.toLowerCase().includes('failed') ||
+          l.toLowerCase().includes('timeout'),
+        );
+
+        for (const line of errorLines.slice(0, 3)) {
+          const mode = classifyFailure(line);
+          if (mode !== 'unknown') {
+            recentFailures.push({
+              mode,
+              timestamp: dateMatch?.[1] ?? 'unknown',
+              sessionId: file.replace('.md', ''),
+              message: line.trim().slice(0, 200),
+              recovered: true,
+            });
+          }
+        }
+      } catch {
+        // Skip unreadable sessions
+      }
+    }
+  }
+
+  // Calculate frequency
+  const modeFrequency: Record<string, number> = {};
+  for (const f of recentFailures) {
+    modeFrequency[f.mode] = (modeFrequency[f.mode] ?? 0) + 1;
+  }
+
+  // Find most common mode
+  let mostCommonMode: FailureMode | null = null;
+  let maxFreq = 0;
+  for (const [mode, count] of Object.entries(modeFrequency)) {
+    if (count > maxFreq) {
+      maxFreq = count;
+      mostCommonMode = mode as FailureMode;
+    }
+  }
+
+  // Suggest recovery
+  const suggestedRecovery = mostCommonMode
+    ? getRecoveryStrategies(mostCommonMode)
+    : [];
+
+  // Determine health implication
+  let healthImplication: 'healthy' | 'degraded' | 'unhealthy' = 'healthy';
+  if (recentFailures.length > 5) {
+    healthImplication = 'unhealthy';
+  } else if (recentFailures.length > 0) {
+    healthImplication = 'degraded';
+  }
+
+  return {
+    recentFailures: recentFailures.slice(0, 20),
+    modeFrequency,
+    mostCommonMode,
+    suggestedRecovery,
+    healthImplication,
+  };
+}
+
+// --- Verification Gates ---
+
+export type GateStatus = 'pass' | 'fail' | 'warn' | 'skip';
+
+export interface GateCheck {
+  name: string;
+  description: string;
+  status: GateStatus;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+export interface VerificationGateResult {
+  gateName: string;
+  passed: boolean;
+  checks: GateCheck[];
+  summary: string;
+}
+
+export type GateDefinition = {
+  name: string;
+  description: string;
+  check: (harnessDir: string, config?: HarnessConfig) => GateCheck[];
+};
+
+/**
+ * Built-in verification gates for the harness.
+ * Each gate is a set of checks that must pass at a specific stage.
+ */
+export const BUILTIN_GATES: GateDefinition[] = [
+  {
+    name: 'pre-boot',
+    description: 'Checks before agent boot: config valid, CORE.md exists, API key available',
+    check: (harnessDir: string) => {
+      const checks: GateCheck[] = [];
+
+      // CORE.md exists
+      checks.push(existsSync(join(harnessDir, 'CORE.md'))
+        ? { name: 'core-md', description: 'CORE.md exists', status: 'pass', message: 'CORE.md present' }
+        : { name: 'core-md', description: 'CORE.md exists', status: 'fail', message: 'Missing CORE.md — required for agent identity' });
+
+      // Config valid
+      try {
+        loadConfig(harnessDir);
+        checks.push({ name: 'config-valid', description: 'config.yaml valid', status: 'pass', message: 'Config parsed successfully' });
+      } catch (err) {
+        checks.push({ name: 'config-valid', description: 'config.yaml valid', status: 'fail', message: `Config error: ${err instanceof Error ? err.message : String(err)}` });
+      }
+
+      // API key available
+      const hasKey = !!(process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY);
+      checks.push(hasKey
+        ? { name: 'api-key', description: 'API key available', status: 'pass', message: 'API key found in environment' }
+        : { name: 'api-key', description: 'API key available', status: 'warn', message: 'No API key in environment — will need --api-key flag' });
+
+      // Memory directory
+      const memDir = join(harnessDir, 'memory');
+      checks.push(existsSync(memDir)
+        ? { name: 'memory-dir', description: 'Memory directory exists', status: 'pass', message: 'memory/ directory present' }
+        : { name: 'memory-dir', description: 'Memory directory exists', status: 'warn', message: 'memory/ directory missing — will be created on first run' });
+
+      return checks;
+    },
+  },
+  {
+    name: 'pre-run',
+    description: 'Checks before each LLM call: budget, rate limits, context budget',
+    check: (harnessDir: string) => {
+      const checks: GateCheck[] = [];
+
+      let config: HarnessConfig;
+      try {
+        config = loadConfig(harnessDir);
+      } catch {
+        checks.push({ name: 'config-load', description: 'Config loadable', status: 'fail', message: 'Cannot load config' });
+        return checks;
+      }
+
+      // Budget check
+      try {
+        const { checkBudget } = require('../runtime/cost-tracker.js') as { checkBudget: (dir: string, cfg: HarnessConfig) => { daily: { exceeded: boolean }; monthly: { exceeded: boolean } } };
+        const budget = checkBudget(harnessDir, config);
+        if (budget.daily.exceeded || budget.monthly.exceeded) {
+          checks.push({ name: 'budget', description: 'Budget not exceeded', status: 'fail', message: 'Budget limit exceeded', details: budget });
+        } else {
+          checks.push({ name: 'budget', description: 'Budget not exceeded', status: 'pass', message: 'Within budget' });
+        }
+      } catch {
+        checks.push({ name: 'budget', description: 'Budget not exceeded', status: 'skip', message: 'Budget check unavailable' });
+      }
+
+      // Rate limit check
+      try {
+        const { checkRateLimit } = require('../runtime/rate-limiter.js') as { checkRateLimit: (dir: string, limits: Record<string, number | undefined>) => { allowed: boolean; retryAfterMs: number } };
+        const limits = {
+          per_minute: config.rate_limits.per_minute,
+          per_hour: config.rate_limits.per_hour,
+          per_day: config.rate_limits.per_day,
+        };
+        const rateCheck = checkRateLimit(harnessDir, limits);
+        if (!rateCheck.allowed) {
+          checks.push({ name: 'rate-limit', description: 'Rate limit not hit', status: 'fail', message: `Rate limited, retry after ${rateCheck.retryAfterMs}ms` });
+        } else {
+          checks.push({ name: 'rate-limit', description: 'Rate limit not hit', status: 'pass', message: 'Within rate limits' });
+        }
+      } catch {
+        checks.push({ name: 'rate-limit', description: 'Rate limit not hit', status: 'skip', message: 'Rate limit check unavailable' });
+      }
+
+      // Health check
+      const healthPath = join(harnessDir, 'memory', 'health.json');
+      if (existsSync(healthPath)) {
+        try {
+          const health = JSON.parse(readFileSync(healthPath, 'utf-8'));
+          if (health.consecutiveFailures >= 3) {
+            checks.push({ name: 'health', description: 'Agent healthy', status: 'warn', message: `${health.consecutiveFailures} consecutive failures detected` });
+          } else {
+            checks.push({ name: 'health', description: 'Agent healthy', status: 'pass', message: 'No recent failure pattern' });
+          }
+        } catch {
+          checks.push({ name: 'health', description: 'Agent healthy', status: 'skip', message: 'Health data unavailable' });
+        }
+      }
+
+      return checks;
+    },
+  },
+  {
+    name: 'post-session',
+    description: 'Checks after a session: session recorded, no parse errors, primitives intact',
+    check: (harnessDir: string) => {
+      const checks: GateCheck[] = [];
+
+      // Sessions directory exists and has files
+      const sessionsDir = join(harnessDir, 'memory', 'sessions');
+      if (existsSync(sessionsDir)) {
+        const files = readdirSync(sessionsDir).filter((f) => f.endsWith('.md') && !f.startsWith('.'));
+        checks.push({
+          name: 'sessions-recorded',
+          description: 'Sessions being recorded',
+          status: files.length > 0 ? 'pass' : 'warn',
+          message: `${files.length} session file(s) in memory`,
+        });
+      } else {
+        checks.push({ name: 'sessions-recorded', description: 'Sessions being recorded', status: 'warn', message: 'No sessions directory' });
+      }
+
+      // Check for parse errors in primitives
+      const dirs = getPrimitiveDirs();
+      let totalParseErrors = 0;
+      for (const dir of dirs) {
+        const fullPath = join(harnessDir, dir);
+        if (!existsSync(fullPath)) continue;
+        const { errors } = loadDirectoryWithErrors(fullPath);
+        totalParseErrors += errors.length;
+      }
+
+      checks.push(totalParseErrors === 0
+        ? { name: 'parse-errors', description: 'No primitive parse errors', status: 'pass', message: 'All primitives parse cleanly' }
+        : { name: 'parse-errors', description: 'No primitive parse errors', status: 'warn', message: `${totalParseErrors} parse error(s) in primitives` });
+
+      return checks;
+    },
+  },
+  {
+    name: 'pre-deploy',
+    description: 'Checks before deployment: validator passes, no dead primitives, no contradictions',
+    check: (harnessDir: string, config?: HarnessConfig) => {
+      const checks: GateCheck[] = [];
+
+      // Run validator
+      try {
+        const { validateHarness } = require('../runtime/validator.js') as { validateHarness: (dir: string) => { errors: string[]; warnings: string[] } };
+        const validation = validateHarness(harnessDir);
+        if (validation.errors.length > 0) {
+          checks.push({ name: 'validator', description: 'Validator passes', status: 'fail', message: `${validation.errors.length} error(s)`, details: { errors: validation.errors } });
+        } else if (validation.warnings.length > 0) {
+          checks.push({ name: 'validator', description: 'Validator passes', status: 'warn', message: `${validation.warnings.length} warning(s)` });
+        } else {
+          checks.push({ name: 'validator', description: 'Validator passes', status: 'pass', message: 'Validation clean' });
+        }
+      } catch (err) {
+        checks.push({ name: 'validator', description: 'Validator passes', status: 'fail', message: `Validator error: ${err instanceof Error ? err.message : String(err)}` });
+      }
+
+      // Check for dead primitives
+      const deadResult = detectDeadPrimitives(harnessDir, config);
+      checks.push(deadResult.dead.length === 0
+        ? { name: 'dead-primitives', description: 'No dead primitives', status: 'pass', message: 'All primitives referenced or recently modified' }
+        : { name: 'dead-primitives', description: 'No dead primitives', status: 'warn', message: `${deadResult.dead.length} dead primitive(s) found`, details: { dead: deadResult.dead.map((d) => d.id) } });
+
+      // Check for contradictions
+      const contradictionResult = detectContradictions(harnessDir);
+      checks.push(contradictionResult.contradictions.length === 0
+        ? { name: 'contradictions', description: 'No contradictions', status: 'pass', message: 'No conflicting rules/instincts' }
+        : { name: 'contradictions', description: 'No contradictions', status: 'warn', message: `${contradictionResult.contradictions.length} potential contradiction(s)` });
+
+      return checks;
+    },
+  },
+];
+
+/**
+ * Run a verification gate by name.
+ * Returns all check results and an overall pass/fail status.
+ */
+export function runGate(
+  gateName: string,
+  harnessDir: string,
+  config?: HarnessConfig,
+): VerificationGateResult {
+  const gate = BUILTIN_GATES.find((g) => g.name === gateName);
+  if (!gate) {
+    return {
+      gateName,
+      passed: false,
+      checks: [{ name: 'gate-not-found', description: 'Gate exists', status: 'fail', message: `Unknown gate: ${gateName}` }],
+      summary: `Gate "${gateName}" not found. Available: ${BUILTIN_GATES.map((g) => g.name).join(', ')}`,
+    };
+  }
+
+  const checks = gate.check(harnessDir, config);
+  const hasFails = checks.some((c) => c.status === 'fail');
+  const hasWarns = checks.some((c) => c.status === 'warn');
+
+  const passed = !hasFails;
+  const passCount = checks.filter((c) => c.status === 'pass').length;
+  const failCount = checks.filter((c) => c.status === 'fail').length;
+  const warnCount = checks.filter((c) => c.status === 'warn').length;
+
+  let summary = `${gate.name}: ${passCount} passed`;
+  if (failCount > 0) summary += `, ${failCount} failed`;
+  if (warnCount > 0) summary += `, ${warnCount} warnings`;
+
+  return { gateName, passed, checks, summary };
+}
+
+/**
+ * Run all built-in verification gates.
+ */
+export function runAllGates(
+  harnessDir: string,
+  config?: HarnessConfig,
+): VerificationGateResult[] {
+  return BUILTIN_GATES.map((gate) => runGate(gate.name, harnessDir, config));
+}
+
+/**
+ * List available gate names and descriptions.
+ */
+export function listGates(): Array<{ name: string; description: string }> {
+  return BUILTIN_GATES.map((g) => ({ name: g.name, description: g.description }));
 }

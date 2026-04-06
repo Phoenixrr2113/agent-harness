@@ -3631,4 +3631,112 @@ intelligenceCmd
     }
   });
 
+intelligenceCmd
+  .command('failures')
+  .description('Analyze recent failure patterns and suggest recovery strategies')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--days <n>', 'Days to look back', '7')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    const dir = resolve(opts.dir);
+    loadEnvFromDir(dir);
+    const { analyzeFailures } = await import('../runtime/intelligence.js');
+    const result = analyzeFailures(dir, { days: parseInt(opts.days, 10) });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(`Health: ${result.healthImplication}`);
+      console.log(`Recent failures: ${result.recentFailures.length}`);
+      if (result.mostCommonMode) {
+        console.log(`Most common failure: ${result.mostCommonMode}`);
+      }
+      if (Object.keys(result.modeFrequency).length > 0) {
+        console.log('\nFailure frequency:');
+        for (const [mode, count] of Object.entries(result.modeFrequency)) {
+          console.log(`  ${mode}: ${count}`);
+        }
+      }
+      if (result.suggestedRecovery.length > 0) {
+        console.log('\nSuggested recovery:');
+        for (const s of result.suggestedRecovery) {
+          console.log(`  - ${s}`);
+        }
+      }
+    }
+  });
+
+intelligenceCmd
+  .command('classify <error>')
+  .description('Classify an error message into a failure mode')
+  .action(async (errorMsg) => {
+    const { classifyFailure, getRecoveryStrategies, FAILURE_TAXONOMY } = await import('../runtime/intelligence.js');
+    const mode = classifyFailure(errorMsg);
+    const info = FAILURE_TAXONOMY.modes[mode];
+    const strategies = getRecoveryStrategies(mode);
+
+    console.log(`Mode: ${mode}`);
+    console.log(`Severity: ${info.severity}`);
+    console.log(`Description: ${info.description}`);
+    console.log(`Auto-recoverable: ${info.autoRecoverable}`);
+    console.log('\nRecovery strategies:');
+    for (const s of strategies) {
+      console.log(`  - ${s}`);
+    }
+  });
+
+// --- Verification Gate Commands ---
+
+const gateCmd = program.command('gate').description('Run verification gates');
+
+gateCmd
+  .command('run [name]')
+  .description('Run a verification gate (or all gates if no name)')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--json', 'Output as JSON')
+  .action(async (name, opts) => {
+    const dir = resolve(opts.dir);
+    loadEnvFromDir(dir);
+    const { runGate, runAllGates } = await import('../runtime/intelligence.js');
+
+    if (name) {
+      const result = runGate(name, dir);
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`Gate: ${result.gateName} — ${result.passed ? 'PASSED' : 'FAILED'}`);
+        console.log(result.summary);
+        for (const c of result.checks) {
+          const icon = c.status === 'pass' ? '[OK]' : c.status === 'fail' ? '[FAIL]' : c.status === 'warn' ? '[WARN]' : '[SKIP]';
+          console.log(`  ${icon} ${c.name}: ${c.message}`);
+        }
+      }
+    } else {
+      const results = runAllGates(dir);
+      if (opts.json) {
+        console.log(JSON.stringify(results, null, 2));
+      } else {
+        for (const result of results) {
+          const icon = result.passed ? '[OK]' : '[FAIL]';
+          console.log(`${icon} ${result.summary}`);
+          for (const c of result.checks) {
+            const cIcon = c.status === 'pass' ? '[OK]' : c.status === 'fail' ? '[FAIL]' : c.status === 'warn' ? '[WARN]' : '[SKIP]';
+            console.log(`    ${cIcon} ${c.name}: ${c.message}`);
+          }
+        }
+      }
+    }
+  });
+
+gateCmd
+  .command('list')
+  .description('List available verification gates')
+  .action(async () => {
+    const { listGates } = await import('../runtime/intelligence.js');
+    const gates = listGates();
+    for (const g of gates) {
+      console.log(`  ${g.name}: ${g.description}`);
+    }
+  });
+
 program.parse();
