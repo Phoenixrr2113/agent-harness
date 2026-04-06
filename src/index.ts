@@ -93,6 +93,8 @@ export { createWebApp, startWebServer } from './runtime/web-server.js';
 export type { WebServerOptions, ServerSentEvent, CreateWebAppOptions } from './runtime/web-server.js';
 export { createManifest, writeManifest, readManifest, packBundle, writeBundleDir, readBundleDir, installBundle, uninstallBundle, diffBundle, updateBundle, readInstalledManifests, listInstalledBundles, fetchRemoteBundle, fetchFromRegistry, searchBundleRegistry, searchConfiguredRegistries, installFromRegistry } from './runtime/primitive-registry.js';
 export type { BundleManifest, BundleFileEntry, PackedBundle, PrimitiveInstallResult, PrimitiveUninstallResult, PrimitiveUpdateResult, RegistryConfig, BundleSearchResult, BundleSearchResponse, BundleSearchHit, MultiBundleSearchResponse } from './runtime/primitive-registry.js';
+export { getStarterPack, listStarterPacks, isPackReference, parsePackName } from './runtime/starter-packs.js';
+export type { StarterPack } from './runtime/starter-packs.js';
 export { autoPromoteInstincts, detectDeadPrimitives, detectContradictions, enrichSessions, suggestCapabilities, classifyFailure, getRecoveryStrategies, analyzeFailures, FAILURE_TAXONOMY, runGate, runAllGates, listGates } from './runtime/intelligence.js';
 export type { PatternOccurrence, AutoPromoteResult, DeadPrimitive, DeadPrimitiveResult, Contradiction, ContradictionResult, SessionEnrichment, EnrichmentResult, CapabilitySuggestion, CapabilitySuggestionResult, FailureMode, FailureRecord, FailureTaxonomy, FailureAnalysis, GateStatus, GateCheck, VerificationGateResult } from './runtime/intelligence.js';
 export { defineAgent } from './runtime/define-agent.js';

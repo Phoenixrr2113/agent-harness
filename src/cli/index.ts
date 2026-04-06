@@ -4314,6 +4314,65 @@ program
   .action(async (source: string, opts: Record<string, unknown>) => {
     const dir = resolve(opts.dir as string);
     loadEnvFromDir(dir);
+
+    // Handle pack: prefix — install builtin starter packs
+    const { isPackReference, parsePackName, getStarterPack, listStarterPacks } = await import('../runtime/starter-packs.js');
+    if (isPackReference(source)) {
+      const packName = parsePackName(source);
+
+      // Special case: pack:list shows available packs
+      if (packName === 'list') {
+        const packs = listStarterPacks();
+        console.log('\nAvailable starter packs:\n');
+        for (const p of packs) {
+          console.log(`  pack:${p.name}`);
+          console.log(`    ${p.description}`);
+          console.log(`    Files: ${p.fileCount} | Tags: ${p.tags.join(', ')}\n`);
+        }
+        console.log(`Install with: harness install pack:<name> -d <harness-dir>`);
+        return;
+      }
+
+      const bundle = getStarterPack(packName);
+      if (!bundle) {
+        const available = listStarterPacks().map(p => `pack:${p.name}`).join(', ');
+        console.error(`Unknown starter pack: "${packName}"\nAvailable packs: ${available}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const { installBundle } = await import('../runtime/primitive-registry.js');
+      const bundleResult = installBundle(dir, bundle, {
+        overwrite: opts.force as boolean | undefined,
+        force: opts.force as boolean | undefined,
+      });
+
+      if (opts.json) {
+        console.log(JSON.stringify(bundleResult, null, 2));
+      } else if (bundleResult.installed) {
+        console.log(`\nInstalled pack: ${packName}`);
+        console.log(`  Files: ${bundleResult.files.length}`);
+        for (const f of bundleResult.files) {
+          console.log(`    + ${f}`);
+        }
+        if (bundleResult.skipped.length > 0) {
+          console.log(`  Skipped (already exist): ${bundleResult.skipped.length}`);
+          for (const f of bundleResult.skipped) {
+            console.log(`    ~ ${f}`);
+          }
+          console.log(`  Use --force to overwrite existing files.`);
+        }
+        console.log(`\nCustomize the workflows in your workflows/ directory.`);
+      } else {
+        console.error(`Failed to install pack: ${packName}`);
+        for (const err of bundleResult.errors) {
+          console.error(`  ${err}`);
+        }
+        process.exitCode = 1;
+      }
+      return;
+    }
+
     const { universalInstall } = await import('../runtime/universal-installer.js');
 
     const result = await universalInstall(dir, source, {

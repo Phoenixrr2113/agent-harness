@@ -531,8 +531,15 @@ Adapters are webhook parsers. Each one knows how to normalize a specific service
   - Wired into `harness dev` via `config.intelligence.auto_journal/auto_learn`
 
 ### Starter workflow packs (installable bundles)
-- [ ] Ship example workflow bundles: `pack:daily-briefs` (morning + evening workflows), `pack:weekly-review`, `pack:code-review-workflow`
-- [ ] Each is just a bundle of workflow .md files with cron schedules. Developer installs, customizes, or writes their own.
+- [x] Ship example workflow bundles: `pack:daily-briefs` (morning + evening workflows), `pack:weekly-review`, `pack:code-review`
+  - `src/runtime/starter-packs.ts`: 3 builtin packs, 5 workflow files total
+  - `pack:daily-briefs`: morning-brief (0 8 * * 1-5) + evening-review (0 18 * * 1-5)
+  - `pack:weekly-review`: weekly-review (0 17 * * 5)
+  - `pack:code-review`: code-review-workflow + pr-checklist (manual, no schedule)
+- [x] Each is just a bundle of workflow .md files with cron schedules. Developer installs, customizes, or writes their own.
+  - `harness install pack:<name>` — resolves from builtin packs, uses `installBundle()`
+  - `harness install pack:list` — shows all available packs with descriptions
+  - Exports: `getStarterPack()`, `listStarterPacks()`, `isPackReference()`, `parsePackName()`
 
 ---
 
@@ -933,9 +940,21 @@ Adapters are webhook parsers. Each one knows how to normalize a specific service
 - 12 new tests: auto-journal scheduling (3), proactive cooldown (4), config schema validation (5)
 - All 1039 tests passing, build clean, lint clean
 
+### Loop 62 (Starter Workflow Packs)
+- New module `src/runtime/starter-packs.ts` with 3 builtin packs:
+  - `pack:daily-briefs` (2 files): morning-brief + evening-review with weekday cron schedules
+  - `pack:weekly-review` (1 file): Friday afternoon retrospective
+  - `pack:code-review` (2 files): code review workflow + PR checklist (manual trigger)
+- CLI `harness install pack:<name>` — resolves pack → PackedBundle → installBundle()
+  - `harness install pack:list` shows available packs with descriptions, file counts, tags
+  - Skips existing files by default, --force to overwrite
+- Exported from library: `getStarterPack`, `listStarterPacks`, `isPackReference`, `parsePackName`
+- 14 new tests: pack references (3), listing (2), content validation (4), bundle install integration (4), unique IDs (1)
+- All 1053 tests passing, build clean, lint clean
+
 ### Stats
-- 1039 tests across 52 files — ALL PASSING
-- 58+ source modules, 35,000+ lines
+- 1053 tests across 53 files — ALL PASSING
+- 59+ source modules, 35,000+ lines
 - 88+ CLI commands
 - Build, lint, tests all green
 - Zero `any` types, zero empty catches, zero `require()` calls
