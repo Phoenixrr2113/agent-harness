@@ -95,9 +95,14 @@
 - [x] **Instinct harvesting from journals** — New `harvestInstincts()` function in instinct-learner.ts scans journal entries for instinct candidate sections, extracts them, deduplicates against existing instincts (by id and L0 text), and optionally installs as draft instinct files. Pure file-based — no LLM calls needed. Date range filtering via `from`/`to` options. New `harness harvest` CLI command with `--from`, `--to`, `--install` flags. `HarvestResult` type exported. 6 new harvest tests.
 - [x] **Journal weekly compression** — New `compressJournals()` function in journal.ts groups daily journals by ISO week, aggregates structured sections (summary, insights, instinct candidates, knowledge updates) with deduplication, writes weekly roll-up files to `memory/journal/weekly/`. Skips current week (only compresses complete past weeks). `--force` option to overwrite existing. New `harness compress` CLI command. `WeekSummary` type exported. 5 new compression tests.
 
+## Completed (Loop 16)
+
+- [x] **Workflow execution metrics** — New `src/runtime/metrics.ts` module with `WorkflowRun`, `MetricsStore`, `WorkflowStats` types. Functions: `loadMetrics()`, `saveMetrics()`, `recordRun()`, `getWorkflowStats()`, `getAllWorkflowStats()`, `clearMetrics()`. Persists to `memory/metrics.json` with 1000-run cap (auto-trimmed on save). Scheduler's `executeWorkflow()` now records duration, tokens, success/failure, attempt count after every run. Graceful handling of corrupt/missing metrics files. 13 new metrics tests.
+- [x] **Metrics CLI** — New `harness metrics show` (all workflows or `--workflow <id>`), `harness metrics history` (recent runs with `--workflow` filter and `-n` limit), `harness metrics clear` (per-workflow or global). Duration formatting (ms/s/m). All exported from `src/index.ts`.
+
 ## All Plan Items Complete
 
-All items from the original fix plan have been implemented across 15 loops.
+All items from the original fix plan have been implemented across 16 loops.
 
 ## Architecture Notes
 
@@ -123,6 +128,7 @@ All items from the original fix plan have been implemented across 15 loops.
 - Doctor command for one-pass validation + auto-remediation
 - Scheduled auto-archival prevents memory directory bloat
 - Workflow CLI for listing and manual execution
+- Workflow execution metrics with history, stats, and CLI visibility
 
 ### Known Limitations
 - Token estimation is 1:4 char ratio — good enough but not precise

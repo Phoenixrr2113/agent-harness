@@ -44,3 +44,5 @@ export { delegateTo, delegateStream, findAgent, listAgents, loadAgentDocs, build
 export type { DelegationResult, DelegateStreamResult, AgentInfo, DelegateOptions } from './runtime/delegate.js';
 export { searchPrimitives } from './runtime/search.js';
 export type { SearchOptions, SearchResult } from './runtime/search.js';
+export { loadMetrics, saveMetrics, recordRun, getWorkflowStats, getAllWorkflowStats, clearMetrics } from './runtime/metrics.js';
+export type { WorkflowRun, MetricsStore, WorkflowStats } from './runtime/metrics.js';

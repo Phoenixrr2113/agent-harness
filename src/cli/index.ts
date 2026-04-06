@@ -1188,6 +1188,122 @@ configCmd
     }
   });
 
+// --- METRICS (workflow execution stats) ---
+const metricsCmd = program
+  .command('metrics')
+  .description('View workflow execution metrics and stats');
+
+metricsCmd
+  .command('show')
+  .description('Show stats for all workflows (default)')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--workflow <id>', 'Show stats for a specific workflow')
+  .action(async (opts: { dir: string; workflow?: string }) => {
+    const { getAllWorkflowStats, getWorkflowStats } = await import('../runtime/metrics.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    if (opts.workflow) {
+      const stats = getWorkflowStats(dir, opts.workflow);
+      if (!stats) {
+        console.log(`\nNo metrics recorded for workflow "${opts.workflow}".\n`);
+        return;
+      }
+      console.log(`\nWorkflow: ${stats.workflow_id}\n`);
+      console.log(`  Runs:         ${stats.total_runs}`);
+      console.log(`  Successes:    ${stats.successes}`);
+      console.log(`  Failures:     ${stats.failures}`);
+      console.log(`  Success rate: ${(stats.success_rate * 100).toFixed(1)}%`);
+      console.log(`  Avg duration: ${formatDuration(stats.avg_duration_ms)}`);
+      console.log(`  Total tokens: ${stats.total_tokens}`);
+      console.log(`  Last run:     ${stats.last_run}`);
+      if (stats.last_success) console.log(`  Last success: ${stats.last_success}`);
+      if (stats.last_failure) console.log(`  Last failure: ${stats.last_failure}`);
+      console.log();
+      return;
+    }
+
+    const allStats = getAllWorkflowStats(dir);
+    if (allStats.length === 0) {
+      console.log('\nNo workflow metrics recorded yet.\n');
+      console.log('Metrics are automatically recorded when workflows run via scheduler or `harness workflow run`.\n');
+      return;
+    }
+
+    console.log(`\n${allStats.length} workflow(s) with metrics:\n`);
+    for (const stats of allStats) {
+      const rate = (stats.success_rate * 100).toFixed(0);
+      console.log(`  ${stats.workflow_id}`);
+      console.log(`    ${stats.total_runs} runs (${rate}% success) | avg ${formatDuration(stats.avg_duration_ms)} | ${stats.total_tokens} tokens`);
+      console.log(`    Last: ${stats.last_run}`);
+    }
+    console.log();
+  });
+
+metricsCmd
+  .command('clear')
+  .description('Clear metrics for a specific workflow or all workflows')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--workflow <id>', 'Clear only this workflow (clears all if omitted)')
+  .action(async (opts: { dir: string; workflow?: string }) => {
+    const { clearMetrics } = await import('../runtime/metrics.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const removed = clearMetrics(dir, opts.workflow);
+    if (opts.workflow) {
+      console.log(`Cleared ${removed} metric(s) for workflow "${opts.workflow}".`);
+    } else {
+      console.log(`Cleared ${removed} total metric(s).`);
+    }
+  });
+
+metricsCmd
+  .command('history')
+  .description('Show recent workflow run history')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--workflow <id>', 'Filter by workflow ID')
+  .option('-n, --limit <count>', 'Number of recent runs to show', '10')
+  .action(async (opts: { dir: string; workflow?: string; limit: string }) => {
+    const { loadMetrics } = await import('../runtime/metrics.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const store = loadMetrics(dir);
+    let runs = store.runs;
+
+    if (opts.workflow) {
+      runs = runs.filter((r) => r.workflow_id === opts.workflow);
+    }
+
+    const limit = parseInt(opts.limit, 10) || 10;
+    const recent = runs.slice(-limit).reverse();
+
+    if (recent.length === 0) {
+      console.log('\nNo workflow runs recorded.\n');
+      return;
+    }
+
+    console.log(`\n${recent.length} recent run(s)${opts.workflow ? ` for "${opts.workflow}"` : ''}:\n`);
+    for (const run of recent) {
+      const status = run.success ? 'OK' : 'FAIL';
+      const tokens = run.tokens_used ? ` | ${run.tokens_used} tokens` : '';
+      const retries = run.attempt > 1 ? ` (attempt ${run.attempt}/${run.max_retries + 1})` : '';
+      const error = run.error ? `\n      Error: ${run.error.slice(0, 100)}` : '';
+      console.log(`  [${status}] ${run.workflow_id} — ${formatDuration(run.duration_ms)}${tokens}${retries}`);
+      console.log(`    ${run.started}${error}`);
+    }
+    console.log();
+  });
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  const minutes = Math.floor(ms / 60000);
+  const seconds = Math.round((ms % 60000) / 1000);
+  return `${minutes}m${seconds}s`;
+}
+
 // --- AGENTS (list available sub-agents) ---
 program
   .command('agents')

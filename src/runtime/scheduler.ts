@@ -5,6 +5,7 @@ import { loadDirectory, parseHarnessDocument } from '../primitives/loader.js';
 import { loadConfig } from '../core/config.js';
 import { createHarness } from '../core/harness.js';
 import { archiveOldFiles } from './sessions.js';
+import { recordRun } from './metrics.js';
 import { log } from '../core/logger.js';
 import type { HarnessConfig, HarnessDocument } from '../core/types.js';
 
@@ -161,6 +162,7 @@ export class Scheduler {
     const maxRetries = doc.frontmatter.max_retries ?? 0;
     const baseDelay = doc.frontmatter.retry_delay_ms ?? 1000;
     let lastError: Error | null = null;
+    const startTime = Date.now();
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
@@ -174,6 +176,19 @@ export class Scheduler {
         const prompt = `Execute this workflow:\n\n${doc.body}`;
         const result = await agent.run(prompt);
         await agent.shutdown();
+
+        // Record successful run
+        const endTime = Date.now();
+        recordRun(this.harnessDir, {
+          workflow_id: workflowId,
+          started: new Date(startTime).toISOString(),
+          ended: new Date(endTime).toISOString(),
+          duration_ms: endTime - startTime,
+          success: true,
+          tokens_used: result.usage.totalTokens,
+          attempt: attempt + 1,
+          max_retries: maxRetries,
+        });
 
         this.onRun?.(workflowId, result.text);
         return result.text;
@@ -189,6 +204,19 @@ export class Scheduler {
         }
       }
     }
+
+    // Record failed run
+    const endTime = Date.now();
+    recordRun(this.harnessDir, {
+      workflow_id: workflowId,
+      started: new Date(startTime).toISOString(),
+      ended: new Date(endTime).toISOString(),
+      duration_ms: endTime - startTime,
+      success: false,
+      error: lastError?.message,
+      attempt: maxRetries + 1,
+      max_retries: maxRetries,
+    });
 
     // All attempts exhausted
     this.onError?.(workflowId, lastError!);
