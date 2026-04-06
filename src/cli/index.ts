@@ -565,97 +565,10 @@ program
   .description('Validate harness structure and configuration')
   .option('-d, --dir <path>', 'Harness directory', '.')
   .action(async (opts: { dir: string }) => {
-    const { loadConfig } = await import('../core/config.js');
-    const { loadDirectory, parseHarnessDocument } = await import('../primitives/loader.js');
-    const { loadState } = await import('../runtime/state.js');
-    const { buildSystemPrompt } = await import('../runtime/context-loader.js');
+    const { validateHarness } = await import('../runtime/validator.js');
     const dir = resolve(opts.dir);
 
-    const errors: string[] = [];
-    const warnings: string[] = [];
-    const ok: string[] = [];
-
-    // Check required files
-    const requiredFiles = ['CORE.md'];
-    for (const file of requiredFiles) {
-      if (existsSync(join(dir, file))) {
-        ok.push(`${file} exists`);
-      } else {
-        errors.push(`Missing required file: ${file}`);
-      }
-    }
-
-    const optionalFiles = ['SYSTEM.md', 'state.md', 'config.yaml'];
-    for (const file of optionalFiles) {
-      if (existsSync(join(dir, file))) {
-        ok.push(`${file} exists`);
-      } else {
-        warnings.push(`Optional file missing: ${file}`);
-      }
-    }
-
-    // Validate config
-    try {
-      const config = loadConfig(dir);
-      ok.push(`Config valid (agent: ${config.agent.name}, model: ${config.model.id})`);
-    } catch (err: unknown) {
-      errors.push(`Config error: ${err instanceof Error ? err.message : String(err)}`);
-    }
-
-    // Validate state
-    try {
-      const state = loadState(dir);
-      ok.push(`State valid (mode: ${state.mode})`);
-    } catch (err: unknown) {
-      warnings.push(`State parse issue: ${err instanceof Error ? err.message : String(err)}`);
-    }
-
-    // Validate primitive directories (core + extensions)
-    const { getPrimitiveDirs } = await import('../core/types.js');
-    let validatedConfig: ReturnType<typeof loadConfig> | undefined;
-    try { validatedConfig = loadConfig(dir); } catch { /* validated below */ }
-    const primitiveDirs = getPrimitiveDirs(validatedConfig);
-    let totalPrimitives = 0;
-    let invalidPrimitives = 0;
-
-    for (const primDir of primitiveDirs) {
-      const fullPath = join(dir, primDir);
-      if (!existsSync(fullPath)) continue;
-
-      try {
-        const docs = loadDirectory(fullPath);
-        totalPrimitives += docs.length;
-        ok.push(`${primDir}/: ${docs.length} valid file(s)`);
-      } catch (err: unknown) {
-        invalidPrimitives++;
-        errors.push(`Error loading ${primDir}/: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
-    // Check context budget
-    try {
-      const config = loadConfig(dir);
-      const ctx = buildSystemPrompt(dir, config);
-      const usagePercent = ((ctx.budget.used_tokens / ctx.budget.max_tokens) * 100).toFixed(1);
-      ok.push(`Context budget: ${ctx.budget.used_tokens}/${ctx.budget.max_tokens} tokens (${usagePercent}%)`);
-    } catch {
-      // Already reported above
-    }
-
-    // Check API key
-    if (process.env.OPENROUTER_API_KEY) {
-      ok.push('API key configured (OPENROUTER_API_KEY)');
-    } else {
-      warnings.push('No OPENROUTER_API_KEY set — LLM calls will fail');
-    }
-
-    // Check memory directories
-    const memoryDirs = ['memory', 'memory/sessions', 'memory/journal'];
-    for (const memDir of memoryDirs) {
-      if (!existsSync(join(dir, memDir))) {
-        warnings.push(`Missing directory: ${memDir}/`);
-      }
-    }
+    const { ok, warnings, errors, parseErrors, totalPrimitives } = validateHarness(dir);
 
     // Output results
     console.log(`\nHarness validation: ${dir}\n`);
@@ -681,9 +594,43 @@ program
     }
 
     console.log(`\nSummary: ${ok.length} passed, ${warnings.length} warnings, ${errors.length} errors`);
-    console.log(`Primitives: ${totalPrimitives} loaded${invalidPrimitives > 0 ? `, ${invalidPrimitives} failed` : ''}\n`);
+    console.log(`Primitives: ${totalPrimitives} loaded${parseErrors.length > 0 ? `, ${parseErrors.length} parse error(s)` : ''}\n`);
 
     if (errors.length > 0) {
+      process.exit(1);
+    }
+  });
+
+// --- FIX (auto-fix common issues in a capability file) ---
+program
+  .command('fix <file>')
+  .description('Auto-fix common issues in a capability markdown file (missing id, status, L0/L1)')
+  .action(async (file: string) => {
+    const { fixCapability } = await import('../runtime/intake.js');
+    const filePath = resolve(file);
+
+    const result = fixCapability(filePath);
+
+    if (result.fixes_applied.length > 0) {
+      console.log(`Fixed ${result.fixes_applied.length} issue(s) in ${filePath}:`);
+      for (const fix of result.fixes_applied) {
+        console.log(`  ✓ ${fix}`);
+      }
+    } else {
+      console.log('No auto-fixable issues found.');
+    }
+
+    if (result.warnings.length > 0) {
+      for (const w of result.warnings) {
+        console.log(`  ⚠ ${w}`);
+      }
+    }
+
+    if (result.errors.length > 0) {
+      console.error(`\nRemaining errors (manual fix required):`);
+      for (const e of result.errors) {
+        console.error(`  ✗ ${e}`);
+      }
       process.exit(1);
     }
   });

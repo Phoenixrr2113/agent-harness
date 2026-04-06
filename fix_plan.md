@@ -62,9 +62,15 @@
 - [x] **Context budget warnings** — `buildSystemPrompt()` now returns `parseErrors` and `warnings` arrays in `LoadedContext`. Warns when system prompt exceeds 12% of total context budget, and when primitives are loaded at reduced disclosure levels (L0/L1) due to budget constraints. `harness.boot()` logs warnings via structured logger. Fixed duplicate `state.md` push bug in context-loader.
 - [x] **Journal synthesis structured output** — New `JournalSynthesis` type with `summary`, `insights`, `instinct_candidates`, `knowledge_updates` fields. New `parseJournalSynthesis()` parser extracts structured sections from LLM output (resilient to missing sections, supports legacy "Patterns" section). Updated synthesis prompt with explicit section format. `JournalEntry` now includes `structured` field. 7 new journal parser tests.
 
+## Completed (Loop 10)
+
+- [x] **Comprehensive validator module** — Extracted validate logic from CLI into standalone `src/runtime/validator.ts` with `validateHarness()` function. Adds cross-reference integrity checking (validates `related:` fields against known primitive IDs and file paths), missing L0/L1 counts across all primitives, multi-provider API key detection (OPENROUTER, ANTHROPIC, OPENAI), and memory directory structure checks. `ValidationResult` type with `ok`, `warnings`, `errors`, `parseErrors`, `primitiveCounts`, `totalPrimitives`. CLI validate command reduced from ~130 lines to ~30 lines. 10 new validator tests.
+- [x] **Evaluator auto-fix** — New `fixCapability()` function in intake.ts automatically repairs common issues in capability markdown files: generates missing `id` from filename, adds missing `status: active`, infers and adds missing type tags from content headings, generates L0 summary from first heading (truncated to 120 chars), generates L1 summary from first paragraph (truncated to 300 chars). Writes fixed file back with `gray-matter.stringify()`. 12 new intake fix tests. New `harness fix <file>` CLI command.
+- [x] **Intake test suite** — 23 new tests covering `fixCapability()`, `evaluateCapability()`, `installCapability()`, and `processIntake()`.
+
 ## All Plan Items Complete
 
-All items from the original fix plan have been implemented across 9 loops.
+All items from the original fix plan have been implemented across 10 loops.
 
 ## Architecture Notes
 
@@ -82,6 +88,8 @@ All items from the original fix plan have been implemented across 9 loops.
 - Quiet hours enforcement prevents unnecessary API calls
 - Parse error collection surfaces broken primitives instead of hiding them
 - Budget warnings give visibility into context truncation
+- Comprehensive validator with cross-reference integrity checking
+- Auto-fix for common capability file issues (missing id, status, L0/L1, type tags)
 
 ### Known Limitations
 - Token estimation is 1:4 char ratio — good enough but not precise
