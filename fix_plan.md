@@ -23,19 +23,22 @@
 
 - [x] **Agent delegation** — New `src/runtime/delegate.ts` with full delegation engine: `delegateTo()` runs stateless sub-agents with their own context (agent body + CORE.md + rules at L1), `findAgent()` resolves by id/prefix/filename, `buildAgentPrompt()` assembles 10%-budget system prompts. Sessions tagged with `[delegated to agent-id]`. New CLI commands: `harness agents` (list), `harness delegate <id> <prompt>` (invoke). Default summarizer agent in scaffold. 16 new tests.
 
+## Completed (Loop 4)
+
+- [x] **Journal date range** — Added `--from`, `--to`, `--all`, `--force`, `--pending` flags to `harness journal`. New `synthesizeJournalRange()` processes multiple dates, skips already-journaled dates unless `--force`. New `listUnjournaled()` finds gaps. `--pending` shows dates needing journals.
+- [x] **Better error messages** — Rewrote `formatError()` with typed error handling: API errors, network errors, rate limiting, file system errors, validation errors. Added `requireHarness()` helper used by 9 commands. Eliminated all `err: any` patterns in CLI.
+- [x] **Session metadata** — `SessionRecord` now includes optional `model_id` and `delegated_to` fields. Sessions record which model was used and whether they were delegation calls. Written to session markdown with **Model:** and **Delegated to:** lines. Delegation sessions get auto-tagged with agent id.
+
 ## Next Priority
 
 ### P1 — DX & Reliability
 
 - [ ] **Defaults/templates** — The `defaults/` and `templates/` directories are empty. Should contain default primitives for `harness init` (e.g., default rules, instinct seeds, config presets for different models).
-- [ ] **Better error messages** — Some errors bubble raw stack traces. Improve CLI error formatting across all commands.
-- [ ] **Journal date range** — `harness journal` only does single-day synthesis. Add `--range` or `--all` for bulk journal generation.
 
 ### P2 — Polish
 
 - [ ] **Context.md format** — Conversation persistence format (`### User` / `### Assistant`) is fragile. Consider JSON or structured frontmatter.
 - [ ] **Index file improvements** — Index tables truncate L0 at 80 chars. Should be configurable.
-- [ ] **Session metadata** — Sessions only track prompt/summary/tokens. Could include model ID, disclosure level used, error state.
 - [ ] **Conversation session recording** — Chat sessions don't create session records. Each chat turn should optionally write a session.
 
 ### P3 — Future

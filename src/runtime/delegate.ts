@@ -199,9 +199,11 @@ export async function delegateTo(opts: DelegateOptions): Promise<DelegationResul
     id: sessionId,
     started,
     ended,
-    prompt: `[delegated to ${agentDoc.frontmatter.id}] ${prompt}`,
+    prompt,
     summary: result.text.slice(0, 200),
     tokens_used: result.usage.totalTokens,
+    model_id: config.model.id,
+    delegated_to: agentDoc.frontmatter.id,
     steps: 1,
   };
 

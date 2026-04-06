@@ -133,6 +133,87 @@ ${result.text}
   };
 }
 
+/**
+ * Synthesize journals for a date range.
+ * Processes each date that has sessions, skipping dates already journaled unless force is set.
+ */
+export async function synthesizeJournalRange(
+  harnessDir: string,
+  options: { from?: string; to?: string; all?: boolean; force?: boolean; apiKey?: string },
+): Promise<JournalEntry[]> {
+  const sessionsDir = join(harnessDir, 'memory', 'sessions');
+  if (!existsSync(sessionsDir)) return [];
+
+  // Collect all unique dates from session filenames
+  const files = readdirSync(sessionsDir).filter(
+    (f) => f.endsWith('.md') && !f.startsWith('.') && !f.startsWith('_'),
+  );
+  const dateSet = new Set<string>();
+  for (const file of files) {
+    const match = file.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match) dateSet.add(match[1]);
+  }
+
+  let dates = [...dateSet].sort();
+
+  // Apply range filters
+  if (!options.all) {
+    const from = options.from;
+    const to = options.to || new Date().toISOString().split('T')[0];
+    if (from) {
+      dates = dates.filter((d) => d >= from && d <= to);
+    }
+  }
+
+  if (dates.length === 0) return [];
+
+  // Check which dates already have journals
+  const journalDir = join(harnessDir, 'memory', 'journal');
+  const existingJournals = new Set<string>();
+  if (existsSync(journalDir)) {
+    for (const jf of readdirSync(journalDir)) {
+      const match = jf.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (match) existingJournals.add(match[1]);
+    }
+  }
+
+  const entries: JournalEntry[] = [];
+  for (const date of dates) {
+    if (!options.force && existingJournals.has(date)) continue;
+
+    const entry = await synthesizeJournal(harnessDir, date, options.apiKey);
+    entries.push(entry);
+  }
+
+  return entries;
+}
+
+/**
+ * List dates that have sessions but no journal entry.
+ */
+export function listUnjournaled(harnessDir: string): string[] {
+  const sessionsDir = join(harnessDir, 'memory', 'sessions');
+  if (!existsSync(sessionsDir)) return [];
+
+  const sessionDates = new Set<string>();
+  for (const file of readdirSync(sessionsDir)) {
+    if (!file.endsWith('.md') || file.startsWith('.')) continue;
+    const match = file.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match) sessionDates.add(match[1]);
+  }
+
+  const journalDir = join(harnessDir, 'memory', 'journal');
+  const journalDates = new Set<string>();
+  if (existsSync(journalDir)) {
+    for (const file of readdirSync(journalDir)) {
+      const match = file.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (match) journalDates.add(match[1]);
+    }
+  }
+
+  return [...sessionDates].filter((d) => !journalDates.has(d)).sort();
+}
+
 export function listJournals(harnessDir: string): string[] {
   const journalDir = join(harnessDir, 'memory', 'journal');
   if (!existsSync(journalDir)) return [];

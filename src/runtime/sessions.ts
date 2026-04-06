@@ -10,6 +10,8 @@ export interface SessionRecord {
   summary: string;
   tokens_used: number;
   steps: number;
+  model_id?: string;
+  delegated_to?: string;
 }
 
 export function createSessionId(): string {
@@ -26,9 +28,14 @@ export function writeSession(harnessDir: string, session: SessionRecord): string
   }
 
   const filePath = join(sessionsDir, `${session.id}.md`);
+  const tags = session.delegated_to
+    ? `[session, delegation, ${session.delegated_to}]`
+    : '[session]';
+  const modelLine = session.model_id ? `\n**Model:** ${session.model_id}` : '';
+  const delegateLine = session.delegated_to ? `\n**Delegated to:** ${session.delegated_to}` : '';
   const content = `---
 id: ${session.id}
-tags: [session]
+tags: ${tags}
 created: ${session.started}
 updated: ${session.ended}
 author: agent
@@ -44,7 +51,7 @@ duration_minutes: ${Math.round((new Date(session.ended).getTime() - new Date(ses
 **Started:** ${session.started}
 **Ended:** ${session.ended}
 **Tokens:** ${session.tokens_used}
-**Steps:** ${session.steps}
+**Steps:** ${session.steps}${modelLine}${delegateLine}
 
 ## Prompt
 ${session.prompt}

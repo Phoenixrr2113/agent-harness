@@ -76,6 +76,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
         summary: result.text.slice(0, 200),
         tokens_used: result.usage.totalTokens,
         steps: 1,
+        model_id: config.model.id,
       };
 
       writeSession(dir, session);
@@ -124,6 +125,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
         summary: fullText.slice(0, 200),
         tokens_used: totalTokens,
         steps: 1,
+        model_id: config.model.id,
       };
 
       writeSession(dir, session);

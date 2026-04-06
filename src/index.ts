@@ -22,7 +22,7 @@ export { scaffoldHarness } from './cli/scaffold.js';
 export { buildIndex, writeIndexFile, rebuildAllIndexes } from './runtime/indexer.js';
 export { createWatcher } from './runtime/watcher.js';
 export { Scheduler } from './runtime/scheduler.js';
-export { synthesizeJournal, listJournals } from './runtime/journal.js';
+export { synthesizeJournal, synthesizeJournalRange, listJournals, listUnjournaled } from './runtime/journal.js';
 export { proposeInstincts, installInstinct, learnFromSessions } from './runtime/instinct-learner.js';
 export { evaluateCapability, installCapability, processIntake } from './runtime/intake.js';
 export { createSessionId, writeSession, cleanupOldFiles, listSessions, listExpiredFiles } from './runtime/sessions.js';

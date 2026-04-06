@@ -32,11 +32,64 @@ function loadEnvFromDir(dir: string) {
   }
 }
 
-function formatError(err: any): string {
-  if (err?.data?.error?.message) return err.data.error.message;
-  if (err?.message?.includes('API key')) return err.message;
-  if (err?.message?.includes('not a valid model')) return `Invalid model ID: ${err.message}`;
-  return err?.message || String(err);
+function formatError(err: unknown): string {
+  if (!err) return 'Unknown error';
+  if (typeof err === 'string') return err;
+  const e = err as Record<string, unknown>;
+
+  // OpenRouter API errors
+  if (e.data && typeof e.data === 'object') {
+    const data = e.data as Record<string, unknown>;
+    if (data.error && typeof data.error === 'object') {
+      const apiErr = data.error as Record<string, unknown>;
+      if (typeof apiErr.message === 'string') return apiErr.message;
+    }
+  }
+
+  const message = e.message;
+  if (typeof message !== 'string') return String(err);
+
+  // API key errors
+  if (message.includes('API key') || message.includes('OPENROUTER_API_KEY'))
+    return message;
+
+  // Model errors
+  if (message.includes('not a valid model') || message.includes('model not found'))
+    return `Invalid model: ${message}`;
+
+  // Network errors
+  if (message.includes('ECONNREFUSED') || message.includes('ENOTFOUND'))
+    return `Network error: Could not reach API. Check your internet connection.`;
+  if (message.includes('ETIMEDOUT'))
+    return `Request timed out. The API may be overloaded — try again.`;
+
+  // Rate limiting
+  if (message.includes('429') || message.includes('rate limit'))
+    return `Rate limited by API. Wait a moment and try again.`;
+
+  // Config errors
+  if (message.includes('Invalid config'))
+    return message;
+
+  // Zod validation errors
+  if (message.includes('Expected') && message.includes('received'))
+    return `Validation error: ${message}`;
+
+  // File system errors
+  if (message.includes('ENOENT'))
+    return `File not found: ${message.replace(/.*ENOENT[^']*'([^']+)'.*/, '$1')}`;
+  if (message.includes('EACCES'))
+    return `Permission denied: ${message.replace(/.*EACCES[^']*'([^']+)'.*/, '$1')}`;
+
+  return message;
+}
+
+function requireHarness(dir: string): void {
+  if (!existsSync(join(dir, 'CORE.md')) && !existsSync(join(dir, 'config.yaml'))) {
+    console.error(`Error: No harness found in ${dir}`);
+    console.error(`Run "harness init <name>" to create one.`);
+    process.exit(1);
+  }
 }
 
 program
@@ -62,8 +115,8 @@ program
       console.log(`  # Edit rules/, instincts/, skills/ to customize behavior`);
       console.log(`  harness run "Hello, who are you?"`);
       console.log();
-    } catch (err: any) {
-      console.error(`Error: ${err.message}`);
+    } catch (err: unknown) {
+      console.error(`Error: ${formatError(err)}`);
       process.exit(1);
     }
   });
@@ -80,11 +133,7 @@ program
     const dir = resolve(opts.dir);
     loadEnvFromDir(dir);
 
-    if (!existsSync(join(dir, 'CORE.md')) && !existsSync(join(dir, 'config.yaml'))) {
-      console.error(`Error: No harness found in ${dir}`);
-      console.error(`Run "harness init <name>" to create one.`);
-      process.exit(1);
-    }
+    requireHarness(dir);
 
     const modelId = resolveModel(opts.model);
     try {
@@ -108,7 +157,7 @@ program
       }
 
       await agent.shutdown();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(`Error: ${formatError(err)}`);
       process.exit(1);
     }
@@ -127,10 +176,7 @@ program
     const readline = await import('readline');
     const dir = resolve(opts.dir);
 
-    if (!existsSync(join(dir, 'CORE.md'))) {
-      console.error(`Error: No harness found in ${dir}`);
-      process.exit(1);
-    }
+    requireHarness(dir);
 
     const conv = new Conversation(dir);
     const modelId = resolveModel(opts.model);
@@ -168,8 +214,8 @@ program
             process.stdout.write(chunk);
           }
           process.stdout.write('\n\n');
-        } catch (err: any) {
-          console.error(`Error: ${err.message}`);
+        } catch (err: unknown) {
+          console.error(`Error: ${formatError(err)}`);
         }
 
         ask();
@@ -189,6 +235,7 @@ program
     const { buildSystemPrompt } = await import('../runtime/context-loader.js');
     const { loadState } = await import('../runtime/state.js');
     const dir = resolve(opts.dir);
+    requireHarness(dir);
 
     try {
       const config = loadConfig(dir);
@@ -206,8 +253,8 @@ program
       console.log(`  Files loaded: ${ctx.budget.loaded_files.length}`);
       ctx.budget.loaded_files.forEach(f => console.log(`    - ${f}`));
       console.log();
-    } catch (err: any) {
-      console.error(`Error: ${err.message}`);
+    } catch (err: unknown) {
+      console.error(`Error: ${formatError(err)}`);
       process.exit(1);
     }
   });
@@ -221,13 +268,14 @@ program
     const { loadConfig } = await import('../core/config.js');
     const { buildSystemPrompt } = await import('../runtime/context-loader.js');
     const dir = resolve(opts.dir);
+    requireHarness(dir);
 
     try {
       const config = loadConfig(dir);
       const ctx = buildSystemPrompt(dir, config);
       console.log(ctx.systemPrompt);
-    } catch (err: any) {
-      console.error(`Error: ${err.message}`);
+    } catch (err: unknown) {
+      console.error(`Error: ${formatError(err)}`);
       process.exit(1);
     }
   });
@@ -246,10 +294,7 @@ program
     const dir = resolve(opts.dir);
     loadEnvFromDir(dir);
 
-    if (!existsSync(join(dir, 'CORE.md'))) {
-      console.error(`Error: No harness found in ${dir}`);
-      process.exit(1);
-    }
+    requireHarness(dir);
 
     const config = loadConfig(dir);
     console.log(`\n[dev] Watching "${config.agent.name}" harness at ${dir}`);
@@ -323,12 +368,70 @@ program
 // --- JOURNAL (synthesize sessions into journal) ---
 program
   .command('journal')
-  .description('Synthesize today\'s sessions into a journal entry')
+  .description('Synthesize sessions into journal entries')
   .option('-d, --dir <path>', 'Harness directory', '.')
   .option('--date <date>', 'Date to synthesize (YYYY-MM-DD)')
-  .action(async (opts: { dir: string; date?: string }) => {
-    const { synthesizeJournal } = await import('../runtime/journal.js');
+  .option('--from <date>', 'Start of date range (YYYY-MM-DD)')
+  .option('--to <date>', 'End of date range (YYYY-MM-DD, default: today)')
+  .option('--all', 'Synthesize all dates with sessions', false)
+  .option('--force', 'Re-synthesize even if journal exists', false)
+  .option('--pending', 'Show dates with sessions but no journal', false)
+  .action(async (opts: { dir: string; date?: string; from?: string; to?: string; all: boolean; force: boolean; pending: boolean }) => {
     const dir = resolve(opts.dir);
+    loadEnvFromDir(dir);
+
+    requireHarness(dir);
+
+    // Show pending (unjournaled) dates
+    if (opts.pending) {
+      const { listUnjournaled } = await import('../runtime/journal.js');
+      const dates = listUnjournaled(dir);
+      if (dates.length === 0) {
+        console.log('All sessions have been journaled.');
+      } else {
+        console.log(`\n${dates.length} date(s) with unjournaled sessions:\n`);
+        dates.forEach((d) => console.log(`  ${d}`));
+        console.log(`\nRun "harness journal --all" to synthesize them.\n`);
+      }
+      return;
+    }
+
+    // Range mode (--from/--to or --all)
+    if (opts.from || opts.all) {
+      const { synthesizeJournalRange } = await import('../runtime/journal.js');
+
+      try {
+        const label = opts.all ? 'all dates' : `${opts.from}${opts.to ? ` to ${opts.to}` : ' to today'}`;
+        console.log(`Synthesizing journals for ${label}${opts.force ? ' (force)' : ''}...`);
+
+        const entries = await synthesizeJournalRange(dir, {
+          from: opts.from,
+          to: opts.to,
+          all: opts.all,
+          force: opts.force,
+        });
+
+        if (entries.length === 0) {
+          console.log('No sessions to synthesize (or all dates already journaled).');
+          return;
+        }
+
+        console.log(`\n✓ ${entries.length} journal(s) synthesized:\n`);
+        for (const entry of entries) {
+          const sessionCount = entry.sessions.length;
+          const instinctCount = entry.instinct_candidates.length;
+          console.log(`  ${entry.date}: ${sessionCount} session(s), ${entry.tokens_used} tokens${instinctCount > 0 ? `, ${instinctCount} instinct candidate(s)` : ''}`);
+        }
+        console.log();
+      } catch (err: unknown) {
+        console.error(`Error: ${formatError(err)}`);
+        process.exit(1);
+      }
+      return;
+    }
+
+    // Single date mode (default)
+    const { synthesizeJournal } = await import('../runtime/journal.js');
 
     try {
       console.log(`Synthesizing journal...`);
@@ -341,8 +444,8 @@ program
         entry.instinct_candidates.forEach(c => console.log(`    - ${c}`));
       }
       console.log(`\n${entry.synthesis}`);
-    } catch (err: any) {
-      console.error(`Error: ${err.message}`);
+    } catch (err: unknown) {
+      console.error(`Error: ${formatError(err)}`);
       process.exit(1);
     }
   });
@@ -356,6 +459,7 @@ program
   .action(async (opts: { dir: string; install: boolean }) => {
     const { learnFromSessions } = await import('../runtime/instinct-learner.js');
     const dir = resolve(opts.dir);
+    requireHarness(dir);
 
     try {
       console.log(`Analyzing sessions for instinct candidates...`);
@@ -377,8 +481,8 @@ program
         console.log(`    ${c.behavior}`);
         console.log(`    Provenance: ${c.provenance}\n`);
       }
-    } catch (err: any) {
-      console.error(`Error: ${err.message}`);
+    } catch (err: unknown) {
+      console.error(`Error: ${formatError(err)}`);
       process.exit(1);
     }
   });
@@ -567,6 +671,7 @@ program
     const { loadConfig } = await import('../core/config.js');
     const { cleanupOldFiles, listSessions } = await import('../runtime/sessions.js');
     const dir = resolve(opts.dir);
+    requireHarness(dir);
 
     const config = loadConfig(dir);
     const sessionDays = config.memory.session_retention_days;
@@ -682,6 +787,7 @@ program
     const { delegateTo } = await import('../runtime/delegate.js');
     const dir = resolve(opts.dir);
     loadEnvFromDir(dir);
+    requireHarness(dir);
 
     const modelId = resolveModel(opts.model);
 
