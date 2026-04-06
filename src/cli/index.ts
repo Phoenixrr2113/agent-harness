@@ -1304,6 +1304,179 @@ function formatDuration(ms: number): string {
   return `${minutes}m${seconds}s`;
 }
 
+// --- TOOLS (list and inspect tool definitions) ---
+const toolsCmd = program
+  .command('tools')
+  .description('List and inspect tool definitions');
+
+toolsCmd
+  .command('list')
+  .description('List all defined tools with auth status')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .action(async (opts: { dir: string }) => {
+    const { listToolSummaries } = await import('../runtime/tools.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const tools = listToolSummaries(dir);
+    if (tools.length === 0) {
+      console.log('\nNo tools defined. Create tool files in tools/ to register external services.\n');
+      return;
+    }
+
+    console.log(`\n${tools.length} tool(s):\n`);
+    for (const tool of tools) {
+      const auth = tool.authReady ? 'ready' : 'missing auth';
+      const status = tool.status !== 'active' ? ` [${tool.status}]` : '';
+      console.log(`  ${tool.id}${status} (${auth})`);
+      if (tool.l0) console.log(`    ${tool.l0}`);
+      console.log(`    ${tool.operationCount} operation(s) | tags: ${tool.tags.join(', ') || 'none'}`);
+    }
+    console.log();
+  });
+
+toolsCmd
+  .command('show <id>')
+  .description('Show detailed info for a specific tool')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .action(async (toolId: string, opts: { dir: string }) => {
+    const { getToolById } = await import('../runtime/tools.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const tool = getToolById(dir, toolId);
+    if (!tool) {
+      console.error(`Tool not found: ${toolId}`);
+      process.exit(1);
+    }
+
+    console.log(`\nTool: ${tool.id}`);
+    console.log(`  Status: ${tool.status}`);
+    console.log(`  Tags: ${tool.tags.join(', ') || 'none'}`);
+
+    if (tool.auth.length > 0) {
+      console.log(`\n  Authentication:`);
+      for (const a of tool.auth) {
+        const status = a.present ? 'set' : 'MISSING';
+        console.log(`    ${a.envVar}: ${status}`);
+      }
+    }
+
+    if (tool.operations.length > 0) {
+      console.log(`\n  Operations (${tool.operations.length}):`);
+      for (const op of tool.operations) {
+        console.log(`    ${op.method} ${op.endpoint}`);
+      }
+    }
+
+    if (tool.rateLimits.length > 0) {
+      console.log(`\n  Rate Limits:`);
+      for (const rl of tool.rateLimits) {
+        console.log(`    - ${rl}`);
+      }
+    }
+
+    if (tool.gotchas.length > 0) {
+      console.log(`\n  Gotchas:`);
+      for (const g of tool.gotchas) {
+        console.log(`    - ${g}`);
+      }
+    }
+    console.log();
+  });
+
+toolsCmd
+  .command('auth')
+  .description('Check auth status for all tools')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .action(async (opts: { dir: string }) => {
+    const { checkToolAuth } = await import('../runtime/tools.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const results = checkToolAuth(dir);
+    if (results.length === 0) {
+      console.log('\nNo tools defined.\n');
+      return;
+    }
+
+    console.log('\nTool auth status:\n');
+    for (const { tool, auth } of results) {
+      if (auth.length === 0) {
+        console.log(`  ${tool}: no auth required`);
+        continue;
+      }
+      const allPresent = auth.every((a) => a.present);
+      console.log(`  ${tool}: ${allPresent ? 'ready' : 'INCOMPLETE'}`);
+      for (const a of auth) {
+        const icon = a.present ? 'set' : 'MISSING';
+        console.log(`    ${a.envVar}: ${icon}`);
+      }
+    }
+    console.log();
+  });
+
+// --- EXPORT (data portability) ---
+program
+  .command('export [output]')
+  .description('Export harness to a portable JSON bundle')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--no-sessions', 'Exclude session files')
+  .option('--no-journals', 'Exclude journal files')
+  .option('--no-metrics', 'Exclude metrics')
+  .option('--no-state', 'Exclude state and scratch')
+  .action(async (output: string | undefined, opts: { dir: string; sessions: boolean; journals: boolean; metrics: boolean; state: boolean }) => {
+    const { exportHarness, writeBundle } = await import('../runtime/export.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const bundle = exportHarness(dir, {
+      sessions: opts.sessions,
+      journals: opts.journals,
+      metrics: opts.metrics,
+      state: opts.state,
+    });
+
+    const outputPath = output ? resolve(output) : resolve(`${bundle.agent_name}-export.json`);
+    writeBundle(bundle, outputPath);
+
+    const { metadata } = bundle;
+    console.log(`\nExported "${bundle.agent_name}" to ${outputPath}`);
+    console.log(`  ${bundle.entries.length} files (${metadata.primitives} primitives, ${metadata.sessions} sessions, ${metadata.journals} journals)\n`);
+  });
+
+// --- IMPORT (data portability) ---
+program
+  .command('import <bundle>')
+  .description('Import a harness bundle into current directory')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--overwrite', 'Overwrite existing files', false)
+  .action(async (bundlePath: string, opts: { dir: string; overwrite: boolean }) => {
+    const { readBundle, importBundle } = await import('../runtime/export.js');
+    const dir = resolve(opts.dir);
+
+    try {
+      const bundle = readBundle(resolve(bundlePath));
+      console.log(`\nImporting bundle: "${bundle.agent_name}" (exported ${bundle.exported_at})`);
+      console.log(`  ${bundle.entries.length} files in bundle\n`);
+
+      const result = importBundle(dir, bundle, { overwrite: opts.overwrite });
+
+      console.log(`  Imported: ${result.imported}`);
+      console.log(`  Skipped (exists): ${result.skipped}`);
+      if (result.errors.length > 0) {
+        console.log(`  Errors: ${result.errors.length}`);
+        for (const err of result.errors) {
+          console.log(`    - ${err}`);
+        }
+      }
+      console.log();
+    } catch (err: unknown) {
+      console.error(`Error: ${formatError(err)}`);
+      process.exit(1);
+    }
+  });
+
 // --- AGENTS (list available sub-agents) ---
 program
   .command('agents')

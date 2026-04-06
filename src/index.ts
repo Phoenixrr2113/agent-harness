@@ -46,3 +46,7 @@ export { searchPrimitives } from './runtime/search.js';
 export type { SearchOptions, SearchResult } from './runtime/search.js';
 export { loadMetrics, saveMetrics, recordRun, getWorkflowStats, getAllWorkflowStats, clearMetrics } from './runtime/metrics.js';
 export type { WorkflowRun, MetricsStore, WorkflowStats } from './runtime/metrics.js';
+export { loadTools, getToolById, listToolSummaries, checkToolAuth, parseToolDefinition } from './runtime/tools.js';
+export type { ToolDefinition, ToolSummary, ToolAuth, ToolOperation } from './runtime/tools.js';
+export { exportHarness, writeBundle, readBundle, importBundle } from './runtime/export.js';
+export type { HarnessBundle, ExportEntry, ImportResult, ExportOptions } from './runtime/export.js';

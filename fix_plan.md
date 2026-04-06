@@ -100,9 +100,14 @@
 - [x] **Workflow execution metrics** — New `src/runtime/metrics.ts` module with `WorkflowRun`, `MetricsStore`, `WorkflowStats` types. Functions: `loadMetrics()`, `saveMetrics()`, `recordRun()`, `getWorkflowStats()`, `getAllWorkflowStats()`, `clearMetrics()`. Persists to `memory/metrics.json` with 1000-run cap (auto-trimmed on save). Scheduler's `executeWorkflow()` now records duration, tokens, success/failure, attempt count after every run. Graceful handling of corrupt/missing metrics files. 13 new metrics tests.
 - [x] **Metrics CLI** — New `harness metrics show` (all workflows or `--workflow <id>`), `harness metrics history` (recent runs with `--workflow` filter and `-n` limit), `harness metrics clear` (per-workflow or global). Duration formatting (ms/s/m). All exported from `src/index.ts`.
 
+## Completed (Loop 17)
+
+- [x] **Tool registry** — New `src/runtime/tools.ts` with structured tool loading from `tools/` directory. `parseToolDefinition()` extracts auth env vars, HTTP operations, rate limits, and gotchas from tool markdown files. `loadTools()`, `getToolById()`, `listToolSummaries()`, `checkToolAuth()` exported. CLI: `harness tools list` (shows auth status), `harness tools show <id>` (full detail), `harness tools auth` (env var check across all tools). 13 new tool tests.
+- [x] **Export/import data portability** — New `src/runtime/export.ts` with `exportHarness()` (collects CORE/SYSTEM/config/state/primitives/sessions/journals/metrics into JSON bundle), `writeBundle()`/`readBundle()` for file I/O, `importBundle()` with skip-existing-by-default and `--overwrite` option. Bundle format v1.0 with metadata counts. CLI: `harness export [output]` with `--no-sessions`/`--no-journals`/`--no-metrics`/`--no-state` flags, `harness import <bundle>` with `--overwrite`. 12 new export/import tests.
+
 ## All Plan Items Complete
 
-All items from the original fix plan have been implemented across 16 loops.
+All items from the original fix plan have been implemented across 17 loops.
 
 ## Architecture Notes
 
@@ -129,6 +134,8 @@ All items from the original fix plan have been implemented across 16 loops.
 - Scheduled auto-archival prevents memory directory bloat
 - Workflow CLI for listing and manual execution
 - Workflow execution metrics with history, stats, and CLI visibility
+- Tool registry with structured parsing, auth checking, and CLI visibility
+- Export/import for data portability between harness instances
 
 ### Known Limitations
 - Token estimation is 1:4 char ratio — good enough but not precise
