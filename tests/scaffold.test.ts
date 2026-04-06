@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, existsSync, readdirSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { scaffoldHarness } from '../src/cli/scaffold.js';
+import { scaffoldHarness, listTemplates } from '../src/cli/scaffold.js';
 
 describe('harness init (scaffolding)', () => {
   let testDir: string;
@@ -232,5 +232,77 @@ describe('harness init (scaffolding)', () => {
     expect(configContent).toContain('model:');
     expect(configContent).toContain('runtime:');
     expect(configContent).toContain('memory:');
+  });
+
+  describe('templates', () => {
+    it('should list available templates', () => {
+      const templates = listTemplates();
+      expect(templates).toContain('base');
+      expect(templates).toContain('assistant');
+      expect(templates).toContain('code-reviewer');
+    });
+
+    it('should scaffold with assistant template', () => {
+      scaffoldHarness(agentDir, 'my-assistant', { template: 'assistant' });
+
+      const core = readFileSync(join(agentDir, 'CORE.md'), 'utf-8');
+      expect(core).toContain('my-assistant');
+      expect(core).toContain('personal assistant');
+      expect(core).toContain('Reliability');
+
+      const system = readFileSync(join(agentDir, 'SYSTEM.md'), 'utf-8');
+      expect(system).toContain('my-assistant');
+      expect(system).toContain('Boot Sequence');
+      expect(system).toContain('File Ownership');
+
+      const config = readFileSync(join(agentDir, 'config.yaml'), 'utf-8');
+      expect(config).toContain('name: my-assistant');
+      expect(config).toContain('session_retention_days: 14');
+    });
+
+    it('should scaffold with code-reviewer template', () => {
+      scaffoldHarness(agentDir, 'my-reviewer', { template: 'code-reviewer' });
+
+      const core = readFileSync(join(agentDir, 'CORE.md'), 'utf-8');
+      expect(core).toContain('my-reviewer');
+      expect(core).toContain('code review');
+      expect(core).toContain('Security-first');
+
+      const system = readFileSync(join(agentDir, 'SYSTEM.md'), 'utf-8');
+      expect(system).toContain('my-reviewer');
+      expect(system).toContain('Review Process');
+      expect(system).toContain('Feedback Format');
+      expect(system).toContain('Critical');
+
+      const config = readFileSync(join(agentDir, 'config.yaml'), 'utf-8');
+      expect(config).toContain('name: my-reviewer');
+      expect(config).toContain('scratchpad_budget: 15000');
+    });
+
+    it('should fall back to base template for unknown template name', () => {
+      scaffoldHarness(agentDir, 'test-agent', { template: 'nonexistent' });
+
+      // Should still create files using inline fallbacks
+      expect(existsSync(join(agentDir, 'CORE.md'))).toBe(true);
+      expect(existsSync(join(agentDir, 'SYSTEM.md'))).toBe(true);
+      expect(existsSync(join(agentDir, 'config.yaml'))).toBe(true);
+    });
+
+    it('should substitute {{AGENT_NAME}} in all template files', () => {
+      scaffoldHarness(agentDir, 'agent-x', { template: 'assistant' });
+
+      const core = readFileSync(join(agentDir, 'CORE.md'), 'utf-8');
+      const system = readFileSync(join(agentDir, 'SYSTEM.md'), 'utf-8');
+      const config = readFileSync(join(agentDir, 'config.yaml'), 'utf-8');
+
+      // Should contain the substituted name, not the placeholder
+      expect(core).not.toContain('{{AGENT_NAME}}');
+      expect(system).not.toContain('{{AGENT_NAME}}');
+      expect(config).not.toContain('{{AGENT_NAME}}');
+
+      expect(core).toContain('agent-x');
+      expect(system).toContain('agent-x');
+      expect(config).toContain('name: agent-x');
+    });
   });
 });

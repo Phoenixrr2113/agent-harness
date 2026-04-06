@@ -110,9 +110,14 @@
 - [x] **Primitive dependency graph** — New `src/runtime/graph.ts` with `buildDependencyGraph()` and `getGraphStats()`. Analyzes `related:` and `with:` frontmatter fields across all primitives. Union-find algorithm detects connected components (clusters). Reports orphaned primitives (no relationships), broken references, and most-connected nodes. CLI: `harness graph` shows nodes/edges/clusters/orphans/broken refs. 8 new graph tests.
 - [x] **Session analytics** — New `src/runtime/analytics.ts` with `getSessionAnalytics()` (aggregate stats: total/avg tokens, duration, model usage, delegations, top days) and `getSessionsInRange()` (date-filtered raw data). Parses session markdown files to extract structured data. CLI: `harness analytics` shows overview, `--from`/`--to` for date range queries. 7 new analytics tests.
 
+## Completed (Loop 19)
+
+- [x] **Lifecycle hooks** — New `HarnessHooks` interface in `src/core/types.ts` with `onBoot`, `onSessionEnd`, `onError`, `onStateChange`, `onShutdown` async callbacks. Wired into `createHarness()`: `onBoot` fires after context load, `onStateChange` on mode transitions (idle→active, active→idle), `onSessionEnd` after each run with session ID and result, `onError` wraps generate failures (re-throws after hook), `onShutdown` fires before mode reset. Fully optional — no hooks = no overhead. 8 new hook tests.
+- [x] **Role-specific starter templates** — New `templates/assistant/` (personal assistant: task management, research, drafting, 14-day session retention) and `templates/code-reviewer/` (code review agent: review process, feedback severity levels, 15k scratchpad budget, 30-day retention). Each template includes CORE.md, SYSTEM.md, config.yaml with `{{AGENT_NAME}}` substitution. 5 new template scaffold tests. `listTemplates()` returns all available templates.
+
 ## All Plan Items Complete
 
-All items from the original fix plan have been implemented across 18 loops.
+All items from the original fix plan have been implemented across 19 loops.
 
 ## Architecture Notes
 
@@ -143,6 +148,8 @@ All items from the original fix plan have been implemented across 18 loops.
 - Export/import for data portability between harness instances
 - Dependency graph analysis with cluster detection and orphan identification
 - Session analytics with aggregated stats, model usage, and date range queries
+- Lifecycle hooks for programmatic API (boot, session, error, state change, shutdown)
+- Role-specific templates (assistant, code-reviewer) with domain-appropriate defaults
 
 ### Known Limitations
 - Token estimation is 1:4 char ratio — good enough but not precise

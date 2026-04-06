@@ -6,6 +6,7 @@ import type {
   CreateHarnessOptions,
   HarnessConfig,
   HarnessAgent,
+  HarnessHooks,
   AgentRunResult,
   AgentState,
 } from './types.js';
@@ -33,6 +34,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
   }
 
   const model = getModel(config, options.apiKey);
+  const hooks: HarnessHooks = options.hooks ?? {};
 
   let state: AgentState;
   let systemPrompt: string;
@@ -45,6 +47,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
     async boot() {
       // Load state
       state = loadState(dir);
+      const previousMode = state.mode;
       state.mode = 'active';
       state.last_interaction = new Date().toISOString();
 
@@ -64,6 +67,16 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
       for (const warning of ctx.warnings) {
         log.warn(warning);
       }
+
+      // Lifecycle: onStateChange
+      if (previousMode !== 'active' && hooks.onStateChange) {
+        await hooks.onStateChange({ agent, previous: previousMode, current: 'active' });
+      }
+
+      // Lifecycle: onBoot
+      if (hooks.onBoot) {
+        await hooks.onBoot({ agent, config, state });
+      }
     },
 
     async run(prompt: string): Promise<AgentRunResult> {
@@ -72,13 +85,22 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
       const sessionId = createSessionId();
       const started = new Date().toISOString();
 
-      const result = await generate({
-        model,
-        system: systemPrompt,
-        prompt,
-        maxRetries: config.model.max_retries,
-        timeoutMs: config.model.timeout_ms,
-      });
+      let result;
+      try {
+        result = await generate({
+          model,
+          system: systemPrompt,
+          prompt,
+          maxRetries: config.model.max_retries,
+          timeoutMs: config.model.timeout_ms,
+        });
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        if (hooks.onError) {
+          await hooks.onError({ agent, error, prompt });
+        }
+        throw error;
+      }
 
       const ended = new Date().toISOString();
 
@@ -100,12 +122,19 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
       state.last_interaction = ended;
       saveState(dir, state);
 
-      return {
+      const runResult: AgentRunResult = {
         text: result.text,
         usage: result.usage,
         session_id: sessionId,
         steps: 1,
       };
+
+      // Lifecycle: onSessionEnd
+      if (hooks.onSessionEnd) {
+        await hooks.onSessionEnd({ agent, sessionId, prompt, result: runResult });
+      }
+
+      return runResult;
     },
 
     async *stream(prompt: string): AsyncIterable<string> {
@@ -154,9 +183,20 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
     async shutdown() {
       if (!booted) return;
 
+      // Lifecycle: onShutdown
+      if (hooks.onShutdown) {
+        await hooks.onShutdown({ agent, state });
+      }
+
+      const previousMode = state.mode;
       state.mode = 'idle';
       saveState(dir, state);
       booted = false;
+
+      // Lifecycle: onStateChange
+      if (previousMode !== 'idle' && hooks.onStateChange) {
+        await hooks.onStateChange({ agent, previous: previousMode, current: 'idle' });
+      }
 
       log.info(`Shutdown "${config.agent.name}"`);
     },

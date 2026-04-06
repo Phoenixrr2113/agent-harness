@@ -132,6 +132,20 @@ export type DeepPartial<T> = {
   [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P];
 };
 
+// --- Lifecycle Hooks ---
+export interface HarnessHooks {
+  /** Called after boot completes (context loaded, state ready) */
+  onBoot?: (context: { agent: HarnessAgent; config: HarnessConfig; state: AgentState }) => void | Promise<void>;
+  /** Called after each session completes (run or stream) */
+  onSessionEnd?: (context: { agent: HarnessAgent; sessionId: string; prompt: string; result: AgentRunResult }) => void | Promise<void>;
+  /** Called when an error occurs during run/stream */
+  onError?: (context: { agent: HarnessAgent; error: Error; prompt?: string }) => void | Promise<void>;
+  /** Called when agent state changes (boot, shutdown, after run) */
+  onStateChange?: (context: { agent: HarnessAgent; previous: string; current: string }) => void | Promise<void>;
+  /** Called before shutdown completes */
+  onShutdown?: (context: { agent: HarnessAgent; state: AgentState }) => void | Promise<void>;
+}
+
 // --- Agent Options (programmatic API) ---
 export interface CreateHarnessOptions {
   dir: string;
@@ -141,6 +155,8 @@ export interface CreateHarnessOptions {
   provider?: string;
   apiKey?: string;
   config?: DeepPartial<HarnessConfig>;
+  /** Lifecycle hooks for agent events */
+  hooks?: HarnessHooks;
 }
 
 // --- Agent Interface ---

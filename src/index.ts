@@ -3,6 +3,7 @@ export type {
   CreateHarnessOptions,
   HarnessConfig,
   HarnessAgent,
+  HarnessHooks,
   AgentRunResult,
   AgentState,
   HarnessDocument,
