@@ -28,3 +28,5 @@ export { evaluateCapability, installCapability, processIntake } from './runtime/
 export { createSessionId, writeSession, cleanupOldFiles, listSessions, listExpiredFiles } from './runtime/sessions.js';
 export type { SessionRecord, CleanupResult } from './runtime/sessions.js';
 export { Conversation } from './runtime/conversation.js';
+export { delegateTo, findAgent, listAgents, loadAgentDocs, buildAgentPrompt } from './runtime/delegate.js';
+export type { DelegationResult, AgentInfo, DelegateOptions } from './runtime/delegate.js';

@@ -644,4 +644,66 @@ program
     }
   });
 
+// --- AGENTS (list available sub-agents) ---
+program
+  .command('agents')
+  .description('List available sub-agents')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .action(async (opts: { dir: string }) => {
+    const { listAgents } = await import('../runtime/delegate.js');
+    const dir = resolve(opts.dir);
+
+    const agents = listAgents(dir);
+
+    if (agents.length === 0) {
+      console.log('\nNo agents defined.');
+      console.log('Create agent files in agents/ to enable delegation.\n');
+      return;
+    }
+
+    console.log(`\n${agents.length} agent(s) available:\n`);
+    for (const agent of agents) {
+      const status = agent.status === 'active' ? '' : ` [${agent.status}]`;
+      console.log(`  ${agent.id}${status}`);
+      if (agent.l0) console.log(`    ${agent.l0}`);
+      if (agent.tags.length > 0) console.log(`    tags: ${agent.tags.join(', ')}`);
+      console.log();
+    }
+  });
+
+// --- DELEGATE (invoke a sub-agent) ---
+program
+  .command('delegate <agent-id> <prompt>')
+  .description('Delegate a prompt to a sub-agent')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('-m, --model <model>', 'Model override (or alias: gemma, qwen, glm, claude)')
+  .option('-s, --stream', 'Stream output (not yet supported for delegation)', false)
+  .action(async (agentId: string, prompt: string, opts: { dir: string; model?: string; stream: boolean }) => {
+    const { delegateTo } = await import('../runtime/delegate.js');
+    const dir = resolve(opts.dir);
+    loadEnvFromDir(dir);
+
+    const modelId = resolveModel(opts.model);
+
+    try {
+      console.error(`[delegate] Invoking agent "${agentId}"...`);
+      const result = await delegateTo({
+        harnessDir: dir,
+        agentId,
+        prompt,
+        modelOverride: modelId,
+      });
+
+      console.log('\n' + result.text + '\n');
+      console.error(
+        `[delegate] Agent: ${result.agentId} | ` +
+        `${result.usage.totalTokens} tokens | ` +
+        `session: ${result.sessionId}`
+      );
+    } catch (err: unknown) {
+      console.error(`Error: ${formatError(err)}`);
+      process.exit(1);
+    }
+  });
+
 program.parse();

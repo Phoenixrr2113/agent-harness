@@ -19,11 +19,11 @@
 - [x] **Intake directory creation** — Added `intake/` to scaffold DIRECTORIES array.
 - [x] **Scratch command** — New `harness scratch <note>` appends timestamped notes to `memory/scratch.md`.
 
+## Completed (Loop 3)
+
+- [x] **Agent delegation** — New `src/runtime/delegate.ts` with full delegation engine: `delegateTo()` runs stateless sub-agents with their own context (agent body + CORE.md + rules at L1), `findAgent()` resolves by id/prefix/filename, `buildAgentPrompt()` assembles 10%-budget system prompts. Sessions tagged with `[delegated to agent-id]`. New CLI commands: `harness agents` (list), `harness delegate <id> <prompt>` (invoke). Default summarizer agent in scaffold. 16 new tests.
+
 ## Next Priority
-
-### P0 — Core Functionality
-
-- [ ] **Agent delegation** — The `agents/` directory exists for sub-agent definitions but there's no delegation mechanism. Design: parse agent docs, create child harness instances, route prompts.
 
 ### P1 — DX & Reliability
 
