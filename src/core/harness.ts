@@ -58,8 +58,12 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
         `Booted "${config.agent.name}" | ` +
         `${ctx.budget.loaded_files.length} files loaded | ` +
         `~${ctx.budget.used_tokens} tokens used | ` +
-        `${ctx.budget.remaining} remaining`
+        `${ctx.budget.remaining} remaining`,
       );
+
+      for (const warning of ctx.warnings) {
+        log.warn(warning);
+      }
     },
 
     async run(prompt: string): Promise<AgentRunResult> {

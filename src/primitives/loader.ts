@@ -3,6 +3,16 @@ import { join, extname } from 'path';
 import matter from 'gray-matter';
 import { FrontmatterSchema, CORE_PRIMITIVE_DIRS, type HarnessDocument, type Frontmatter } from '../core/types.js';
 
+export interface ParseError {
+  path: string;
+  error: string;
+}
+
+export interface LoadResult {
+  docs: HarnessDocument[];
+  errors: ParseError[];
+}
+
 // Extract L0 and L1 from HTML comments at the top of the markdown body
 // Format: <!-- L0: one-line summary -->
 //         <!-- L1: paragraph summary -->
@@ -55,31 +65,50 @@ export function parseHarnessDocument(filePath: string): HarnessDocument {
 }
 
 export function loadDirectory(dirPath: string): HarnessDocument[] {
-  if (!existsSync(dirPath)) return [];
+  return loadDirectoryWithErrors(dirPath).docs;
+}
+
+export function loadDirectoryWithErrors(dirPath: string): LoadResult {
+  if (!existsSync(dirPath)) return { docs: [], errors: [] };
 
   const files = readdirSync(dirPath);
   const docs: HarnessDocument[] = [];
+  const errors: ParseError[] = [];
 
   for (const file of files) {
     if (extname(file) !== '.md') continue;
     if (file.startsWith('_')) continue; // Skip index files
     if (file.startsWith('.')) continue; // Skip hidden files
 
+    const filePath = join(dirPath, file);
     try {
-      const doc = parseHarnessDocument(join(dirPath, file));
+      const doc = parseHarnessDocument(filePath);
       if (doc.frontmatter.status !== 'archived' && doc.frontmatter.status !== 'deprecated') {
         docs.push(doc);
       }
-    } catch {
-      // Skip unparseable files silently
+    } catch (err) {
+      errors.push({
+        path: filePath,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
-  return docs;
+  return { docs, errors };
+}
+
+export interface LoadAllResult {
+  primitives: Map<string, HarnessDocument[]>;
+  errors: ParseError[];
 }
 
 export function loadAllPrimitives(harnessDir: string, extraDirs?: string[]): Map<string, HarnessDocument[]> {
+  return loadAllPrimitivesWithErrors(harnessDir, extraDirs).primitives;
+}
+
+export function loadAllPrimitivesWithErrors(harnessDir: string, extraDirs?: string[]): LoadAllResult {
   const primitives = new Map<string, HarnessDocument[]>();
+  const allErrors: ParseError[] = [];
 
   const directories: string[] = [...CORE_PRIMITIVE_DIRS];
   if (extraDirs) {
@@ -91,11 +120,12 @@ export function loadAllPrimitives(harnessDir: string, extraDirs?: string[]): Map
   }
 
   for (const dir of directories) {
-    const docs = loadDirectory(join(harnessDir, dir));
+    const { docs, errors } = loadDirectoryWithErrors(join(harnessDir, dir));
     primitives.set(dir, docs);
+    allErrors.push(...errors);
   }
 
-  return primitives;
+  return { primitives, errors: allErrors };
 }
 
 // Estimate token count (rough: 1 token ≈ 4 chars)

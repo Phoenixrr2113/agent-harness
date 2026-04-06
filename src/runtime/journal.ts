@@ -5,10 +5,18 @@ import { getModel, generate } from '../llm/provider.js';
 import { loadConfig } from '../core/config.js';
 import type { HarnessConfig, HarnessDocument } from '../core/types.js';
 
+export interface JournalSynthesis {
+  summary: string;
+  insights: string[];
+  instinct_candidates: string[];
+  knowledge_updates: string[];
+}
+
 export interface JournalEntry {
   date: string;
   sessions: HarnessDocument[];
   synthesis: string;
+  structured: JournalSynthesis;
   instinct_candidates: string[];
   tokens_used: number;
 }
@@ -48,6 +56,12 @@ export async function synthesizeJournal(
       date: targetDate,
       sessions: [],
       synthesis: 'No sessions recorded today.',
+      structured: {
+        summary: 'No sessions recorded today.',
+        insights: [],
+        instinct_candidates: [],
+        knowledge_updates: [],
+      },
       instinct_candidates: [],
       tokens_used: 0,
     };
@@ -62,43 +76,37 @@ export async function synthesizeJournal(
     })
     .join('\n\n');
 
-  const synthesisPrompt = `You are synthesizing today's agent sessions into a journal entry.
+  const synthesisPrompt = `You are synthesizing today's agent sessions into a structured journal entry.
 
 Sessions from ${targetDate}:
 
 ${sessionSummaries}
 
-Write a journal entry that:
-1. Summarizes what happened today (2-3 sentences)
-2. Notes any patterns or recurring themes
-3. Identifies potential instinct candidates — behaviors that should become reflexive
-
-Format your response as:
+Write a journal entry with these EXACT sections (use the exact headers shown):
 
 ## Summary
-[2-3 sentence synthesis]
+2-3 sentence synthesis of what happened today.
 
-## Patterns
-[Bullet points of patterns noticed]
+## Insights
+Bullet points (starting with "- ") of patterns, recurring themes, or notable observations.
 
 ## Instinct Candidates
-[Bullet points of potential new instincts, each starting with "INSTINCT:" followed by the behavior]`;
+Bullet points (starting with "- INSTINCT: ") of behaviors that should become reflexive rules.
+
+## Knowledge Updates
+Bullet points (starting with "- ") of new facts, corrections, or learnings that should be remembered.`;
 
   const config = loadConfig(harnessDir);
   const model = getModel(config, apiKey);
 
   const result = await generate({
     model,
-    system: 'You are a reflective journal synthesizer. Be concise and insightful.',
+    system: 'You are a reflective journal synthesizer. Be concise and insightful. Follow the output format exactly.',
     prompt: synthesisPrompt,
   });
 
-  // Extract instinct candidates
-  const instinctCandidates: string[] = [];
-  const instinctMatches = result.text.matchAll(/INSTINCT:\s*(.+)/g);
-  for (const match of instinctMatches) {
-    instinctCandidates.push(match[1].trim());
-  }
+  // Parse structured sections from the response
+  const structured = parseJournalSynthesis(result.text);
 
   // Write journal entry
   const journalPath = join(journalDir, `${targetDate}.md`);
@@ -112,7 +120,7 @@ status: active
 ---
 
 <!-- L0: Journal for ${targetDate} — ${sessions.length} sessions synthesized. -->
-<!-- L1: ${result.text.slice(0, 200)} -->
+<!-- L1: ${structured.summary.slice(0, 200)} -->
 
 # Journal: ${targetDate}
 
@@ -128,9 +136,49 @@ ${result.text}
     date: targetDate,
     sessions,
     synthesis: result.text,
-    instinct_candidates: instinctCandidates,
+    structured,
+    instinct_candidates: structured.instinct_candidates,
     tokens_used: result.usage.totalTokens,
   };
+}
+
+/**
+ * Parse a journal synthesis response into structured sections.
+ * Resilient to missing sections — returns empty arrays/strings for missing parts.
+ */
+export function parseJournalSynthesis(text: string): JournalSynthesis {
+  const sectionRegex = /## (Summary|Insights|Instinct Candidates|Knowledge Updates|Patterns)\n([\s\S]*?)(?=\n## |\n*$)/g;
+  const sections = new Map<string, string>();
+
+  for (const match of text.matchAll(sectionRegex)) {
+    sections.set(match[1].toLowerCase(), match[2].trim());
+  }
+
+  const extractBullets = (content: string | undefined): string[] => {
+    if (!content) return [];
+    return content
+      .split('\n')
+      .filter((line) => line.startsWith('- '))
+      .map((line) => line.slice(2).trim())
+      .filter(Boolean);
+  };
+
+  const summary = sections.get('summary') ?? '';
+
+  // "Insights" or legacy "Patterns" section
+  const insightsRaw = sections.get('insights') ?? sections.get('patterns') ?? '';
+  const insights = extractBullets(insightsRaw);
+
+  // Extract instinct candidates, stripping "INSTINCT:" prefix
+  const instinctRaw = sections.get('instinct candidates') ?? '';
+  const instinct_candidates = extractBullets(instinctRaw).map((line) =>
+    line.replace(/^INSTINCT:\s*/i, ''),
+  );
+
+  const knowledgeRaw = sections.get('knowledge updates') ?? '';
+  const knowledge_updates = extractBullets(knowledgeRaw);
+
+  return { summary, insights, instinct_candidates, knowledge_updates };
 }
 
 /**

@@ -1,11 +1,15 @@
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import { loadAllPrimitives, estimateTokens, getAtLevel, parseHarnessDocument } from '../primitives/loader.js';
+import { loadAllPrimitivesWithErrors, estimateTokens, getAtLevel } from '../primitives/loader.js';
+import type { ParseError } from '../primitives/loader.js';
 import type { HarnessConfig, HarnessDocument, ContextBudget } from '../core/types.js';
+import { log } from '../core/logger.js';
 
-interface LoadedContext {
+export interface LoadedContext {
   systemPrompt: string;
   budget: ContextBudget;
+  parseErrors: ParseError[];
+  warnings: string[];
 }
 
 export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): LoadedContext {
@@ -17,6 +21,7 @@ export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): Lo
     loaded_files: [],
   };
 
+  const warnings: string[] = [];
   const sections: string[] = [];
 
   // --- Step 1: Load CORE.md (always, full content) ---
@@ -48,7 +53,16 @@ export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): Lo
 
   // --- Step 4: Load all primitives at appropriate level ---
   const extDirs = config.extensions?.directories ?? [];
-  const primitives = loadAllPrimitives(harnessDir, extDirs);
+  const { primitives, errors: parseErrors } = loadAllPrimitivesWithErrors(harnessDir, extDirs);
+
+  // Report parse errors
+  if (parseErrors.length > 0) {
+    for (const pe of parseErrors) {
+      log.warn(`Failed to parse primitive: ${pe.path} — ${pe.error}`);
+    }
+    warnings.push(`${parseErrors.length} primitive file(s) failed to parse`);
+  }
+
   const targetBudget = maxTokens * 0.15; // Use 15% of context for harness
 
   // Priority order for loading primitives (core dirs first, extensions appended)
@@ -131,8 +145,29 @@ export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): Lo
 
   budget.remaining = maxTokens - budget.used_tokens;
 
+  // --- Step 6: Budget warnings ---
+  const usagePercent = (budget.used_tokens / maxTokens) * 100;
+  if (usagePercent > 12) {
+    // System prompt using more than 80% of its 15% allocation
+    warnings.push(
+      `System prompt using ${usagePercent.toFixed(1)}% of total context ` +
+      `(${budget.used_tokens}/${maxTokens} tokens) — some primitives may be truncated`,
+    );
+    log.warn(
+      `Context budget high: ${budget.used_tokens}/${maxTokens} tokens ` +
+      `(${usagePercent.toFixed(1)}%), ${budget.loaded_files.length} files loaded`,
+    );
+  }
+
+  if (globalLevel < 2) {
+    const levelName = globalLevel === 0 ? 'L0 (summary only)' : 'L1 (paragraph summary)';
+    warnings.push(`Primitives loaded at ${levelName} due to budget constraints`);
+  }
+
   return {
     systemPrompt: sections.join('\n\n---\n\n'),
     budget,
+    parseErrors,
+    warnings,
   };
 }

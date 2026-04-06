@@ -5,7 +5,9 @@ import { tmpdir } from 'os';
 import {
   parseHarnessDocument,
   loadDirectory,
+  loadDirectoryWithErrors,
   loadAllPrimitives,
+  loadAllPrimitivesWithErrors,
   estimateTokens,
   getAtLevel,
 } from '../src/primitives/loader.js';
@@ -460,6 +462,82 @@ Rule`
       const content = getAtLevel(docWithoutSummaries, 1);
       expect(content).toContain('# Full Document');
       expect(content.length).toBeLessThanOrEqual(400);
+    });
+  });
+
+  describe('loadDirectoryWithErrors', () => {
+    it('should still load valid files alongside resilient parsing', () => {
+      const rulesDir = join(testDir, 'rules');
+      mkdirSync(rulesDir);
+
+      writeFileSync(
+        join(rulesDir, 'good.md'),
+        `---
+id: good
+status: active
+---
+Good content`,
+      );
+
+      // gray-matter is resilient and can parse most content without throwing.
+      // The key behavior: loadDirectoryWithErrors never throws and always returns valid docs.
+      writeFileSync(join(rulesDir, 'other.md'), 'No frontmatter at all');
+
+      const result = loadDirectoryWithErrors(rulesDir);
+
+      // Both files should parse (gray-matter creates fallback frontmatter)
+      expect(result.docs.some((d) => d.frontmatter.id === 'good')).toBe(true);
+      // No errors because gray-matter is resilient
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should return empty errors for valid directory', () => {
+      const rulesDir = join(testDir, 'rules');
+      mkdirSync(rulesDir);
+
+      writeFileSync(
+        join(rulesDir, 'valid.md'),
+        `---
+id: valid
+status: active
+---
+Valid content`,
+      );
+
+      const result = loadDirectoryWithErrors(rulesDir);
+
+      expect(result.docs).toHaveLength(1);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should return empty result for non-existent directory', () => {
+      const result = loadDirectoryWithErrors(join(testDir, 'nonexistent'));
+
+      expect(result.docs).toEqual([]);
+      expect(result.errors).toEqual([]);
+    });
+  });
+
+  describe('loadAllPrimitivesWithErrors', () => {
+    it('should aggregate errors across directories', () => {
+      const rulesDir = join(testDir, 'rules');
+      mkdirSync(rulesDir);
+
+      writeFileSync(
+        join(rulesDir, 'good.md'),
+        `---
+id: good-rule
+status: active
+---
+Good content`,
+      );
+
+      const result = loadAllPrimitivesWithErrors(testDir);
+
+      expect(result.primitives.get('rules')?.length).toBe(1);
+      expect(result.primitives.get('rules')?.[0].frontmatter.id).toBe('good-rule');
+      // No errors for valid files
+      expect(result.errors).toHaveLength(0);
     });
   });
 });

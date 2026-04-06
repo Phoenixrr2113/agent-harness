@@ -356,4 +356,58 @@ ${'x'.repeat(2000)}
     // Should see L0 summaries rather than full bodies
     expect(systemPrompt).toContain('Summary');
   });
+
+  it('should return empty parseErrors and warnings for valid harness', () => {
+    writeFileSync(join(testDir, 'CORE.md'), '# Test Agent');
+
+    const result = buildSystemPrompt(testDir, mockConfig);
+
+    expect(result.parseErrors).toEqual([]);
+    // Small budget usage = no warnings
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('should warn when primitives loaded at reduced level', () => {
+    // Very tight budget forces L0 loading
+    mockConfig.model.max_tokens = 2000;
+
+    writeFileSync(join(testDir, 'CORE.md'), '# Test Agent\n\n' + 'x'.repeat(1000));
+
+    const rulesDir = join(testDir, 'rules');
+    mkdirSync(rulesDir);
+
+    for (let i = 1; i <= 5; i++) {
+      writeFileSync(
+        join(rulesDir, `rule${i}.md`),
+        `---
+id: rule${i}
+status: active
+---
+
+<!-- L0: Summary ${i}. -->
+<!-- L1: Medium summary ${i} with more context about this rule that goes on for a while to consume tokens. -->
+
+# Rule ${i}
+
+${'x'.repeat(2000)}
+`,
+      );
+    }
+
+    const result = buildSystemPrompt(testDir, mockConfig);
+
+    // Should have a disclosure level warning
+    expect(result.warnings.some((w) => w.includes('budget constraints'))).toBe(true);
+  });
+
+  it('should warn when context budget usage is high', () => {
+    // Budget where CORE.md alone takes >12% of max_tokens
+    mockConfig.model.max_tokens = 200; // Very small
+    writeFileSync(join(testDir, 'CORE.md'), 'x'.repeat(200)); // ~50 tokens = 25% of 200
+
+    const result = buildSystemPrompt(testDir, mockConfig);
+
+    // 25% > 12% threshold
+    expect(result.warnings.some((w) => w.includes('System prompt using'))).toBe(true);
+  });
 });

@@ -4,7 +4,43 @@ import { join } from 'path';
 import { loadDirectory, parseHarnessDocument } from '../primitives/loader.js';
 import { loadConfig } from '../core/config.js';
 import { createHarness } from '../core/harness.js';
+import { log } from '../core/logger.js';
 import type { HarnessConfig, HarnessDocument } from '../core/types.js';
+
+/**
+ * Check if the current time falls within quiet hours.
+ * Quiet hours wrap around midnight (e.g. start: 23, end: 6 means 23:00–05:59).
+ * Returns true if the agent should be quiet (no scheduled workflows).
+ */
+export function isQuietHours(
+  config: HarnessConfig,
+  now?: Date,
+): boolean {
+  const { start, end } = config.runtime.quiet_hours;
+  const tz = config.runtime.timezone;
+
+  // Get current hour in the configured timezone
+  let hour: number;
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      hour12: false,
+      timeZone: tz,
+    });
+    hour = parseInt(formatter.format(now ?? new Date()), 10);
+  } catch {
+    // Fallback to local time if timezone is invalid
+    hour = (now ?? new Date()).getHours();
+  }
+
+  if (start === end) return false; // No quiet hours configured
+  if (start < end) {
+    // Simple range (e.g., start: 8, end: 17 means 8:00–16:59)
+    return hour >= start && hour < end;
+  }
+  // Wraps midnight (e.g., start: 23, end: 6 means 23:00–05:59)
+  return hour >= start || hour < end;
+}
 
 export interface ScheduledWorkflow {
   doc: HarnessDocument;
@@ -18,6 +54,7 @@ export interface SchedulerOptions {
   onRun?: (workflowId: string, result: string) => void;
   onError?: (workflowId: string, error: Error) => void;
   onSchedule?: (workflowId: string, cron: string) => void;
+  onSkipQuietHours?: (workflowId: string) => void;
 }
 
 export class Scheduler {
@@ -27,6 +64,7 @@ export class Scheduler {
   private onRun?: (workflowId: string, result: string) => void;
   private onError?: (workflowId: string, error: Error) => void;
   private onSchedule?: (workflowId: string, cron: string) => void;
+  private onSkipQuietHours?: (workflowId: string) => void;
   private running = false;
 
   constructor(options: SchedulerOptions) {
@@ -35,6 +73,7 @@ export class Scheduler {
     this.onRun = options.onRun;
     this.onError = options.onError;
     this.onSchedule = options.onSchedule;
+    this.onSkipQuietHours = options.onSkipQuietHours;
   }
 
   start(): void {
@@ -77,6 +116,14 @@ export class Scheduler {
 
   async executeWorkflow(doc: HarnessDocument): Promise<string> {
     const workflowId = doc.frontmatter.id;
+
+    // Check quiet hours — skip scheduled workflows during quiet time
+    const config = loadConfig(this.harnessDir);
+    if (isQuietHours(config)) {
+      log.debug(`Skipping workflow "${workflowId}" — quiet hours active`);
+      this.onSkipQuietHours?.(workflowId);
+      return '';
+    }
 
     try {
       // Create a harness instance for this workflow execution
