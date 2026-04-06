@@ -30,20 +30,30 @@ function getPackageRoot(): string {
   return dirname(dirname(fileURLToPath(import.meta.url)));
 }
 
+interface TemplateVars {
+  agentName: string;
+  purpose?: string;
+}
+
 /**
  * Apply template variables to a string.
  */
-function applyTemplate(content: string, agentName: string): string {
+function applyTemplate(content: string, vars: TemplateVars): string {
   const date = new Date().toISOString().split('T')[0];
+  const defaultPurpose = `I am ${vars.agentName}, an autonomous AI agent. My purpose is to help my creator build, think, and ship.`;
+  const purpose = vars.purpose
+    ? `I am ${vars.agentName}. ${vars.purpose}`
+    : defaultPurpose;
   return content
-    .replace(/\{\{AGENT_NAME\}\}/g, agentName)
+    .replace(/\{\{AGENT_NAME\}\}/g, vars.agentName)
+    .replace(/\{\{PURPOSE\}\}/g, purpose)
     .replace(/\{\{DATE\}\}/g, date);
 }
 
 /**
  * Copy default primitives from defaults/ directory into the target harness.
  */
-function copyDefaults(targetDir: string, agentName: string): void {
+function copyDefaults(targetDir: string, vars: TemplateVars): void {
   const defaultsDir = join(getPackageRoot(), 'defaults');
   if (!existsSync(defaultsDir)) return;
 
@@ -54,7 +64,7 @@ function copyDefaults(targetDir: string, agentName: string): void {
     const files = readdirSync(srcDir).filter((f) => f.endsWith('.md'));
     for (const file of files) {
       const content = readFileSync(join(srcDir, file), 'utf-8');
-      writeFileSync(join(targetDir, dir, file), applyTemplate(content, agentName), 'utf-8');
+      writeFileSync(join(targetDir, dir, file), applyTemplate(content, vars), 'utf-8');
     }
   }
 }
@@ -62,14 +72,18 @@ function copyDefaults(targetDir: string, agentName: string): void {
 /**
  * Load a template file and apply substitutions. Returns null if not found.
  */
-function loadTemplate(templateName: string, fileName: string, agentName: string): string | null {
+function loadTemplate(templateName: string, fileName: string, vars: TemplateVars): string | null {
   const templatePath = join(getPackageRoot(), 'templates', templateName, fileName);
   if (!existsSync(templatePath)) return null;
-  return applyTemplate(readFileSync(templatePath, 'utf-8'), agentName);
+  return applyTemplate(readFileSync(templatePath, 'utf-8'), vars);
 }
 
 export interface ScaffoldOptions {
   template?: string;
+  /** Custom CORE.md content — overrides template */
+  coreContent?: string;
+  /** Agent purpose description (stored as comment in CORE.md when no LLM generation) */
+  purpose?: string;
 }
 
 export function scaffoldHarness(targetDir: string, agentName: string, options?: ScaffoldOptions): void {
@@ -78,6 +92,7 @@ export function scaffoldHarness(targetDir: string, agentName: string, options?: 
   }
 
   const template = options?.template ?? 'base';
+  const vars: TemplateVars = { agentName, purpose: options?.purpose };
 
   // Create directory structure
   mkdirSync(targetDir, { recursive: true });
@@ -85,14 +100,17 @@ export function scaffoldHarness(targetDir: string, agentName: string, options?: 
     mkdirSync(join(targetDir, dir), { recursive: true });
   }
 
-  // --- CORE.md (from template, or inline fallback) ---
-  const coreContent = loadTemplate(template, 'CORE.md', agentName);
-  writeFileSync(
-    join(targetDir, 'CORE.md'),
-    coreContent ?? `# ${agentName}
+  // --- CORE.md (custom > template > inline fallback) ---
+  if (options?.coreContent) {
+    writeFileSync(join(targetDir, 'CORE.md'), options.coreContent);
+  } else {
+    const templateContent = loadTemplate(template, 'CORE.md', vars);
+    writeFileSync(
+      join(targetDir, 'CORE.md'),
+      templateContent ?? applyTemplate(`# {{AGENT_NAME}}
 
 ## Purpose
-I am ${agentName}, an autonomous AI agent. My purpose is to help my creator build, think, and ship.
+{{PURPOSE}}
 
 ## Values
 - **Honesty**: I tell the truth, even when it's uncomfortable.
@@ -106,16 +124,17 @@ I am ${agentName}, an autonomous AI agent. My purpose is to help my creator buil
 - I never take irreversible actions without confirmation.
 - I never expose secrets, credentials, or private information.
 - I escalate when uncertain rather than guessing.
-`
-  );
+`, vars)
+    );
+  }
 
   // --- SYSTEM.md (from template, or inline fallback) ---
-  const systemContent = loadTemplate(template, 'SYSTEM.md', agentName);
+  const systemContent = loadTemplate(template, 'SYSTEM.md', vars);
   writeFileSync(
     join(targetDir, 'SYSTEM.md'),
     systemContent ?? `# System
 
-You are ${agentName}. This file defines how you boot and operate.
+You are ${vars.agentName}. This file defines how you boot and operate.
 
 ## Boot Sequence
 1. Load CORE.md — your identity (never changes)
@@ -141,7 +160,7 @@ You are ${agentName}. This file defines how you boot and operate.
   );
 
   // --- config.yaml (from template, or use writeDefaultConfig) ---
-  const configContent = loadTemplate(template, 'config.yaml', agentName);
+  const configContent = loadTemplate(template, 'config.yaml', vars);
   writeFileSync(join(targetDir, 'config.yaml'), configContent ?? writeDefaultConfig(targetDir, agentName));
 
   // --- state.md ---
@@ -167,7 +186,7 @@ ${new Date().toISOString()}
   writeFileSync(join(targetDir, 'memory', 'scratch.md'), '');
 
   // --- Copy default primitives from defaults/ directory ---
-  copyDefaults(targetDir, agentName);
+  copyDefaults(targetDir, vars);
 
   // --- .gitignore ---
   writeFileSync(
@@ -186,6 +205,134 @@ memory/journal/*
   // Create .gitkeep files
   writeFileSync(join(targetDir, 'memory', 'sessions', '.gitkeep'), '');
   writeFileSync(join(targetDir, 'memory', 'journal', '.gitkeep'), '');
+}
+
+/**
+ * Generate SYSTEM.md content from the actual directory structure of a harness.
+ * Scans for primitives and reflects the real structure.
+ */
+export function generateSystemMd(harnessDir: string, agentName: string): string {
+  const primitiveDirs = ['rules', 'instincts', 'skills', 'playbooks', 'workflows', 'tools', 'agents'];
+  const sections: string[] = [];
+
+  sections.push(`# System\n`);
+  sections.push(`You are ${agentName}. This file defines how you boot and operate.\n`);
+
+  // Boot sequence
+  sections.push(`## Boot Sequence
+1. Load CORE.md — your identity (never changes)
+2. Load state.md — where you left off
+3. Load memory/scratch.md — current working memory
+4. Load indexes — scan all primitive directories
+5. Load relevant files based on current task\n`);
+
+  // Directory structure
+  sections.push(`## Directory Structure\n`);
+
+  for (const dir of primitiveDirs) {
+    const dirPath = join(harnessDir, dir);
+    if (!existsSync(dirPath)) continue;
+
+    const files = readdirSync(dirPath).filter((f) => f.endsWith('.md') && !f.startsWith('_'));
+    if (files.length === 0) {
+      sections.push(`- \`${dir}/\` — (empty)`);
+    } else {
+      sections.push(`- \`${dir}/\` — ${files.length} file(s): ${files.map((f) => f.replace('.md', '')).join(', ')}`);
+    }
+  }
+
+  // Memory
+  const sessionsDir = join(harnessDir, 'memory', 'sessions');
+  const journalDir = join(harnessDir, 'memory', 'journal');
+  const sessionCount = existsSync(sessionsDir)
+    ? readdirSync(sessionsDir).filter((f) => f.endsWith('.md')).length
+    : 0;
+  const journalCount = existsSync(journalDir)
+    ? readdirSync(journalDir).filter((f) => f.endsWith('.md')).length
+    : 0;
+
+  sections.push(`- \`memory/sessions/\` — ${sessionCount} session(s)`);
+  sections.push(`- \`memory/journal/\` — ${journalCount} entry/entries`);
+  sections.push('');
+
+  // File ownership
+  sections.push(`## File Ownership
+| Owner | Files | Can Modify |
+|-------|-------|------------|
+| Human | CORE.md, rules/*, config.yaml | Only human edits |
+| Agent | instincts/*, memory/sessions/*, state.md (goals) | During/after interactions |
+| Infrastructure | */_index.md, memory/journal/* | Auto-scripts only |\n`);
+
+  // Context loading strategy
+  sections.push(`## Context Loading Strategy
+- L0 (~5 tokens): One-line summary — decides relevance
+- L1 (~50-100 tokens): Paragraph — enough to work with
+- L2 (full body): Complete content — loaded only when actively needed
+- Always load CORE + state + scratch first
+- Load primitives at the appropriate level based on token budget
+`);
+
+  return sections.join('\n');
+}
+
+/**
+ * Generate a rich CORE.md using an LLM, given an agent name and purpose description.
+ * Returns the generated markdown content, or null if generation fails.
+ */
+export async function generateCoreMd(
+  agentName: string,
+  purpose: string,
+  options: { provider?: string; modelId?: string; apiKey?: string },
+): Promise<string | null> {
+  try {
+    const { generate, getModel } = await import('../llm/provider.js');
+    const { HarnessConfigSchema } = await import('../core/types.js');
+
+    const config = HarnessConfigSchema.parse({
+      agent: { name: agentName, version: '0.1.0' },
+      model: {
+        provider: options.provider ?? 'openrouter',
+        id: options.modelId ?? 'anthropic/claude-sonnet-4',
+      },
+    });
+
+    const model = getModel(config, options.apiKey);
+    const result = await generate({
+      model,
+      system: `You are a technical writer creating an identity document for an AI agent.
+The document defines who the agent is, what it does, its values, and its ethical boundaries.
+Write in first person from the agent's perspective. Be specific and practical, not generic.
+Output ONLY the markdown content, no code fences.`,
+      prompt: `Create a CORE.md identity document for an AI agent with:
+- Name: ${agentName}
+- Purpose: ${purpose}
+
+The document should have these sections:
+# ${agentName}
+
+## Purpose
+(Detailed purpose based on the description — be specific to what this agent does)
+
+## Values
+(5-7 values tailored to this agent's purpose — not generic platitudes)
+
+## Ethics
+(4-6 ethical boundaries specific to this agent's domain)
+
+## Capabilities
+(3-5 key capabilities this agent should have based on its purpose)
+
+## Boundaries
+(3-5 things this agent should NOT do or areas where it should escalate)`,
+      maxOutputTokens: 2000,
+      maxRetries: 1,
+      timeoutMs: 30000,
+    });
+
+    return result.text.trim();
+  } catch {
+    return null;
+  }
 }
 
 /**

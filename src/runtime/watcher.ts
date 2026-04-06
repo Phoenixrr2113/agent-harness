@@ -3,6 +3,7 @@ import { relative } from 'path';
 import { writeIndexFile } from './indexer.js';
 import { log } from '../core/logger.js';
 import { CORE_PRIMITIVE_DIRS } from '../core/types.js';
+import { autoProcessFile, type AutoProcessResult } from './auto-processor.js';
 
 export interface WatcherOptions {
   harnessDir: string;
@@ -13,10 +14,14 @@ export interface WatcherOptions {
   /** Also watch config.yaml for changes */
   watchConfig?: boolean;
   onConfigChange?: () => void;
+  /** Enable auto-processing of primitives on save (default: false) */
+  autoProcess?: boolean;
+  /** Called after auto-processing a file */
+  onAutoProcess?: (result: AutoProcessResult) => void;
 }
 
 export function createWatcher(options: WatcherOptions): FSWatcher {
-  const { harnessDir, extraDirs, onChange, onIndexRebuild, onError, watchConfig, onConfigChange } = options;
+  const { harnessDir, extraDirs, onChange, onIndexRebuild, onError, watchConfig, onConfigChange, autoProcess, onAutoProcess } = options;
 
   const watchedDirs: string[] = [...CORE_PRIMITIVE_DIRS];
   if (extraDirs) {
@@ -55,6 +60,21 @@ export function createWatcher(options: WatcherOptions): FSWatcher {
 
     const rel = relative(harnessDir, filePath);
     const dir = rel.split('/')[0];
+
+    // Auto-process primitives on add/change (before index rebuild so index sees fixes)
+    if (autoProcess && event !== 'unlink' && filePath.endsWith('.md') && watchedDirs.includes(dir)) {
+      try {
+        const processResult = autoProcessFile(filePath, { harnessDir });
+        if (processResult.modified) {
+          log.info(`Auto-processed ${rel}: ${processResult.fixes.join(', ')}`);
+        }
+        try { onAutoProcess?.(processResult); } catch (e) {
+          log.warn(`onAutoProcess callback failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      } catch (err) {
+        log.warn(`Auto-process failed for ${rel}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
 
     if (watchedDirs.includes(dir)) {
       // Rebuild index for this directory — wrapped for resilience

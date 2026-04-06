@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, existsSync, readdirSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { scaffoldHarness, listTemplates } from '../src/cli/scaffold.js';
+import { scaffoldHarness, listTemplates, generateCoreMd, generateSystemMd } from '../src/cli/scaffold.js';
 
 describe('harness init (scaffolding)', () => {
   let testDir: string;
@@ -279,6 +279,37 @@ describe('harness init (scaffolding)', () => {
       expect(config).toContain('scratchpad_budget: 15000');
     });
 
+    it('should use custom purpose in CORE.md', () => {
+      scaffoldHarness(agentDir, 'my-bot', { purpose: 'I help developers write better tests.' });
+
+      const core = readFileSync(join(agentDir, 'CORE.md'), 'utf-8');
+      expect(core).toContain('my-bot');
+      expect(core).toContain('I help developers write better tests.');
+    });
+
+    it('should use custom coreContent when provided', () => {
+      const customCore = '# Custom Agent\n\nThis is a fully custom CORE.md.';
+      scaffoldHarness(agentDir, 'custom-agent', { coreContent: customCore });
+
+      const core = readFileSync(join(agentDir, 'CORE.md'), 'utf-8');
+      expect(core).toBe(customCore);
+      // Should NOT contain the template boilerplate
+      expect(core).not.toContain('Values');
+      expect(core).not.toContain('Ethics');
+    });
+
+    it('should prefer coreContent over purpose', () => {
+      const customCore = '# Override\n\nCustom content wins.';
+      scaffoldHarness(agentDir, 'priority-test', {
+        purpose: 'This should be ignored',
+        coreContent: customCore,
+      });
+
+      const core = readFileSync(join(agentDir, 'CORE.md'), 'utf-8');
+      expect(core).toBe(customCore);
+      expect(core).not.toContain('This should be ignored');
+    });
+
     it('should fall back to base template for unknown template name', () => {
       scaffoldHarness(agentDir, 'test-agent', { template: 'nonexistent' });
 
@@ -303,6 +334,45 @@ describe('harness init (scaffolding)', () => {
       expect(core).toContain('agent-x');
       expect(system).toContain('agent-x');
       expect(config).toContain('name: agent-x');
+    });
+  });
+
+  describe('generateSystemMd', () => {
+    it('should generate SYSTEM.md from directory structure', () => {
+      scaffoldHarness(agentDir, 'sys-agent');
+
+      const systemMd = generateSystemMd(agentDir, 'sys-agent');
+
+      expect(systemMd).toContain('# System');
+      expect(systemMd).toContain('sys-agent');
+      expect(systemMd).toContain('## Boot Sequence');
+      expect(systemMd).toContain('## Directory Structure');
+      expect(systemMd).toContain('## File Ownership');
+      expect(systemMd).toContain('## Context Loading Strategy');
+
+      // Should list actual primitive directories with file counts
+      expect(systemMd).toContain('`rules/`');
+      expect(systemMd).toContain('`instincts/`');
+      expect(systemMd).toContain('`skills/`');
+      expect(systemMd).toContain('`playbooks/`');
+
+      // Should show actual primitive names (from defaults)
+      expect(systemMd).toContain('operations');
+      expect(systemMd).toContain('lead-with-answer');
+      expect(systemMd).toContain('research');
+
+      // Should show memory stats
+      expect(systemMd).toContain('`memory/sessions/`');
+      expect(systemMd).toContain('`memory/journal/`');
+    });
+
+    it('should handle empty directories', () => {
+      scaffoldHarness(agentDir, 'empty-agent');
+
+      // workflows/ and tools/ should be empty
+      const systemMd = generateSystemMd(agentDir, 'empty-agent');
+      expect(systemMd).toContain('`workflows/` — (empty)');
+      expect(systemMd).toContain('`tools/` — (empty)');
     });
   });
 });

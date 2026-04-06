@@ -108,21 +108,97 @@ program
   });
 
 // --- INIT ---
+
+/** Ask a question via readline and return the answer */
+function askQuestion(rl: ReturnType<typeof import('readline').createInterface>, question: string, defaultValue?: string): Promise<string> {
+  const suffix = defaultValue ? ` [${defaultValue}]` : '';
+  return new Promise((resolve) => {
+    rl.question(`${question}${suffix}: `, (answer) => {
+      resolve(answer.trim() || defaultValue || '');
+    });
+  });
+}
+
 program
-  .command('init <name>')
-  .description('Scaffold a new agent harness directory')
+  .command('init [name]')
+  .description('Scaffold a new agent harness directory (interactive if no name given)')
   .option('-d, --dir <path>', 'Parent directory', '.')
   .option('-t, --template <name>', 'Config template (base, claude-opus, gpt4, local)', 'base')
+  .option('-p, --purpose <description>', 'Agent purpose description')
+  .option('-i, --interactive', 'Force interactive mode', false)
+  .option('--generate', 'Generate CORE.md using LLM (requires API key)', false)
   .option('--no-discover-mcp', 'Skip MCP server auto-discovery')
   .option('--no-discover-env', 'Skip environment variable scanning')
   .option('--no-discover-project', 'Skip project context detection')
-  .action(async (name: string, opts: { dir: string; template: string; discoverMcp: boolean; discoverEnv: boolean; discoverProject: boolean }) => {
-    const { scaffoldHarness } = await import('./scaffold.js');
-    const targetDir = resolve(opts.dir, name);
+  .action(async (name: string | undefined, opts: { dir: string; template: string; purpose?: string; interactive: boolean; generate: boolean; discoverMcp: boolean; discoverEnv: boolean; discoverProject: boolean }) => {
+    const { scaffoldHarness, generateCoreMd, listTemplates } = await import('./scaffold.js');
+
+    // Interactive mode: no name provided or --interactive flag
+    const isInteractive = !name || opts.interactive;
+    let agentName = name ?? '';
+    let purpose = opts.purpose ?? '';
+    let template = opts.template;
+    let shouldGenerate = opts.generate;
+
+    if (isInteractive && process.stdin.isTTY) {
+      const readline = await import('readline');
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+      try {
+        console.log('\n  Agent Harness Setup\n');
+
+        if (!agentName) {
+          agentName = await askQuestion(rl, '  Agent name', 'my-agent');
+        }
+
+        if (!purpose) {
+          purpose = await askQuestion(rl, '  What does this agent do? (purpose)');
+        }
+
+        const templates = listTemplates();
+        if (templates.length > 1) {
+          console.log(`  Available templates: ${templates.join(', ')}`);
+          template = await askQuestion(rl, '  Template', template);
+        }
+
+        if (purpose && !shouldGenerate) {
+          // Check if an API key is available for LLM generation
+          const hasKey = !!(process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
+          if (hasKey) {
+            const gen = await askQuestion(rl, '  Generate CORE.md using AI? (y/n)', 'y');
+            shouldGenerate = gen.toLowerCase() === 'y' || gen.toLowerCase() === 'yes';
+          }
+        }
+
+        console.log();
+      } finally {
+        rl.close();
+      }
+    }
+
+    if (!agentName) {
+      console.error('Error: agent name is required. Usage: harness init <name>');
+      process.exit(1);
+    }
+
+    const targetDir = resolve(opts.dir, agentName);
     const parentDir = resolve(opts.dir);
 
     try {
-      scaffoldHarness(targetDir, name, { template: opts.template });
+      // Generate CORE.md via LLM if requested
+      let coreContent: string | undefined;
+      if (shouldGenerate && purpose) {
+        console.log('Generating CORE.md...');
+        const generated = await generateCoreMd(agentName, purpose, {});
+        if (generated) {
+          coreContent = generated;
+          console.log('✓ CORE.md generated via LLM');
+        } else {
+          console.log('  LLM generation failed, using template instead');
+        }
+      }
+
+      scaffoldHarness(targetDir, agentName, { template, purpose: purpose || undefined, coreContent });
       console.log(`\n✓ Agent harness created: ${targetDir}`);
 
       // Auto-discover MCP servers from other tools
@@ -492,18 +568,33 @@ program
   .option('-d, --dir <path>', 'Harness directory', '.')
   .option('-k, --api-key <key>', 'API key override (default: from environment)')
   .option('--no-schedule', 'Disable workflow scheduler')
-  .action(async (opts: { dir: string; apiKey?: string; schedule: boolean }) => {
+  .option('--no-auto-process', 'Disable auto-processing of primitives on save')
+  .action(async (opts: { dir: string; apiKey?: string; schedule: boolean; autoProcess: boolean }) => {
     const { loadConfig } = await import('../core/config.js');
     const { rebuildAllIndexes } = await import('../runtime/indexer.js');
     const { createWatcher } = await import('../runtime/watcher.js');
     const { Scheduler } = await import('../runtime/scheduler.js');
+    const { autoProcessAll } = await import('../runtime/auto-processor.js');
     const dir = resolve(opts.dir);
     loadEnvFromDir(dir);
 
     requireHarness(dir);
 
     const config = loadConfig(dir);
+    const doAutoProcess = opts.autoProcess && (config.runtime?.auto_process !== false);
     console.log(`\n[dev] Watching "${config.agent.name}" harness at ${dir}`);
+
+    // Auto-process all primitives on startup (fills missing frontmatter, L0/L1)
+    if (doAutoProcess) {
+      const processed = autoProcessAll(dir);
+      if (processed.length > 0) {
+        console.log(`[dev] Auto-processed ${processed.length} file(s) on startup`);
+        for (const r of processed) {
+          const rel = r.path.replace(dir + '/', '');
+          console.log(`  ${rel}: ${r.fixes.join(', ')}`);
+        }
+      }
+    }
 
     // Initial index build
     const extDirs = config.extensions?.directories ?? [];
@@ -546,12 +637,19 @@ program
       harnessDir: dir,
       extraDirs: extDirs,
       watchConfig: true,
+      autoProcess: doAutoProcess,
       onChange: (path, event) => {
         const rel = path.replace(dir + '/', '');
         console.log(`[dev] ${event}: ${rel}`);
       },
       onIndexRebuild: (directory) => {
         console.log(`[dev] Index rebuilt: ${directory}/_index.md`);
+      },
+      onAutoProcess: (result) => {
+        if (result.modified) {
+          const rel = result.path.replace(dir + '/', '');
+          console.log(`[dev] Auto-processed: ${rel} (${result.fixes.join(', ')})`);
+        }
       },
       onConfigChange: () => {
         try {
@@ -2598,6 +2696,29 @@ discoverCmd
 
 // Type alias for CLI display (avoids importing the full type)
 type ProjectSignalDisplay = { name: string; category: string };
+
+// --- GENERATE (auto-generate files) ---
+const generateCmd = program
+  .command('generate')
+  .description('Auto-generate harness files');
+
+generateCmd
+  .command('system')
+  .description('Regenerate SYSTEM.md from actual directory structure')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .action(async (opts: { dir: string }) => {
+    const { generateSystemMd } = await import('./scaffold.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const { loadConfig } = await import('../core/config.js');
+    const config = loadConfig(dir);
+    const content = generateSystemMd(dir, config.agent.name);
+
+    const { writeFileSync } = await import('fs');
+    writeFileSync(join(dir, 'SYSTEM.md'), content, 'utf-8');
+    console.log(`\n✓ SYSTEM.md regenerated from directory structure\n`);
+  });
 
 // --- DASHBOARD (unified telemetry view) ---
 program

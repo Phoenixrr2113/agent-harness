@@ -58,6 +58,8 @@ export const HarnessConfigSchema = z.object({
     max_tokens: z.number().int().positive().default(200000),
     max_retries: z.number().int().nonnegative().default(2),
     timeout_ms: z.number().int().positive().optional(),
+    /** Cheap model for auto-generating summaries, tags, frontmatter (e.g. 'google/gemini-flash-1.5') */
+    summary_model: z.string().optional(),
   }).passthrough(),
   runtime: z.object({
     scratchpad_budget: z.number().int().nonnegative().default(10000),
@@ -65,6 +67,8 @@ export const HarnessConfigSchema = z.object({
     heartbeat: z.string().optional(),
     /** Reserved: cron expression for daily summary generation (not yet implemented) */
     daily_summary: z.string().optional(),
+    /** Auto-process primitives on save: generate frontmatter, L0/L1 summaries (default: true) */
+    auto_process: z.boolean().default(true),
     quiet_hours: z.object({
       start: z.number().int().min(0).max(23).default(23),
       end: z.number().int().min(0).max(23).default(6),
@@ -127,6 +131,7 @@ export const CONFIG_DEFAULTS: HarnessConfig = {
   model: { provider: 'openrouter', id: 'anthropic/claude-sonnet-4', max_tokens: 200000, max_retries: 2 },
   runtime: {
     scratchpad_budget: 10000,
+    auto_process: true,
     quiet_hours: { start: 23, end: 6 },
     timezone: 'America/New_York',
   },
