@@ -1,8 +1,9 @@
 import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync, readdirSync, copyFileSync } from 'fs';
 import { join, basename } from 'path';
 import matter from 'gray-matter';
-import { parseHarnessDocument } from '../primitives/loader.js';
+import { parseHarnessDocument, loadDirectory } from '../primitives/loader.js';
 import { writeIndexFile } from './indexer.js';
+import { getPrimitiveDirs } from '../core/types.js';
 import type { HarnessDocument } from '../core/types.js';
 
 export interface EvalResult {
@@ -170,7 +171,11 @@ export function fixCapability(filePath: string): EvalResult {
   return result;
 }
 
-export function evaluateCapability(filePath: string): EvalResult {
+/**
+ * Evaluate a capability file. If harnessDir is provided, also checks
+ * dependency resolution (related: references, with: agent references).
+ */
+export function evaluateCapability(filePath: string, harnessDir?: string): EvalResult {
   const result: EvalResult = {
     valid: true,
     type: null,
@@ -254,11 +259,72 @@ export function evaluateCapability(filePath: string): EvalResult {
     result.errors.push('Body content is too short or empty');
   }
 
+  // Step 7: Dependency resolution (when harness dir is available)
+  if (harnessDir) {
+    resolveDependencies(doc, harnessDir, result);
+  }
+
   return result;
 }
 
+/**
+ * Check that referenced primitives (related: and with: fields) exist in the harness.
+ */
+function resolveDependencies(doc: HarnessDocument, harnessDir: string, result: EvalResult): void {
+  // Load all known primitive IDs for reference checking
+  const primitiveDirs = getPrimitiveDirs();
+  const knownIds = new Set<string>();
+  for (const dir of primitiveDirs) {
+    const fullPath = join(harnessDir, dir);
+    if (!existsSync(fullPath)) continue;
+    const docs = loadDirectory(fullPath);
+    for (const d of docs) {
+      knownIds.add(d.frontmatter.id);
+    }
+  }
+
+  // Check related: references
+  const related = doc.frontmatter.related;
+  if (related && related.length > 0) {
+    for (const ref of related) {
+      if (knownIds.has(ref)) continue;
+      // Check if it's a file path
+      const refPath = join(harnessDir, ref);
+      if (existsSync(refPath) || existsSync(refPath + '.md')) continue;
+      result.warnings.push(`Unresolved reference: "${ref}" (related: field) — not found in harness`);
+    }
+  }
+
+  // Check with: agent reference (used for delegation)
+  const withAgent = doc.frontmatter.with;
+  if (withAgent) {
+    // Check if agent exists in agents/ directory
+    const agentsDir = join(harnessDir, 'agents');
+    let agentFound = false;
+    if (existsSync(agentsDir)) {
+      const agentDocs = loadDirectory(agentsDir);
+      agentFound = agentDocs.some(
+        (d) => d.frontmatter.id === withAgent || basename(d.path, '.md') === withAgent,
+      );
+    }
+    if (!agentFound) {
+      result.warnings.push(`Unresolved agent: "${withAgent}" (with: field) — no matching agent found`);
+    }
+  }
+
+  // Check schedule: cron expression validity (for workflows)
+  const schedule = doc.frontmatter.schedule;
+  if (schedule) {
+    // Basic cron validation: should have 5-6 space-separated fields
+    const fields = schedule.trim().split(/\s+/);
+    if (fields.length < 5 || fields.length > 6) {
+      result.warnings.push(`Possibly invalid cron expression: "${schedule}" (expected 5-6 fields)`);
+    }
+  }
+}
+
 export function installCapability(harnessDir: string, filePath: string): { installed: boolean; destination: string; evalResult: EvalResult } {
-  const evalResult = evaluateCapability(filePath);
+  const evalResult = evaluateCapability(filePath, harnessDir);
 
   if (!evalResult.valid || !evalResult.type) {
     return { installed: false, destination: '', evalResult };

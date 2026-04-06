@@ -635,15 +635,15 @@ program
     }
   });
 
-// --- CLEANUP (remove old sessions/journals per retention policy) ---
+// --- CLEANUP (archive or remove old sessions/journals per retention policy) ---
 program
   .command('cleanup')
-  .description('Remove sessions and journals older than retention period')
+  .description('Archive sessions and journals older than retention period')
   .option('-d, --dir <path>', 'Harness directory', '.')
-  .option('--dry-run', 'Show what would be removed without deleting', false)
-  .action(async (opts: { dir: string; dryRun: boolean }) => {
+  .option('--dry-run', 'Show what would be archived without acting', false)
+  .option('--delete', 'Permanently delete instead of archiving', false)
+  .action(async (opts: { dir: string; dryRun: boolean; delete: boolean }) => {
     const { loadConfig } = await import('../core/config.js');
-    const { cleanupOldFiles, listSessions } = await import('../runtime/sessions.js');
     const dir = resolve(opts.dir);
     requireHarness(dir);
 
@@ -652,34 +652,131 @@ program
     const journalDays = config.memory.journal_retention_days;
 
     if (opts.dryRun) {
-      console.log(`\nDry run — retention policy:`);
-      console.log(`  Sessions: ${sessionDays} days`);
-      console.log(`  Journals: ${journalDays} days\n`);
-    }
-
-    if (opts.dryRun) {
-      // Preview mode: use listExpired to show without deleting
       const { listExpiredFiles } = await import('../runtime/sessions.js');
       const expired = listExpiredFiles(dir, sessionDays, journalDays);
-      console.log(`Would remove ${expired.sessionFiles.length} session(s):`);
+      const action = opts.delete ? 'delete' : 'archive';
+      console.log(`\nDry run — retention policy (sessions: ${sessionDays}d, journals: ${journalDays}d)\n`);
+      console.log(`Would ${action} ${expired.sessionFiles.length} session(s):`);
       expired.sessionFiles.forEach((f) => console.log(`  - ${f}`));
-      console.log(`Would remove ${expired.journalFiles.length} journal(s):`);
+      console.log(`Would ${action} ${expired.journalFiles.length} journal(s):`);
       expired.journalFiles.forEach((f) => console.log(`  - ${f}`));
       return;
     }
 
-    const result = cleanupOldFiles(dir, sessionDays, journalDays);
-
-    console.log(`\n✓ Cleanup complete`);
-    console.log(`  Sessions removed: ${result.sessionsRemoved} (retention: ${sessionDays} days)`);
-    console.log(`  Journals removed: ${result.journalsRemoved} (retention: ${journalDays} days)`);
-    if (result.sessionFiles.length > 0) {
-      result.sessionFiles.forEach((f) => console.log(`    - ${f}`));
-    }
-    if (result.journalFiles.length > 0) {
-      result.journalFiles.forEach((f) => console.log(`    - ${f}`));
+    if (opts.delete) {
+      const { cleanupOldFiles } = await import('../runtime/sessions.js');
+      const result = cleanupOldFiles(dir, sessionDays, journalDays);
+      console.log(`\nDeleted ${result.sessionsRemoved} session(s), ${result.journalsRemoved} journal(s)`);
+      if (result.sessionFiles.length > 0) {
+        result.sessionFiles.forEach((f) => console.log(`  - ${f}`));
+      }
+      if (result.journalFiles.length > 0) {
+        result.journalFiles.forEach((f) => console.log(`  - ${f}`));
+      }
+    } else {
+      const { archiveOldFiles } = await import('../runtime/sessions.js');
+      const result = archiveOldFiles(dir, sessionDays, journalDays);
+      console.log(`\nArchived ${result.sessionsArchived} session(s), ${result.journalsArchived} journal(s)`);
+      if (result.sessionFiles.length > 0) {
+        console.log(`  Sessions → memory/sessions/archive/`);
+        result.sessionFiles.forEach((f) => console.log(`    - ${f}`));
+      }
+      if (result.journalFiles.length > 0) {
+        console.log(`  Journals → memory/journal/archive/`);
+        result.journalFiles.forEach((f) => console.log(`    - ${f}`));
+      }
     }
     console.log();
+  });
+
+// --- STATUS (rich harness overview) ---
+program
+  .command('status')
+  .description('Show harness status: primitives, sessions, config, state')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .action(async (opts: { dir: string }) => {
+    const { existsSync, readdirSync } = await import('fs');
+    const { validateHarness } = await import('../runtime/validator.js');
+    const { loadConfig } = await import('../core/config.js');
+    const { loadState } = await import('../runtime/state.js');
+    const { listSessions } = await import('../runtime/sessions.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const config = loadConfig(dir);
+    const state = loadState(dir);
+    const validation = validateHarness(dir);
+    const sessions = listSessions(dir);
+
+    // Header
+    console.log(`\n  ${config.agent.name} v${config.agent.version}`);
+    console.log(`  Model: ${config.model.provider}/${config.model.id}`);
+    console.log(`  Mode: ${state.mode}`);
+
+    // Primitives
+    console.log(`\n  Primitives (${validation.totalPrimitives} total):`);
+    for (const [dir, count] of validation.primitiveCounts) {
+      if (count > 0) console.log(`    ${dir}: ${count}`);
+    }
+    const emptyDirs = Array.from(validation.primitiveCounts.entries())
+      .filter(([, c]) => c === 0)
+      .map(([d]) => d);
+    if (emptyDirs.length > 0) {
+      console.log(`    (empty: ${emptyDirs.join(', ')})`);
+    }
+
+    // Sessions
+    console.log(`\n  Sessions: ${sessions.length} total`);
+    if (sessions.length > 0) {
+      const recent = sessions.slice(0, 3);
+      for (const s of recent) {
+        console.log(`    ${s.id}`);
+      }
+      if (sessions.length > 3) console.log(`    ... and ${sessions.length - 3} more`);
+    }
+
+    // Journals
+    const journalDir = join(dir, 'memory', 'journal');
+    let journalCount = 0;
+    if (existsSync(journalDir)) {
+      journalCount = readdirSync(journalDir).filter(
+        (f) => f.endsWith('.md') && !f.startsWith('.') && !f.startsWith('_'),
+      ).length;
+    }
+    console.log(`  Journals: ${journalCount}`);
+
+    // State
+    if (state.goals.length > 0) {
+      console.log(`\n  Goals:`);
+      for (const g of state.goals) {
+        console.log(`    - ${g}`);
+      }
+    }
+    if (state.active_workflows.length > 0) {
+      console.log(`\n  Active workflows:`);
+      for (const w of state.active_workflows) {
+        console.log(`    - ${w}`);
+      }
+    }
+    if (state.unfinished_business.length > 0) {
+      console.log(`\n  Unfinished business:`);
+      for (const u of state.unfinished_business) {
+        console.log(`    - ${u}`);
+      }
+    }
+
+    // Health
+    const healthIssues = validation.errors.length + validation.warnings.length;
+    if (healthIssues > 0) {
+      console.log(`\n  Health: ${validation.errors.length} error(s), ${validation.warnings.length} warning(s)`);
+      if (validation.errors.length > 0) {
+        console.log(`    Run 'harness validate' for details`);
+      }
+    } else {
+      console.log(`\n  Health: OK`);
+    }
+
+    console.log(`  Last interaction: ${state.last_interaction}\n`);
   });
 
 // --- SCRATCH (write to working memory) ---

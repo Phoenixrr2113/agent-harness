@@ -68,9 +68,15 @@
 - [x] **Evaluator auto-fix** — New `fixCapability()` function in intake.ts automatically repairs common issues in capability markdown files: generates missing `id` from filename, adds missing `status: active`, infers and adds missing type tags from content headings, generates L0 summary from first heading (truncated to 120 chars), generates L1 summary from first paragraph (truncated to 300 chars). Writes fixed file back with `gray-matter.stringify()`. 12 new intake fix tests. New `harness fix <file>` CLI command.
 - [x] **Intake test suite** — 23 new tests covering `fixCapability()`, `evaluateCapability()`, `installCapability()`, and `processIntake()`.
 
+## Completed (Loop 11)
+
+- [x] **Session archival** — New `archiveOldFiles()` function moves expired sessions to `memory/sessions/archive/YYYY-MM/` and journals to `memory/journal/archive/YYYY-MM/` instead of deleting. Files are preserved for audit/query. `cleanupOldFiles()` retained but deprecated. CLI `harness cleanup` now defaults to archive mode, `--delete` flag for permanent removal. `ArchiveResult` type exported. 12 new session tests.
+- [x] **Status command** — New `harness status` shows rich harness overview: agent name/version, model, mode, primitive counts per directory, recent sessions, journal count, goals, active workflows, unfinished business, health summary from validator.
+- [x] **Evaluator dependency resolution** — `evaluateCapability()` now accepts optional `harnessDir` parameter. When provided, checks `related:` references against all known primitive IDs and file paths, validates `with:` agent references against `agents/` directory, warns on invalid cron expressions in `schedule:` field. `installCapability()` automatically passes harnessDir for full validation. 5 new dependency resolution tests.
+
 ## All Plan Items Complete
 
-All items from the original fix plan have been implemented across 10 loops.
+All items from the original fix plan have been implemented across 11 loops.
 
 ## Architecture Notes
 
@@ -90,6 +96,9 @@ All items from the original fix plan have been implemented across 10 loops.
 - Budget warnings give visibility into context truncation
 - Comprehensive validator with cross-reference integrity checking
 - Auto-fix for common capability file issues (missing id, status, L0/L1, type tags)
+- Session archival preserves audit trail instead of deleting
+- Rich status command for at-a-glance harness overview
+- Evaluator dependency resolution catches broken references before install
 
 ### Known Limitations
 - Token estimation is 1:4 char ratio — good enough but not precise

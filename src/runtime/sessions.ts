@@ -1,4 +1,4 @@
-import { writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync, statSync } from 'fs';
+import { writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync, copyFileSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 
@@ -71,9 +71,83 @@ export interface CleanupResult {
   journalFiles: string[];
 }
 
+export interface ArchiveResult {
+  sessionsArchived: number;
+  journalsArchived: number;
+  sessionFiles: string[];
+  journalFiles: string[];
+}
+
+/**
+ * Archive sessions and journals older than their configured retention periods.
+ * Moves files to archive/YYYY-MM/ subdirectories instead of deleting them.
+ * Archived files remain on disk for audit/query but aren't loaded by default.
+ */
+export function archiveOldFiles(
+  harnessDir: string,
+  sessionRetentionDays: number,
+  journalRetentionDays: number,
+): ArchiveResult {
+  const result: ArchiveResult = {
+    sessionsArchived: 0,
+    journalsArchived: 0,
+    sessionFiles: [],
+    journalFiles: [],
+  };
+
+  const now = Date.now();
+
+  // Archive sessions
+  const sessionsDir = join(harnessDir, 'memory', 'sessions');
+  if (existsSync(sessionsDir)) {
+    const cutoff = now - sessionRetentionDays * 24 * 60 * 60 * 1000;
+    const files = readdirSync(sessionsDir).filter(
+      (f) => f.endsWith('.md') && !f.startsWith('.') && !f.startsWith('_'),
+    );
+
+    for (const file of files) {
+      const dateStr = extractDateFromFilename(file);
+      if (dateStr && new Date(dateStr).getTime() < cutoff) {
+        const yearMonth = dateStr.slice(0, 7); // YYYY-MM
+        const archiveDir = join(sessionsDir, 'archive', yearMonth);
+        mkdirSync(archiveDir, { recursive: true });
+        copyFileSync(join(sessionsDir, file), join(archiveDir, file));
+        unlinkSync(join(sessionsDir, file));
+        result.sessionsArchived++;
+        result.sessionFiles.push(file);
+      }
+    }
+  }
+
+  // Archive journals
+  const journalDir = join(harnessDir, 'memory', 'journal');
+  if (existsSync(journalDir)) {
+    const cutoff = now - journalRetentionDays * 24 * 60 * 60 * 1000;
+    const files = readdirSync(journalDir).filter(
+      (f) => f.endsWith('.md') && !f.startsWith('.') && !f.startsWith('_'),
+    );
+
+    for (const file of files) {
+      const dateStr = extractDateFromFilename(file);
+      if (dateStr && new Date(dateStr).getTime() < cutoff) {
+        const yearMonth = dateStr.slice(0, 7);
+        const archiveDir = join(journalDir, 'archive', yearMonth);
+        mkdirSync(archiveDir, { recursive: true });
+        copyFileSync(join(journalDir, file), join(archiveDir, file));
+        unlinkSync(join(journalDir, file));
+        result.journalsArchived++;
+        result.journalFiles.push(file);
+      }
+    }
+  }
+
+  return result;
+}
+
 /**
  * Remove sessions and journals older than their configured retention periods.
- * Session filenames start with YYYY-MM-DD, so we parse the date from the filename.
+ * @deprecated Use archiveOldFiles() instead — it preserves files in archive/.
+ * This function deletes files permanently.
  */
 export function cleanupOldFiles(
   harnessDir: string,

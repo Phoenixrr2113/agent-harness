@@ -35,8 +35,8 @@ export { proposeInstincts, installInstinct, learnFromSessions } from './runtime/
 export { fixCapability, evaluateCapability, installCapability, processIntake } from './runtime/intake.js';
 export { validateHarness } from './runtime/validator.js';
 export type { ValidationResult } from './runtime/validator.js';
-export { createSessionId, writeSession, cleanupOldFiles, listSessions, listExpiredFiles } from './runtime/sessions.js';
-export type { SessionRecord, CleanupResult } from './runtime/sessions.js';
+export { createSessionId, writeSession, cleanupOldFiles, archiveOldFiles, listSessions, listExpiredFiles } from './runtime/sessions.js';
+export type { SessionRecord, CleanupResult, ArchiveResult } from './runtime/sessions.js';
 export { Conversation, parseJsonlContext, parseLegacyContext } from './runtime/conversation.js';
 export { delegateTo, delegateStream, findAgent, listAgents, loadAgentDocs, buildAgentPrompt } from './runtime/delegate.js';
 export type { DelegationResult, DelegateStreamResult, AgentInfo, DelegateOptions } from './runtime/delegate.js';

@@ -305,6 +305,112 @@ tiny
   });
 });
 
+// --- evaluateCapability with dependency resolution ---
+describe('evaluateCapability with harnessDir (dependency resolution)', () => {
+  it('should warn on unresolved related: references', () => {
+    writeFileSync(join(TEST_DIR, 'CORE.md'), '# Core', 'utf-8');
+    const rulesDir = join(TEST_DIR, 'rules');
+    mkdirSync(rulesDir, { recursive: true });
+
+    const filePath = writeTestFile('dep-test.md', `---
+id: dep-test
+tags: [rule]
+status: active
+related:
+  - nonexistent-skill
+---
+# Rule: Dep Test
+
+This rule references a skill that does not exist in the harness.
+`);
+    const result = evaluateCapability(filePath, TEST_DIR);
+    expect(result.warnings.some((w) => w.includes('nonexistent-skill') && w.includes('not found'))).toBe(true);
+  });
+
+  it('should not warn when related: references exist', () => {
+    writeFileSync(join(TEST_DIR, 'CORE.md'), '# Core', 'utf-8');
+    const rulesDir = join(TEST_DIR, 'rules');
+    mkdirSync(rulesDir, { recursive: true });
+    writeFileSync(
+      join(rulesDir, 'existing-rule.md'),
+      `---\nid: existing-rule\ntags: [rule]\nstatus: active\n---\n# Rule: Existing\n\nContent here.`,
+      'utf-8',
+    );
+
+    const filePath = writeTestFile('ref-resolved.md', `---
+id: ref-resolved
+tags: [rule]
+status: active
+related:
+  - existing-rule
+---
+# Rule: Ref Resolved
+
+This rule references an existing rule that should be found.
+`);
+    const result = evaluateCapability(filePath, TEST_DIR);
+    expect(result.warnings.some((w) => w.includes('existing-rule') && w.includes('not found'))).toBe(false);
+  });
+
+  it('should warn on unresolved with: agent reference', () => {
+    writeFileSync(join(TEST_DIR, 'CORE.md'), '# Core', 'utf-8');
+
+    const filePath = writeTestFile('needs-agent.md', `---
+id: needs-agent
+tags: [workflow]
+status: active
+with: summarizer
+---
+# Workflow: Needs Agent
+
+This workflow delegates to a summarizer agent that does not exist.
+`);
+    const result = evaluateCapability(filePath, TEST_DIR);
+    expect(result.warnings.some((w) => w.includes('summarizer') && w.includes('agent'))).toBe(true);
+  });
+
+  it('should not warn when with: agent exists', () => {
+    writeFileSync(join(TEST_DIR, 'CORE.md'), '# Core', 'utf-8');
+    const agentsDir = join(TEST_DIR, 'agents');
+    mkdirSync(agentsDir, { recursive: true });
+    writeFileSync(
+      join(agentsDir, 'summarizer.md'),
+      `---\nid: summarizer\ntags: [agent]\nstatus: active\n---\n# Agent: Summarizer\n\nSummarizes content.`,
+      'utf-8',
+    );
+
+    const filePath = writeTestFile('has-agent.md', `---
+id: has-agent
+tags: [workflow]
+status: active
+with: summarizer
+---
+# Workflow: Has Agent
+
+This workflow delegates to a summarizer agent that exists.
+`);
+    const result = evaluateCapability(filePath, TEST_DIR);
+    expect(result.warnings.some((w) => w.includes('summarizer') && w.includes('agent'))).toBe(false);
+  });
+
+  it('should work without harnessDir (no dependency check)', () => {
+    const filePath = writeTestFile('no-dir.md', `---
+id: no-dir
+tags: [rule]
+status: active
+related:
+  - nonexistent
+---
+# Rule: No Dir
+
+This rule has a reference but no harnessDir so deps are not checked.
+`);
+    const result = evaluateCapability(filePath);
+    // No warnings about unresolved references when harnessDir is not provided
+    expect(result.warnings.some((w) => w.includes('nonexistent'))).toBe(false);
+  });
+});
+
 // --- installCapability tests ---
 describe('installCapability', () => {
   it('should install a valid capability to the correct directory', () => {
