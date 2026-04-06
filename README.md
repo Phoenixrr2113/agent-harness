@@ -136,11 +136,31 @@ Create a file in `playbooks/`. Playbooks are step-by-step guidance that the agen
 | `harness init <name>` | Create a new agent harness |
 | `harness run <prompt>` | Run a single prompt |
 | `harness run <prompt> --stream` | Stream the response |
-| `harness chat` | Interactive REPL |
+| `harness run <prompt> -m gemma` | Use a model alias (gemma, qwen, glm, claude) |
+| `harness chat` | Interactive REPL with conversation memory |
+| `harness chat --fresh` | Start a fresh conversation (clear history) |
 | `harness info` | Show loaded context and token budget |
 | `harness prompt` | Display the full assembled system prompt |
 | `harness index` | Rebuild all index files |
 | `harness dev` | Watch mode — auto-rebuild indexes on file changes |
+| `harness journal` | Synthesize today's sessions into a journal entry |
+| `harness learn` | Analyze sessions and propose new instincts |
+| `harness learn --install` | Auto-install proposed instincts |
+| `harness install <file>` | Install a capability from a markdown file |
+| `harness intake` | Process all pending files in intake/ |
+
+### Model Aliases
+
+Use `-m` with a shorthand instead of full OpenRouter model IDs:
+
+| Alias | Model |
+|-------|-------|
+| `gemma` | google/gemma-4-26b-a4b-it |
+| `gemma-31b` | google/gemma-4-31b-it |
+| `qwen` | qwen/qwen3.5-35b-a3b |
+| `glm` | z-ai/glm-4.7-flash |
+| `claude` | anthropic/claude-sonnet-4 |
+| `gpt4o` | openai/gpt-4o |
 
 ## Using as a Library
 
@@ -204,6 +224,32 @@ On every run, the harness:
 5. Loads **scratch.md** if it has content
 
 Total harness overhead is typically ~1,000-3,000 tokens depending on how many primitives you have.
+
+## The Learning Loop
+
+Agent Harness agents learn from experience through an automated pipeline:
+
+```
+Interaction → Session recorded → Journal synthesized → Instincts proposed → Auto-installed
+```
+
+1. Every interaction is saved as a **session** in `memory/sessions/`
+2. Run `harness journal` to synthesize sessions into a daily **journal** entry
+3. Run `harness learn --install` to detect behavioral patterns and install new **instincts**
+4. On the next run, the agent loads its new instincts and behaves differently
+
+This means your agent gets better over time — without you writing any code.
+
+## Tested Models
+
+These local-capable models work well with the harness via OpenRouter:
+
+| Model | Speed | Quality | Best For |
+|-------|-------|---------|----------|
+| google/gemma-4-26b-a4b-it | Fast (2s) | Excellent | Default local model |
+| google/gemma-4-31b-it | Medium (8s) | Good | Complex reasoning |
+| qwen/qwen3.5-35b-a3b | Slow (30s) | Good | Very concise responses |
+| z-ai/glm-4.7-flash | Fast (5s) | Good | Natural conversation |
 
 ## Philosophy
 

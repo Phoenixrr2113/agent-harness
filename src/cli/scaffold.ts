@@ -79,7 +79,7 @@ You are ${agentName}. This file defines how you boot and operate.
   );
 
   // --- config.yaml ---
-  writeFileSync(join(targetDir, 'config.yaml'), writeDefaultConfig(targetDir));
+  writeFileSync(join(targetDir, 'config.yaml'), writeDefaultConfig(targetDir, agentName));
 
   // --- state.md ---
   writeFileSync(

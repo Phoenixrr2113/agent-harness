@@ -19,3 +19,8 @@ export { getProvider, getModel, generate, streamGenerate } from './llm/provider.
 export { scaffoldHarness } from './cli/scaffold.js';
 export { buildIndex, writeIndexFile, rebuildAllIndexes } from './runtime/indexer.js';
 export { createWatcher } from './runtime/watcher.js';
+export { Scheduler } from './runtime/scheduler.js';
+export { synthesizeJournal, listJournals } from './runtime/journal.js';
+export { proposeInstincts, installInstinct, learnFromSessions } from './runtime/instinct-learner.js';
+export { evaluateCapability, installCapability, processIntake } from './runtime/intake.js';
+export { Conversation } from './runtime/conversation.js';

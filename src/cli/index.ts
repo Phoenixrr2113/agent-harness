@@ -3,10 +3,41 @@ import { resolve, join } from 'path';
 import { existsSync } from 'fs';
 import { config as loadDotenv } from 'dotenv';
 
-// Load .env from current directory
+// Load .env from current directory and common locations
 loadDotenv();
+loadDotenv({ path: resolve('.env.local') });
 
 const program = new Command();
+
+// Model aliases for convenience
+const MODEL_ALIASES: Record<string, string> = {
+  'gemma': 'google/gemma-4-26b-a4b-it',
+  'gemma-31b': 'google/gemma-4-31b-it',
+  'qwen': 'qwen/qwen3.5-35b-a3b',
+  'glm': 'z-ai/glm-4.7-flash',
+  'claude': 'anthropic/claude-sonnet-4',
+  'gpt4o': 'openai/gpt-4o',
+  'gpt4o-mini': 'openai/gpt-4o-mini',
+};
+
+function resolveModel(model?: string): string | undefined {
+  if (!model) return undefined;
+  return MODEL_ALIASES[model] || model;
+}
+
+function loadEnvFromDir(dir: string) {
+  const envPath = join(dir, '.env');
+  if (existsSync(envPath)) {
+    loadDotenv({ path: envPath });
+  }
+}
+
+function formatError(err: any): string {
+  if (err?.data?.error?.message) return err.data.error.message;
+  if (err?.message?.includes('API key')) return err.message;
+  if (err?.message?.includes('not a valid model')) return `Invalid model ID: ${err.message}`;
+  return err?.message || String(err);
+}
 
 program
   .name('harness')
@@ -43,23 +74,23 @@ program
   .description('Run a prompt through the agent')
   .option('-d, --dir <path>', 'Harness directory', '.')
   .option('-s, --stream', 'Stream output', false)
-  .option('-m, --model <model>', 'Model override')
+  .option('-m, --model <model>', 'Model override (or alias: gemma, qwen, glm, claude)')
   .action(async (prompt: string, opts: { dir: string; stream: boolean; model?: string }) => {
     const { createHarness } = await import('../core/harness.js');
     const dir = resolve(opts.dir);
+    loadEnvFromDir(dir);
 
-    // Look for harness indicators
     if (!existsSync(join(dir, 'CORE.md')) && !existsSync(join(dir, 'config.yaml'))) {
       console.error(`Error: No harness found in ${dir}`);
       console.error(`Run "harness init <name>" to create one.`);
       process.exit(1);
     }
 
+    const modelId = resolveModel(opts.model);
     try {
       const agent = createHarness({
         dir,
-        model: opts.model,
-        config: opts.model ? { model: { id: opts.model, provider: 'openrouter', max_tokens: 200000 } } : undefined,
+        config: modelId ? { model: { id: modelId, provider: 'openrouter', max_tokens: 200000 } } : undefined,
       });
 
       if (opts.stream) {
@@ -78,35 +109,37 @@ program
 
       await agent.shutdown();
     } catch (err: any) {
-      console.error(`Error: ${err.message}`);
+      console.error(`Error: ${formatError(err)}`);
       process.exit(1);
     }
   });
 
-// --- CHAT (interactive REPL) ---
+// --- CHAT (interactive REPL with conversation memory) ---
 program
   .command('chat')
-  .description('Start an interactive chat session with the agent')
+  .description('Start an interactive chat session with conversation memory')
   .option('-d, --dir <path>', 'Harness directory', '.')
   .option('-m, --model <model>', 'Model override')
-  .action(async (opts: { dir: string; model?: string }) => {
-    const { createHarness } = await import('../core/harness.js');
+  .option('--fresh', 'Start fresh (clear conversation history)', false)
+  .action(async (opts: { dir: string; model?: string; fresh: boolean }) => {
+    const { Conversation } = await import('../runtime/conversation.js');
+    const { loadConfig } = await import('../core/config.js');
     const readline = await import('readline');
     const dir = resolve(opts.dir);
 
-    if (!existsSync(join(dir, 'CORE.md')) && !existsSync(join(dir, 'config.yaml'))) {
+    if (!existsSync(join(dir, 'CORE.md'))) {
       console.error(`Error: No harness found in ${dir}`);
       process.exit(1);
     }
 
-    const agent = createHarness({
-      dir,
-      config: opts.model ? { model: { id: opts.model, provider: 'openrouter', max_tokens: 200000 } } : undefined,
-    });
+    const conv = new Conversation(dir);
+    if (opts.fresh) conv.clear();
+    await conv.init();
 
-    await agent.boot();
-
-    console.log(`\n${agent.name} is ready. Type your message or "exit" to quit.\n`);
+    const config = loadConfig(dir);
+    const history = conv.getHistory();
+    console.log(`\n${config.agent.name} is ready. ${history.length > 0 ? `(${history.length} messages in history)` : ''}`);
+    console.log(`Type your message, "clear" to reset, or "exit" to quit.\n`);
 
     const rl = readline.createInterface({
       input: process.stdin,
@@ -117,14 +150,19 @@ program
       rl.question('> ', async (input) => {
         const trimmed = input.trim();
         if (!trimmed || trimmed === 'exit' || trimmed === 'quit') {
-          await agent.shutdown();
           rl.close();
+          return;
+        }
+        if (trimmed === 'clear') {
+          conv.clear();
+          console.log('[conversation cleared]\n');
+          ask();
           return;
         }
 
         try {
           process.stdout.write('\n');
-          for await (const chunk of agent.stream(trimmed)) {
+          for await (const chunk of conv.sendStream(trimmed)) {
             process.stdout.write(chunk);
           }
           process.stdout.write('\n\n');
@@ -241,6 +279,117 @@ program
 
     rebuildAllIndexes(dir);
     console.log(`✓ All indexes rebuilt in ${dir}`);
+  });
+
+// --- JOURNAL (synthesize sessions into journal) ---
+program
+  .command('journal')
+  .description('Synthesize today\'s sessions into a journal entry')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--date <date>', 'Date to synthesize (YYYY-MM-DD)')
+  .action(async (opts: { dir: string; date?: string }) => {
+    const { synthesizeJournal } = await import('../runtime/journal.js');
+    const dir = resolve(opts.dir);
+
+    try {
+      console.log(`Synthesizing journal...`);
+      const entry = await synthesizeJournal(dir, opts.date);
+      console.log(`\n✓ Journal for ${entry.date}`);
+      console.log(`  Sessions: ${entry.sessions.length}`);
+      console.log(`  Tokens: ${entry.tokens_used}`);
+      if (entry.instinct_candidates.length > 0) {
+        console.log(`  Instinct candidates:`);
+        entry.instinct_candidates.forEach(c => console.log(`    - ${c}`));
+      }
+      console.log(`\n${entry.synthesis}`);
+    } catch (err: any) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
+// --- LEARN (propose and install instincts) ---
+program
+  .command('learn')
+  .description('Analyze sessions and propose new instincts')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--install', 'Auto-install proposed instincts', false)
+  .action(async (opts: { dir: string; install: boolean }) => {
+    const { learnFromSessions } = await import('../runtime/instinct-learner.js');
+    const dir = resolve(opts.dir);
+
+    try {
+      console.log(`Analyzing sessions for instinct candidates...`);
+      const result = await learnFromSessions(dir, opts.install);
+
+      if (result.candidates.length === 0) {
+        console.log(`No instinct candidates found.`);
+        return;
+      }
+
+      console.log(`\n${result.candidates.length} instinct candidate(s):\n`);
+      for (const c of result.candidates) {
+        const status = result.installed.includes(c.id)
+          ? '✓ installed'
+          : result.skipped.includes(c.id)
+          ? '⊘ skipped (exists)'
+          : '○ proposed';
+        console.log(`  [${status}] ${c.id} (${c.confidence})`);
+        console.log(`    ${c.behavior}`);
+        console.log(`    Provenance: ${c.provenance}\n`);
+      }
+    } catch (err: any) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
+// --- INSTALL (install capability from file) ---
+program
+  .command('install <file>')
+  .description('Install a capability from a markdown file')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .action(async (file: string, opts: { dir: string }) => {
+    const { installCapability } = await import('../runtime/intake.js');
+    const dir = resolve(opts.dir);
+    const filePath = resolve(file);
+
+    const result = installCapability(dir, filePath);
+
+    if (result.installed) {
+      console.log(`✓ Installed ${result.evalResult.type} to ${result.destination}`);
+      if (result.evalResult.warnings.length > 0) {
+        result.evalResult.warnings.forEach(w => console.log(`  ⚠ ${w}`));
+      }
+    } else {
+      console.error(`✗ Installation failed:`);
+      result.evalResult.errors.forEach(e => console.error(`  - ${e}`));
+    }
+  });
+
+// --- INTAKE (process all files in intake/) ---
+program
+  .command('intake')
+  .description('Process all pending files in the intake/ directory')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .action(async (opts: { dir: string }) => {
+    const { processIntake } = await import('../runtime/intake.js');
+    const dir = resolve(opts.dir);
+
+    const results = processIntake(dir);
+
+    if (results.length === 0) {
+      console.log(`No files in intake/`);
+      return;
+    }
+
+    for (const { file, result } of results) {
+      if (result.installed) {
+        console.log(`✓ ${file} → ${result.evalResult.type}`);
+      } else {
+        console.log(`✗ ${file}: ${result.evalResult.errors.join(', ')}`);
+      }
+    }
   });
 
 program.parse();

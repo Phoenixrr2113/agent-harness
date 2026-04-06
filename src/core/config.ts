@@ -33,10 +33,10 @@ export function loadConfig(dir: string, overrides?: Partial<HarnessConfig>): Har
   return merged;
 }
 
-export function writeDefaultConfig(_dir: string): string {
+export function writeDefaultConfig(_dir: string, agentName: string = 'my-agent'): string {
   return `# Agent Harness Configuration
 agent:
-  name: my-agent
+  name: ${agentName}
   version: "0.1.0"
 
 model:
