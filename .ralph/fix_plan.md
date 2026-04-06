@@ -410,9 +410,18 @@ The harness should know where to find things — not just MCP servers but skills
 - [x] 36 tests: format detection (12), normalization (9), URL conversion (4), full install pipeline (11)
 
 ### Community Content Seeding
-- [ ] Curated starter packs installable via `harness install pack:code-reviewer`, `pack:personal-assistant`, `pack:devops`
-- [ ] Each pack is a bundle (manifest.yaml) pulling from multiple sources
-- [ ] `harness browse` — interactive TUI or web UI for browsing available community content
+- [x] Curated starter packs installable via `harness install pack:code-reviewer`, `pack:personal-assistant`, `pack:devops`
+  - `pack:code-reviewer`: 5 files — 2 rules (code-quality, review-standards), 2 instincts (pattern-detection, refactor-opportunity), 1 skill (structured-review)
+  - `pack:personal-assistant`: 5 files — 2 workflows (daily-planner, inbox-triage), 2 instincts (clear-communication, context-awareness), 1 skill (task-prioritization)
+  - `pack:devops`: 5 files — 2 rules (deployment-safety, infrastructure-standards), 2 instincts (anomaly-detection, change-risk-assessment), 1 skill (incident-response)
+- [x] Each pack is a bundle (manifest.yaml) pulling from multiple sources
+  - Multi-type packs: each pack spans rules, instincts, skills, and/or workflows — manifest.types auto-detected from file paths
+  - `getStarterPack()` generates PackedBundle with BundleManifest and files array
+  - `installBundle()` installs to corresponding directories (rules/, instincts/, skills/, workflows/)
+- [x] `harness browse` — interactive TUI or web UI for browsing available community content
+  - `harness browse` — CLI content browser showing starter packs, community sources, and installed bundles
+  - `--type packs|sources|installed` filter, `--json` for programmatic consumption
+  - Shows install commands, file counts, tags, and quick-start tips
 
 ## Phase 10 — Stabilization & Polish
 
@@ -952,9 +961,22 @@ Adapters are webhook parsers. Each one knows how to normalize a specific service
 - 14 new tests: pack references (3), listing (2), content validation (4), bundle install integration (4), unique IDs (1)
 - All 1053 tests passing, build clean, lint clean
 
+### Loop 63 (Phase 9 Complete — Multi-Type Packs + Browse Command)
+- 3 new multi-type starter packs: `pack:code-reviewer`, `pack:personal-assistant`, `pack:devops`
+  - Each pack contains 5 files across multiple primitive types (rules, instincts, skills, workflows)
+  - `code-reviewer`: 2 rules + 2 instincts + 1 skill
+  - `personal-assistant`: 2 workflows + 2 instincts + 1 skill
+  - `devops`: 2 rules + 2 instincts + 1 skill
+- `harness browse` CLI command: content browser showing starter packs, community sources, installed bundles
+  - `--type packs|sources|installed` filter, `--json` for programmatic consumption
+  - Quick-start tips section for discoverability
+- 8 new tests: multi-type pack install (3), manifest type validation (3), file counts (1), type distribution (1)
+- **Phase 9 is now COMPLETE** — all items checked off
+- All 1061 tests passing, build clean, lint clean
+
 ### Stats
-- 1053 tests across 53 files — ALL PASSING
+- 1061 tests across 53 files — ALL PASSING
 - 59+ source modules, 35,000+ lines
-- 88+ CLI commands
+- 89+ CLI commands
 - Build, lint, tests all green
 - Zero `any` types, zero empty catches, zero `require()` calls

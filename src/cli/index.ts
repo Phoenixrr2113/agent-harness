@@ -4245,6 +4245,128 @@ discoverCmd
     }
   });
 
+// ── Browse ──────────────────────────────────────────────────────────────────
+
+program
+  .command('browse')
+  .description('Browse available community content — starter packs, sources, and installed primitives')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--type <type>', 'Filter by content type (packs, sources, installed)')
+  .option('--json', 'Output as JSON')
+  .action(async (opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { listStarterPacks } = await import('../runtime/starter-packs.js');
+    const { loadAllSources, getSourcesSummary } = await import('../runtime/sources.js');
+    const { listInstalledBundles } = await import('../runtime/primitive-registry.js');
+
+    const filter = opts.type as string | undefined;
+    const sections: Array<{ title: string; type: string; items: unknown[] }> = [];
+
+    // Starter Packs
+    if (!filter || filter === 'packs') {
+      const packs = listStarterPacks();
+      sections.push({
+        title: 'Starter Packs',
+        type: 'packs',
+        items: packs.map(p => ({
+          name: p.name,
+          description: p.description,
+          files: p.fileCount,
+          tags: p.tags,
+          install: `harness install pack:${p.name}`,
+        })),
+      });
+    }
+
+    // Community Sources
+    if (!filter || filter === 'sources') {
+      const sources = loadAllSources(dir);
+      const summary = getSourcesSummary(dir);
+      const typeEntries = Object.entries(summary)
+        .filter(([, s]) => s.length > 0)
+        .map(([type, s]) => `${type}: ${s.length}`);
+      sections.push({
+        title: 'Community Sources',
+        type: 'sources',
+        items: sources.map(s => ({
+          name: s.name,
+          url: s.url,
+          type: s.type,
+          content: s.content,
+          stats: s.stats,
+        })),
+        ...(typeEntries.length > 0 ? { summary: typeEntries } : {}),
+      });
+    }
+
+    // Installed Bundles
+    if (!filter || filter === 'installed') {
+      const installed = listInstalledBundles(dir);
+      sections.push({
+        title: 'Installed Bundles',
+        type: 'installed',
+        items: installed.map(b => ({
+          name: b.name,
+          description: b.description,
+          version: b.version,
+          types: b.types,
+          files: b.fileCount,
+        })),
+      });
+    }
+
+    if (opts.json) {
+      const output: Record<string, unknown> = {};
+      for (const section of sections) {
+        output[section.type] = section.items;
+      }
+      console.log(JSON.stringify(output, null, 2));
+      return;
+    }
+
+    // Text output
+    console.log('=== Agent Harness Content Browser ===\n');
+
+    for (const section of sections) {
+      console.log(`── ${section.title} ──\n`);
+      if (section.items.length === 0) {
+        console.log('  (none)\n');
+        continue;
+      }
+
+      for (const item of section.items as Array<Record<string, unknown>>) {
+        if (section.type === 'packs') {
+          console.log(`  pack:${item.name as string}`);
+          console.log(`    ${item.description as string}`);
+          console.log(`    Files: ${item.files as number} | Tags: ${(item.tags as string[]).join(', ')}`);
+          console.log(`    Install: ${item.install as string}`);
+          console.log();
+        } else if (section.type === 'sources') {
+          const stats = item.stats as Record<string, number> | undefined;
+          const statsStr = stats ? ` (${Object.entries(stats).map(([k, v]) => `${v} ${k}`).join(', ')})` : '';
+          console.log(`  [${item.type as string}] ${item.name as string}${statsStr}`);
+          console.log(`    ${item.url as string}`);
+          console.log(`    Content: ${(item.content as string[]).join(', ')}`);
+          console.log();
+        } else if (section.type === 'installed') {
+          console.log(`  ${item.name as string} v${item.version as string}`);
+          if (item.description) console.log(`    ${item.description as string}`);
+          console.log(`    Types: ${(item.types as string[]).join(', ')} | Files: ${item.files as number}`);
+          console.log();
+        }
+      }
+    }
+
+    // Quick tips
+    console.log('── Quick Start ──\n');
+    console.log('  Install a pack:      harness install pack:<name> -d <dir>');
+    console.log('  Search sources:      harness discover search <query> -d <dir>');
+    console.log('  Install anything:    harness install <url-or-name> -d <dir>');
+    console.log('  Add a source:        harness sources add <url> -d <dir>');
+    console.log();
+  });
+
 // ── Semantic Search ──────────────────────────────────────────────────────────
 
 const semanticCmd = program.command('semantic').description('Semantic search over indexed primitives');
