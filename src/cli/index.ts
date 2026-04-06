@@ -114,9 +114,12 @@ program
   .option('-d, --dir <path>', 'Parent directory', '.')
   .option('-t, --template <name>', 'Config template (base, claude-opus, gpt4, local)', 'base')
   .option('--no-discover-mcp', 'Skip MCP server auto-discovery')
-  .action(async (name: string, opts: { dir: string; template: string; discoverMcp: boolean }) => {
+  .option('--no-discover-env', 'Skip environment variable scanning')
+  .option('--no-discover-project', 'Skip project context detection')
+  .action(async (name: string, opts: { dir: string; template: string; discoverMcp: boolean; discoverEnv: boolean; discoverProject: boolean }) => {
     const { scaffoldHarness } = await import('./scaffold.js');
     const targetDir = resolve(opts.dir, name);
+    const parentDir = resolve(opts.dir);
 
     try {
       scaffoldHarness(targetDir, name, { template: opts.template });
@@ -141,6 +144,42 @@ program
             }
           }
           console.log(`  → Added to config.yaml (edit to enable/disable)`);
+        }
+      }
+
+      // Auto-discover environment variables
+      if (opts.discoverEnv !== false) {
+        const { discoverEnvKeys } = await import('../runtime/env-discovery.js');
+        const envResult = discoverEnvKeys({ dir: parentDir, extraDirs: [targetDir] });
+
+        if (envResult.suggestions.length > 0) {
+          console.log(`\n✓ Detected ${envResult.keys.length} API key(s) in environment:`);
+          for (const suggestion of envResult.suggestions) {
+            console.log(`  ${suggestion.triggeredBy} → ${suggestion.message}`);
+            console.log(`    Install: harness mcp install "${suggestion.serverQuery}" -d ${name}`);
+          }
+        }
+      }
+
+      // Auto-discover project context
+      if (opts.discoverProject !== false) {
+        const { discoverProjectContext } = await import('../runtime/project-discovery.js');
+        const projectResult = discoverProjectContext({ dir: parentDir });
+
+        if (projectResult.signals.length > 0) {
+          const stack = projectResult.signals.map((s) => s.name).join(', ');
+          console.log(`\n✓ Detected project stack: ${stack}`);
+
+          if (projectResult.suggestions.length > 0) {
+            console.log(`  Suggestions:`);
+            for (const suggestion of projectResult.suggestions) {
+              if (suggestion.type === 'mcp-server') {
+                console.log(`    Install MCP: harness mcp install "${suggestion.target}" -d ${name}`);
+              } else {
+                console.log(`    Create ${suggestion.type}: ${suggestion.target}`);
+              }
+            }
+          }
         }
       }
 
@@ -2346,6 +2385,219 @@ mcpCmd
       console.log('\nNo MCP servers found in any tool configs.\n');
     }
   });
+
+mcpCmd
+  .command('search <query>')
+  .description('Search the MCP registry for available servers')
+  .option('-n, --limit <number>', 'Max results', '10')
+  .option('--json', 'Output raw JSON', false)
+  .action(async (query: string, opts: { limit: string; json: boolean }) => {
+    const { searchRegistry, formatRegistryServer } = await import('../runtime/mcp-installer.js');
+
+    try {
+      const result = await searchRegistry(query, { limit: parseInt(opts.limit, 10) });
+
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      if (result.servers.length === 0) {
+        console.log(`\nNo servers found for "${query}".\n`);
+        return;
+      }
+
+      console.log(`\n${result.servers.length} server(s) found for "${query}":\n`);
+      for (const entry of result.servers) {
+        console.log(formatRegistryServer(entry));
+        console.log();
+      }
+    } catch (err: unknown) {
+      console.error(`Error: ${formatError(err)}`);
+      process.exit(1);
+    }
+  });
+
+mcpCmd
+  .command('install <query>')
+  .description('Install an MCP server from the registry into config.yaml')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('-n, --name <name>', 'Custom name for the server in config')
+  .option('--force', 'Overwrite if server already exists', false)
+  .option('--skip-test', 'Skip connection testing', false)
+  .option('--skip-docs', 'Skip tool doc generation', false)
+  .option('--json', 'Output raw JSON', false)
+  .action(async (query: string, opts: { dir: string; name?: string; force: boolean; skipTest: boolean; skipDocs: boolean; json: boolean }) => {
+    const { installMcpServer } = await import('../runtime/mcp-installer.js');
+    const dir = resolve(opts.dir);
+    loadEnvFromDir(dir);
+    requireHarness(dir);
+
+    try {
+      console.log(`\nSearching for "${query}" in MCP registry...`);
+      const result = await installMcpServer(query, {
+        dir,
+        name: opts.name,
+        force: opts.force,
+        skipTest: opts.skipTest,
+        skipDocs: opts.skipDocs,
+      });
+
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      if (!result.installed) {
+        console.error(`\nFailed: ${result.error}`);
+        process.exit(1);
+      }
+
+      console.log(`\nInstalled MCP server: ${result.name}`);
+      if (result.server?.registryName) {
+        console.log(`  registry: ${result.server.registryName}`);
+      }
+      if (result.server?.description) {
+        const desc = result.server.description.length > 80
+          ? result.server.description.slice(0, 77) + '...'
+          : result.server.description;
+        console.log(`  description: ${desc}`);
+      }
+      console.log(`  transport: ${result.server?.config.transport ?? 'unknown'}`);
+      console.log(`  -> Added to config.yaml`);
+
+      // Show required env vars
+      if (result.pendingEnvVars.length > 0) {
+        console.log(`\n  Required environment variables:`);
+        for (const ev of result.pendingEnvVars) {
+          const desc = ev.description ? ` — ${ev.description}` : '';
+          console.log(`    ${ev.name}${desc}`);
+        }
+        console.log(`  -> Set these in .env or config.yaml env section`);
+      }
+
+      // Show connection test results
+      if (result.connectionTest) {
+        if (result.connectionTest.connected) {
+          console.log(`\n  [OK] Connected: ${result.connectionTest.toolCount} tool(s)`);
+          for (const toolName of result.connectionTest.toolNames) {
+            console.log(`    - ${toolName}`);
+          }
+        } else {
+          console.log(`\n  [WARN] Connection test failed: ${result.connectionTest.error}`);
+          if (result.pendingEnvVars.length > 0) {
+            console.log(`  (This is expected if required env vars are not yet set)`);
+          }
+        }
+      }
+
+      // Show generated docs
+      if (result.generatedDocs.length > 0) {
+        console.log(`\n  Generated tool docs:`);
+        for (const doc of result.generatedDocs) {
+          console.log(`    ${doc}`);
+        }
+      }
+
+      console.log();
+    } catch (err: unknown) {
+      console.error(`Error: ${formatError(err)}`);
+      process.exit(1);
+    }
+  });
+
+// --- DISCOVER (environment and project context) ---
+const discoverCmd = program
+  .command('discover')
+  .description('Discover environment variables, project context, and MCP servers');
+
+discoverCmd
+  .command('env')
+  .description('Scan .env files for API keys and suggest MCP servers')
+  .option('-d, --dir <path>', 'Directory to scan', '.')
+  .option('--json', 'Output raw JSON', false)
+  .action(async (opts: { dir: string; json: boolean }) => {
+    const { discoverEnvKeys } = await import('../runtime/env-discovery.js');
+    const dir = resolve(opts.dir);
+    const result = discoverEnvKeys({ dir });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    console.log(`\nScanned ${result.filesScanned.length} file(s)\n`);
+
+    if (result.keys.length === 0) {
+      console.log('No API keys detected in .env files.\n');
+      return;
+    }
+
+    console.log(`${result.keys.length} API key(s) detected:\n`);
+    for (const key of result.keys) {
+      const status = key.hasValue ? '[set]' : '[empty]';
+      const sug = key.suggestion ? ` → ${key.suggestion}` : '';
+      console.log(`  ${status} ${key.name} (${key.source})${sug}`);
+    }
+
+    if (result.suggestions.length > 0) {
+      console.log(`\nSuggested MCP servers:\n`);
+      for (const sug of result.suggestions) {
+        console.log(`  ${sug.message}`);
+        console.log(`    Install: harness mcp install "${sug.serverQuery}"`);
+      }
+    }
+    console.log();
+  });
+
+discoverCmd
+  .command('project')
+  .description('Scan project files to detect tech stack and suggest rules/skills')
+  .option('-d, --dir <path>', 'Project directory to scan', '.')
+  .option('--json', 'Output raw JSON', false)
+  .action(async (opts: { dir: string; json: boolean }) => {
+    const { discoverProjectContext } = await import('../runtime/project-discovery.js');
+    const dir = resolve(opts.dir);
+    const result = discoverProjectContext({ dir });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    if (result.signals.length === 0) {
+      console.log('\nNo project signals detected.\n');
+      return;
+    }
+
+    console.log(`\nDetected ${result.signals.length} signal(s):\n`);
+    const byCategory = new Map<string, ProjectSignalDisplay[]>();
+    for (const signal of result.signals) {
+      const list = byCategory.get(signal.category) ?? [];
+      list.push(signal);
+      byCategory.set(signal.category, list);
+    }
+    for (const [category, signals] of byCategory) {
+      console.log(`  ${category}: ${signals.map((s) => s.name).join(', ')}`);
+    }
+
+    if (result.suggestions.length > 0) {
+      console.log(`\nSuggestions:\n`);
+      for (const sug of result.suggestions) {
+        if (sug.type === 'mcp-server') {
+          console.log(`  [mcp] ${sug.message}`);
+          console.log(`    Install: harness mcp install "${sug.target}"`);
+        } else {
+          console.log(`  [${sug.type}] ${sug.message}`);
+          console.log(`    Create: ${sug.target}`);
+        }
+      }
+    }
+    console.log();
+  });
+
+// Type alias for CLI display (avoids importing the full type)
+type ProjectSignalDisplay = { name: string; category: string };
 
 // --- DASHBOARD (unified telemetry view) ---
 program

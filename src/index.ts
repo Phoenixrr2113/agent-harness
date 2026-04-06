@@ -79,3 +79,11 @@ export { createMcpManager, loadMcpTools, validateMcpConfig } from './runtime/mcp
 export type { McpServerConfig, McpServerConnection, McpServerSummary, McpManager } from './runtime/mcp.js';
 export { discoverMcpServers, discoveredServersToYaml, getScannedTools } from './runtime/mcp-discovery.js';
 export type { DiscoveredMcpServer, DiscoverySource, DiscoveryResult, DiscoveryOptions } from './runtime/mcp-discovery.js';
+export { searchRegistry, getRegistryServer, installMcpServer, formatRegistryServer, listRegistryServers, updateConfigWithServer, generateToolDocs } from './runtime/mcp-installer.js';
+export type { McpInstallResult, McpInstallOptions } from './runtime/mcp-installer.js';
+export { searchServers, resolveServerConfig, findServer, deriveConfigName } from './runtime/mcp-registry.js';
+export type { RegistryServer, RegistryPackage, RegistryRemote, RegistrySearchResult, RegistrySearchResponse, RegistryEnvVar, ResolvedServer } from './runtime/mcp-registry.js';
+export { discoverEnvKeys, parseEnvFile } from './runtime/env-discovery.js';
+export type { DetectedApiKey, EnvDiscoveryResult, EnvSuggestion, EnvDiscoveryOptions } from './runtime/env-discovery.js';
+export { discoverProjectContext } from './runtime/project-discovery.js';
+export type { ProjectSignal, ProjectSuggestion, ProjectDiscoveryResult, ProjectDiscoveryOptions } from './runtime/project-discovery.js';
