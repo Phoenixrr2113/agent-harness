@@ -1,9 +1,10 @@
 import cron from 'node-cron';
-import { readFileSync, existsSync } from 'fs';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { loadDirectory, parseHarnessDocument } from '../primitives/loader.js';
 import { loadConfig } from '../core/config.js';
 import { createHarness } from '../core/harness.js';
+import { archiveOldFiles } from './sessions.js';
 import { log } from '../core/logger.js';
 import type { HarnessConfig, HarnessDocument } from '../core/types.js';
 
@@ -51,34 +52,54 @@ export interface ScheduledWorkflow {
 export interface SchedulerOptions {
   harnessDir: string;
   apiKey?: string;
+  /** Enable daily auto-archival of expired sessions/journals (default: true) */
+  autoArchival?: boolean;
+  /** Cron expression for auto-archival (default: "0 23 * * *" = daily at 23:00) */
+  archivalCron?: string;
   onRun?: (workflowId: string, result: string) => void;
   onError?: (workflowId: string, error: Error) => void;
   onSchedule?: (workflowId: string, cron: string) => void;
   onSkipQuietHours?: (workflowId: string) => void;
+  onArchival?: (sessionsArchived: number, journalsArchived: number) => void;
 }
 
 export class Scheduler {
   private workflows: Map<string, ScheduledWorkflow> = new Map();
   private harnessDir: string;
   private apiKey?: string;
+  private autoArchival: boolean;
+  private archivalCron: string;
+  private archivalTask: ReturnType<typeof cron.schedule> | null = null;
   private onRun?: (workflowId: string, result: string) => void;
   private onError?: (workflowId: string, error: Error) => void;
   private onSchedule?: (workflowId: string, cron: string) => void;
   private onSkipQuietHours?: (workflowId: string) => void;
+  private onArchival?: (sessionsArchived: number, journalsArchived: number) => void;
   private running = false;
 
   constructor(options: SchedulerOptions) {
     this.harnessDir = options.harnessDir;
     this.apiKey = options.apiKey;
+    this.autoArchival = options.autoArchival ?? true;
+    this.archivalCron = options.archivalCron ?? '0 23 * * *';
     this.onRun = options.onRun;
     this.onError = options.onError;
     this.onSchedule = options.onSchedule;
     this.onSkipQuietHours = options.onSkipQuietHours;
+    this.onArchival = options.onArchival;
   }
 
   start(): void {
     if (this.running) return;
     this.running = true;
+
+    // Schedule auto-archival
+    if (this.autoArchival && cron.validate(this.archivalCron)) {
+      this.archivalTask = cron.schedule(this.archivalCron, () => {
+        this.runArchival();
+      });
+      log.debug(`Auto-archival scheduled: ${this.archivalCron}`);
+    }
 
     // Load all workflows
     const workflowDir = join(this.harnessDir, 'workflows');
@@ -108,7 +129,12 @@ export class Scheduler {
     if (!this.running) return;
     this.running = false;
 
-    for (const [id, workflow] of this.workflows) {
+    if (this.archivalTask) {
+      this.archivalTask.stop();
+      this.archivalTask = null;
+    }
+
+    for (const [, workflow] of this.workflows) {
       workflow.task?.stop();
     }
     this.workflows.clear();
@@ -164,6 +190,27 @@ export class Scheduler {
       cron: w.cronExpression,
       path: w.doc.path,
     }));
+  }
+
+  /** Run archival of expired sessions/journals based on config retention policy. */
+  runArchival(): void {
+    try {
+      const config = loadConfig(this.harnessDir);
+      const result = archiveOldFiles(
+        this.harnessDir,
+        config.memory.session_retention_days,
+        config.memory.journal_retention_days,
+      );
+      const total = result.sessionsArchived + result.journalsArchived;
+      if (total > 0) {
+        log.info(`Archived ${result.sessionsArchived} session(s), ${result.journalsArchived} journal(s)`);
+      }
+      this.onArchival?.(result.sessionsArchived, result.journalsArchived);
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      log.error(`Archival failed: ${error.message}`);
+      this.onError?.('__archival__', error);
+    }
   }
 
   isRunning(): boolean {

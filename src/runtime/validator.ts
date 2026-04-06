@@ -1,6 +1,7 @@
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, mkdirSync } from 'fs';
 import { join, relative } from 'path';
 import { loadDirectoryWithErrors } from '../primitives/loader.js';
+import { fixCapability } from './intake.js';
 import { buildSystemPrompt } from './context-loader.js';
 import { loadConfig } from '../core/config.js';
 import { loadState } from './state.js';
@@ -173,6 +174,95 @@ export function validateHarness(dir: string): ValidationResult {
   for (const memDir of memoryDirs) {
     if (!existsSync(join(dir, memDir))) {
       result.warnings.push(`Missing directory: ${memDir}/`);
+    }
+  }
+
+  return result;
+}
+
+export interface DoctorResult extends ValidationResult {
+  fixes: string[];
+  directoriesCreated: string[];
+}
+
+/**
+ * Run validation then auto-fix all fixable issues:
+ * - Fix primitives with missing id/status/L0/L1/tags
+ * - Create missing memory directories
+ */
+export function doctorHarness(dir: string): DoctorResult {
+  // Phase 1: Validate
+  const validation = validateHarness(dir);
+  const result: DoctorResult = {
+    ...validation,
+    fixes: [],
+    directoriesCreated: [],
+  };
+
+  // Phase 2: Create missing directories
+  const dirsToCreate = ['memory', 'memory/sessions', 'memory/journal', 'intake'];
+  for (const d of dirsToCreate) {
+    const fullPath = join(dir, d);
+    if (!existsSync(fullPath)) {
+      mkdirSync(fullPath, { recursive: true });
+      result.directoriesCreated.push(d);
+      result.fixes.push(`Created directory: ${d}/`);
+      // Remove the warning about this missing dir
+      result.warnings = result.warnings.filter((w) => !w.includes(`Missing directory: ${d}/`));
+    }
+  }
+
+  // Phase 3: Auto-fix primitives with fixable issues
+  const primitiveDirs = getPrimitiveDirs();
+  for (const primDir of primitiveDirs) {
+    const fullPath = join(dir, primDir);
+    if (!existsSync(fullPath)) continue;
+
+    let files: string[];
+    try {
+      files = readdirSync(fullPath).filter(
+        (f) => f.endsWith('.md') && !f.startsWith('.') && !f.startsWith('_'),
+      );
+    } catch {
+      continue;
+    }
+
+    for (const file of files) {
+      const filePath = join(fullPath, file);
+      const fixResult = fixCapability(filePath);
+
+      if (fixResult.fixes_applied.length > 0) {
+        const relPath = relative(dir, filePath);
+        for (const fix of fixResult.fixes_applied) {
+          result.fixes.push(`${relPath}: ${fix}`);
+        }
+        // Remove stale L0/L1 warnings since we just fixed them
+      }
+    }
+  }
+
+  // Recalculate L0/L1 warnings after fixes
+  if (result.fixes.length > 0) {
+    result.warnings = result.warnings.filter(
+      (w) => !w.includes('missing L0') && !w.includes('missing L1'),
+    );
+    // Re-check L0/L1 counts
+    let missingL0 = 0;
+    let missingL1 = 0;
+    for (const primDir of primitiveDirs) {
+      const fullPath = join(dir, primDir);
+      if (!existsSync(fullPath)) continue;
+      const { docs } = loadDirectoryWithErrors(fullPath);
+      for (const doc of docs) {
+        if (!doc.l0) missingL0++;
+        if (!doc.l1) missingL1++;
+      }
+    }
+    if (missingL0 > 0) {
+      result.warnings.push(`${missingL0} primitive(s) still missing L0 summary`);
+    }
+    if (missingL1 > 0) {
+      result.warnings.push(`${missingL1} primitive(s) still missing L1 summary`);
     }
   }
 

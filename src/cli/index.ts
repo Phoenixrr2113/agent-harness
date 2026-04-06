@@ -328,8 +328,13 @@ program
         onError: (id, error) => {
           console.error(`[scheduler] ✗ ${id}: ${error.message}`);
         },
-        onSchedule: (id, cron) => {
-          console.log(`[scheduler] Scheduled: ${id} (${cron})`);
+        onSchedule: (id, cronExpr) => {
+          console.log(`[scheduler] Scheduled: ${id} (${cronExpr})`);
+        },
+        onArchival: (sessions, journals) => {
+          if (sessions + journals > 0) {
+            console.log(`[scheduler] Archived ${sessions} session(s), ${journals} journal(s)`);
+          }
         },
       });
       scheduler.start();
@@ -601,6 +606,57 @@ program
     }
   });
 
+// --- DOCTOR (validate + batch auto-fix) ---
+program
+  .command('doctor')
+  .description('Validate harness and auto-fix all fixable issues in one pass')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .action(async (opts: { dir: string }) => {
+    const { doctorHarness } = await import('../runtime/validator.js');
+    const dir = resolve(opts.dir);
+
+    console.log(`\nRunning doctor on: ${dir}\n`);
+    const result = doctorHarness(dir);
+
+    // Show fixes first
+    if (result.fixes.length > 0) {
+      console.log(`  Auto-fixed ${result.fixes.length} issue(s):`);
+      for (const fix of result.fixes) {
+        console.log(`    ✓ ${fix}`);
+      }
+      console.log();
+    }
+
+    // Show remaining checks
+    if (result.ok.length > 0) {
+      for (const msg of result.ok) {
+        console.log(`  ✓ ${msg}`);
+      }
+    }
+
+    if (result.warnings.length > 0) {
+      console.log();
+      for (const msg of result.warnings) {
+        console.log(`  ⚠ ${msg}`);
+      }
+    }
+
+    if (result.errors.length > 0) {
+      console.log();
+      for (const msg of result.errors) {
+        console.log(`  ✗ ${msg}`);
+      }
+    }
+
+    const fixLabel = result.fixes.length > 0 ? `, ${result.fixes.length} fixed` : '';
+    console.log(`\nSummary: ${result.ok.length} ok, ${result.warnings.length} warnings, ${result.errors.length} errors${fixLabel}`);
+    console.log(`Primitives: ${result.totalPrimitives}\n`);
+
+    if (result.errors.length > 0) {
+      process.exit(1);
+    }
+  });
+
 // --- FIX (auto-fix common issues in a capability file) ---
 program
   .command('fix <file>')
@@ -817,6 +873,74 @@ program
       const entry = `[${timestamp}] ${noteText}\n`;
       writeFileSync(scratchPath, existing + entry, 'utf-8');
       console.log('✓ Note added to scratch');
+    }
+  });
+
+// --- WORKFLOW (list and run workflows) ---
+const workflowCmd = program
+  .command('workflow')
+  .description('Manage workflows');
+
+workflowCmd
+  .command('list')
+  .description('List all workflows and their schedules')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .action(async (opts: { dir: string }) => {
+    const { loadDirectory } = await import('../primitives/loader.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const workflowDir = join(dir, 'workflows');
+    if (!existsSync(workflowDir)) {
+      console.log('\nNo workflows/ directory. Create workflow files to enable scheduling.\n');
+      return;
+    }
+
+    const docs = loadDirectory(workflowDir);
+    if (docs.length === 0) {
+      console.log('\nNo workflows defined.\n');
+      return;
+    }
+
+    console.log(`\n${docs.length} workflow(s):\n`);
+    for (const doc of docs) {
+      const schedule = doc.frontmatter.schedule || '(no schedule)';
+      const status = doc.frontmatter.status === 'active' ? '' : ` [${doc.frontmatter.status}]`;
+      const withAgent = doc.frontmatter.with ? ` → ${doc.frontmatter.with}` : '';
+      console.log(`  ${doc.frontmatter.id}${status}`);
+      console.log(`    Schedule: ${schedule}${withAgent}`);
+      if (doc.l0) console.log(`    ${doc.l0}`);
+    }
+    console.log();
+  });
+
+workflowCmd
+  .command('run <id>')
+  .description('Execute a workflow by ID (bypasses quiet hours)')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .action(async (workflowId: string, opts: { dir: string }) => {
+    const { Scheduler } = await import('../runtime/scheduler.js');
+    const dir = resolve(opts.dir);
+    loadEnvFromDir(dir);
+    requireHarness(dir);
+
+    console.log(`\nExecuting workflow: ${workflowId}...`);
+    const scheduler = new Scheduler({
+      harnessDir: dir,
+      autoArchival: false,
+    });
+
+    try {
+      const result = await scheduler.runOnce(workflowId);
+      console.log(`\n✓ Workflow "${workflowId}" complete.\n`);
+      if (result) {
+        console.log(result.slice(0, 500));
+        if (result.length > 500) console.log(`\n... (${result.length} chars total)`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`\n✗ Workflow failed: ${msg}\n`);
+      process.exit(1);
     }
   });
 

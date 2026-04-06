@@ -74,9 +74,15 @@
 - [x] **Status command** — New `harness status` shows rich harness overview: agent name/version, model, mode, primitive counts per directory, recent sessions, journal count, goals, active workflows, unfinished business, health summary from validator.
 - [x] **Evaluator dependency resolution** — `evaluateCapability()` now accepts optional `harnessDir` parameter. When provided, checks `related:` references against all known primitive IDs and file paths, validates `with:` agent references against `agents/` directory, warns on invalid cron expressions in `schedule:` field. `installCapability()` automatically passes harnessDir for full validation. 5 new dependency resolution tests.
 
+## Completed (Loop 12)
+
+- [x] **Doctor command** — New `harness doctor` runs validation + batch auto-fix in one pass. `doctorHarness()` function creates missing directories (memory/, memory/sessions, memory/journal, intake), auto-fixes all primitives (missing id/status/L0/L1/tags via `fixCapability()`), recalculates L0/L1 warnings after fixes. `DoctorResult` extends `ValidationResult` with `fixes` and `directoriesCreated` arrays. 5 new doctor tests.
+- [x] **Scheduled archival** — Scheduler now includes built-in daily auto-archival (cron `0 23 * * *` by default). New `autoArchival` and `archivalCron` options on `SchedulerOptions`. New `onArchival` callback. `runArchival()` public method reads retention config and calls `archiveOldFiles()`. Auto-archival enabled by default in `harness dev`. 5 new scheduler tests (start/stop, list workflows, archival, invalid cron).
+- [x] **Workflow CLI** — New `harness workflow list` shows all workflows with schedules, status, agent references, and L0 summaries. New `harness workflow run <id>` executes a single workflow on demand (bypasses quiet hours). Uses existing `Scheduler.runOnce()`.
+
 ## All Plan Items Complete
 
-All items from the original fix plan have been implemented across 11 loops.
+All items from the original fix plan have been implemented across 12 loops.
 
 ## Architecture Notes
 
@@ -99,6 +105,9 @@ All items from the original fix plan have been implemented across 11 loops.
 - Session archival preserves audit trail instead of deleting
 - Rich status command for at-a-glance harness overview
 - Evaluator dependency resolution catches broken references before install
+- Doctor command for one-pass validation + auto-remediation
+- Scheduled auto-archival prevents memory directory bloat
+- Workflow CLI for listing and manual execution
 
 ### Known Limitations
 - Token estimation is 1:4 char ratio — good enough but not precise

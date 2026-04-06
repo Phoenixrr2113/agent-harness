@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { isQuietHours } from '../src/runtime/scheduler.js';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdirSync, writeFileSync, existsSync, rmSync } from 'fs';
+import { join } from 'path';
+import { isQuietHours, Scheduler } from '../src/runtime/scheduler.js';
 import type { HarnessConfig } from '../src/core/types.js';
 
 function makeConfig(start: number, end: number, timezone = 'America/New_York'): HarnessConfig {
@@ -84,5 +86,123 @@ describe('isQuietHours', () => {
     const config = makeConfig(23, 6, 'Invalid/Timezone');
     // Should not throw, falls back to local time
     expect(() => isQuietHours(config)).not.toThrow();
+  });
+});
+
+const SCHED_TEST_DIR = join(__dirname, '__test_scheduler__');
+
+describe('Scheduler', () => {
+  beforeEach(() => {
+    mkdirSync(SCHED_TEST_DIR, { recursive: true });
+    writeFileSync(join(SCHED_TEST_DIR, 'CORE.md'), '# Core', 'utf-8');
+    writeFileSync(
+      join(SCHED_TEST_DIR, 'config.yaml'),
+      `agent:\n  name: test\n  version: "0.1.0"\nmodel:\n  provider: openrouter\n  id: test-model\n  max_tokens: 200000\nmemory:\n  session_retention_days: 7\n  journal_retention_days: 365\n`,
+      'utf-8',
+    );
+  });
+
+  afterEach(() => {
+    rmSync(SCHED_TEST_DIR, { recursive: true, force: true });
+  });
+
+  it('should start and stop without error', () => {
+    const scheduler = new Scheduler({ harnessDir: SCHED_TEST_DIR, autoArchival: false });
+    scheduler.start();
+    expect(scheduler.isRunning()).toBe(true);
+    scheduler.stop();
+    expect(scheduler.isRunning()).toBe(false);
+  });
+
+  it('should list scheduled workflows', () => {
+    const workflowDir = join(SCHED_TEST_DIR, 'workflows');
+    mkdirSync(workflowDir, { recursive: true });
+    writeFileSync(
+      join(workflowDir, 'heartbeat.md'),
+      `---\nid: heartbeat\ntags: [workflow]\nstatus: active\nschedule: "*/5 * * * *"\n---\n# Workflow: Heartbeat\n\nCheck system status every 5 minutes.`,
+      'utf-8',
+    );
+
+    const scheduler = new Scheduler({ harnessDir: SCHED_TEST_DIR, autoArchival: false });
+    scheduler.start();
+
+    const listed = scheduler.listScheduled();
+    expect(listed).toHaveLength(1);
+    expect(listed[0].id).toBe('heartbeat');
+    expect(listed[0].cron).toBe('*/5 * * * *');
+
+    scheduler.stop();
+  });
+
+  it('should run archival via runArchival()', () => {
+    // Create an old session
+    const sessionsDir = join(SCHED_TEST_DIR, 'memory', 'sessions');
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(
+      join(sessionsDir, '2020-01-01-old.md'),
+      `---\nid: 2020-01-01-old\n---\nOld session`,
+      'utf-8',
+    );
+
+    let archivalCalled = false;
+    const scheduler = new Scheduler({
+      harnessDir: SCHED_TEST_DIR,
+      autoArchival: false,
+      onArchival: (sessions, journals) => {
+        archivalCalled = true;
+        expect(sessions).toBe(1);
+        expect(journals).toBe(0);
+      },
+    });
+
+    scheduler.runArchival();
+    expect(archivalCalled).toBe(true);
+
+    // Old session should be archived
+    expect(existsSync(join(sessionsDir, '2020-01-01-old.md'))).toBe(false);
+    expect(existsSync(join(sessionsDir, 'archive', '2020-01', '2020-01-01-old.md'))).toBe(true);
+  });
+
+  it('should skip workflows without schedule', () => {
+    const workflowDir = join(SCHED_TEST_DIR, 'workflows');
+    mkdirSync(workflowDir, { recursive: true });
+    writeFileSync(
+      join(workflowDir, 'manual.md'),
+      `---\nid: manual\ntags: [workflow]\nstatus: active\n---\n# Workflow: Manual\n\nThis workflow has no schedule and runs manually.`,
+      'utf-8',
+    );
+
+    const scheduler = new Scheduler({ harnessDir: SCHED_TEST_DIR, autoArchival: false });
+    scheduler.start();
+
+    const listed = scheduler.listScheduled();
+    expect(listed).toHaveLength(0);
+
+    scheduler.stop();
+  });
+
+  it('should report invalid cron expressions via onError', () => {
+    const workflowDir = join(SCHED_TEST_DIR, 'workflows');
+    mkdirSync(workflowDir, { recursive: true });
+    writeFileSync(
+      join(workflowDir, 'bad-cron.md'),
+      `---\nid: bad-cron\ntags: [workflow]\nstatus: active\nschedule: "not a cron"\n---\n# Workflow: Bad Cron\n\nThis has an invalid cron expression.`,
+      'utf-8',
+    );
+
+    let errorReported = false;
+    const scheduler = new Scheduler({
+      harnessDir: SCHED_TEST_DIR,
+      autoArchival: false,
+      onError: (id, error) => {
+        if (id === 'bad-cron') errorReported = true;
+      },
+    });
+    scheduler.start();
+
+    expect(errorReported).toBe(true);
+    expect(scheduler.listScheduled()).toHaveLength(0);
+
+    scheduler.stop();
   });
 });

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync } from 'fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
-import { validateHarness } from '../src/runtime/validator.js';
+import { validateHarness, doctorHarness } from '../src/runtime/validator.js';
 
 const TEST_DIR = join(__dirname, '__test_validator__');
 
@@ -128,5 +128,66 @@ describe('validateHarness', () => {
   it('should report context budget usage', () => {
     const result = validateHarness(TEST_DIR);
     expect(result.ok.some((m) => m.includes('Context budget:'))).toBe(true);
+  });
+});
+
+describe('doctorHarness', () => {
+  it('should create missing memory directories', () => {
+    const result = doctorHarness(TEST_DIR);
+    expect(result.directoriesCreated).toContain('memory');
+    expect(result.directoriesCreated).toContain('memory/sessions');
+    expect(result.directoriesCreated).toContain('memory/journal');
+    expect(result.directoriesCreated).toContain('intake');
+    expect(existsSync(join(TEST_DIR, 'memory'))).toBe(true);
+    expect(existsSync(join(TEST_DIR, 'memory', 'sessions'))).toBe(true);
+    expect(existsSync(join(TEST_DIR, 'intake'))).toBe(true);
+    // Warnings about missing dirs should be removed
+    expect(result.warnings.some((w) => w.includes('Missing directory: memory/'))).toBe(false);
+  });
+
+  it('should auto-fix primitives with missing L0/L1', () => {
+    const rulesDir = join(TEST_DIR, 'rules');
+    mkdirSync(rulesDir, { recursive: true });
+    writeFileSync(
+      join(rulesDir, 'needs-fix.md'),
+      `---\nid: needs-fix\ntags: [rule]\nstatus: active\n---\n# Rule: Needs Fixing\n\nThis rule is missing L0 and L1 summaries.`,
+      'utf-8',
+    );
+
+    const result = doctorHarness(TEST_DIR);
+    expect(result.fixes.some((f) => f.includes('needs-fix.md') && f.includes('L0'))).toBe(true);
+
+    // Verify file was actually fixed
+    const content = readFileSync(join(rulesDir, 'needs-fix.md'), 'utf-8');
+    expect(content).toContain('<!-- L0:');
+  });
+
+  it('should not re-fix already good primitives', () => {
+    const rulesDir = join(TEST_DIR, 'rules');
+    mkdirSync(rulesDir, { recursive: true });
+    writeFileSync(
+      join(rulesDir, 'perfect.md'),
+      `---\nid: perfect\ntags: [rule]\nstatus: active\n---\n<!-- L0: A perfect rule -->\n<!-- L1: This rule is perfectly formed -->\n# Rule: Perfect\n\nThis rule is already perfect and needs no fixes.`,
+      'utf-8',
+    );
+
+    const result = doctorHarness(TEST_DIR);
+    expect(result.fixes.some((f) => f.includes('perfect.md'))).toBe(false);
+  });
+
+  it('should include validation results alongside fixes', () => {
+    const result = doctorHarness(TEST_DIR);
+    // Should still have standard validation results
+    expect(result.ok.some((m) => m.includes('CORE.md exists'))).toBe(true);
+    expect(result.ok.some((m) => m.includes('Config valid'))).toBe(true);
+  });
+
+  it('should not create directories that already exist', () => {
+    mkdirSync(join(TEST_DIR, 'memory', 'sessions'), { recursive: true });
+    mkdirSync(join(TEST_DIR, 'memory', 'journal'), { recursive: true });
+    mkdirSync(join(TEST_DIR, 'intake'), { recursive: true });
+
+    const result = doctorHarness(TEST_DIR);
+    expect(result.directoriesCreated).toHaveLength(0);
   });
 });
