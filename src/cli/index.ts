@@ -4030,4 +4030,247 @@ program
     }
   });
 
+// ── Semantic Search ──────────────────────────────────────────────────────────
+
+const semanticCmd = program.command('semantic').description('Semantic search over indexed primitives');
+
+semanticCmd
+  .command('index')
+  .description('Index all primitives for semantic search (requires an embed function at runtime — shows stats only from CLI)')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--json', 'Output as JSON')
+  .action(async (opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { getEmbeddingStats } = await import('../runtime/semantic-search.js');
+    const stats = getEmbeddingStats(dir);
+
+    if (opts.json) {
+      console.log(JSON.stringify(stats, null, 2));
+    } else {
+      console.log('Embedding index stats:');
+      console.log(`  Indexed:        ${stats.indexed} primitives`);
+      console.log(`  Model:          ${stats.modelId ?? '(none)'}`);
+      console.log(`  Dimensions:     ${stats.dimensions}`);
+      console.log(`  Last indexed:   ${stats.lastIndexedAt ?? '(never)'}`);
+      console.log(`  Store size:     ${(stats.storeSize / 1024).toFixed(1)} KB`);
+    }
+  });
+
+semanticCmd
+  .command('stats')
+  .description('Show embedding store statistics')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--json', 'Output as JSON')
+  .action(async (opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { getEmbeddingStats, detectStalePrimitives, loadEmbeddingStore } = await import('../runtime/semantic-search.js');
+    const stats = getEmbeddingStats(dir);
+    const store = loadEmbeddingStore(dir);
+    const stale = detectStalePrimitives(dir, store, stats.modelId ?? '');
+
+    if (opts.json) {
+      console.log(JSON.stringify({ ...stats, stale: stale.length }, null, 2));
+    } else {
+      console.log('Semantic search stats:');
+      console.log(`  Indexed:        ${stats.indexed} primitives`);
+      console.log(`  Stale:          ${stale.length} primitive(s) need re-indexing`);
+      console.log(`  Model:          ${stats.modelId ?? '(none)'}`);
+      console.log(`  Dimensions:     ${stats.dimensions}`);
+      console.log(`  Last indexed:   ${stats.lastIndexedAt ?? '(never)'}`);
+      console.log(`  Store size:     ${(stats.storeSize / 1024).toFixed(1)} KB`);
+    }
+  });
+
+// ── Versioning ───────────────────────────────────────────────────────────────
+
+const versionCmd = program.command('version').description('Git-backed primitive versioning');
+
+versionCmd
+  .command('init')
+  .description('Initialize git versioning for the harness')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .action(async (opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    const { initVersioning, isGitRepo } = await import('../runtime/versioning.js');
+    if (isGitRepo(dir)) {
+      console.log('Versioning already initialized.');
+    } else {
+      const ok = initVersioning(dir);
+      console.log(ok ? 'Versioning initialized.' : 'Failed to initialize versioning.');
+    }
+  });
+
+versionCmd
+  .command('snapshot')
+  .description('Take a versioned snapshot of the current harness state')
+  .argument('<message>', 'Commit message')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('-t, --tag <tag>', 'Tag this version')
+  .option('--json', 'Output as JSON')
+  .action(async (message: string, opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    const { snapshot } = await import('../runtime/versioning.js');
+    const result = snapshot(dir, message, { tag: opts.tag as string | undefined });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else if (result.success && result.files.length > 0) {
+      console.log(`Snapshot ${result.hash.slice(0, 7)}: ${result.files.length} file(s) committed.`);
+      for (const f of result.files) { console.log(`  ${f}`); }
+      if (opts.tag) { console.log(`  Tagged: ${opts.tag}`); }
+    } else if (result.error) {
+      console.log(result.error);
+    }
+  });
+
+versionCmd
+  .command('log')
+  .description('Show version history')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('-n, --limit <n>', 'Max entries', '20')
+  .option('-f, --file <path>', 'Filter by file path')
+  .option('--json', 'Output as JSON')
+  .action(async (opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    const { getVersionLog } = await import('../runtime/versioning.js');
+    const log = getVersionLog(dir, {
+      limit: parseInt(opts.limit as string, 10),
+      file: opts.file as string | undefined,
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(log, null, 2));
+    } else if (log.entries.length === 0) {
+      console.log('No version history. Run `harness version init` first.');
+    } else {
+      console.log(`Version history (${log.entries.length} entries):\n`);
+      for (const entry of log.entries) {
+        const tag = entry.tag ? ` [${entry.tag}]` : '';
+        console.log(`  ${entry.hash} ${entry.message}${tag}`);
+        console.log(`    ${entry.timestamp} — ${entry.filesChanged.length} file(s)`);
+      }
+    }
+  });
+
+versionCmd
+  .command('diff')
+  .description('Show changes between versions')
+  .argument('<from>', 'Source commit hash or tag')
+  .argument('[to]', 'Target commit hash or tag (default: HEAD)')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--json', 'Output as JSON')
+  .action(async (from: string, to: string | undefined, opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    const { getVersionDiff } = await import('../runtime/versioning.js');
+    const diff = getVersionDiff(dir, from, to);
+
+    if (opts.json) {
+      console.log(JSON.stringify(diff, null, 2));
+    } else {
+      console.log(`${diff.summary}\n`);
+      for (const entry of diff.entries) {
+        const icon = entry.status === 'added' ? '+' : entry.status === 'deleted' ? '-' : 'M';
+        const stats = entry.additions !== undefined ? ` (+${entry.additions}/-${entry.deletions})` : '';
+        console.log(`  [${icon}] ${entry.file}${stats}`);
+      }
+    }
+  });
+
+versionCmd
+  .command('rollback')
+  .description('Roll back to a previous version (creates new commit preserving history)')
+  .argument('<target>', 'Commit hash or tag to roll back to')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--json', 'Output as JSON')
+  .action(async (target: string, opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    const { rollback } = await import('../runtime/versioning.js');
+    const result = rollback(dir, target);
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else if (result.success) {
+      console.log(`Rolled back to ${result.targetHash.slice(0, 7)}.`);
+      console.log(`  ${result.restoredFiles.length} file(s) restored.`);
+    } else {
+      console.log(`Rollback failed: ${result.error}`);
+    }
+  });
+
+versionCmd
+  .command('tag')
+  .description('Tag the current version')
+  .argument('<name>', 'Tag name (e.g., v1.0.0)')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('-m, --message <msg>', 'Tag message')
+  .action(async (name: string, opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    const { tagVersion } = await import('../runtime/versioning.js');
+    const ok = tagVersion(dir, name, opts.message as string | undefined);
+    console.log(ok ? `Tagged: ${name}` : 'Failed to create tag.');
+  });
+
+versionCmd
+  .command('tags')
+  .description('List all version tags')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--json', 'Output as JSON')
+  .action(async (opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    const { listTags } = await import('../runtime/versioning.js');
+    const tags = listTags(dir);
+
+    if (opts.json) {
+      console.log(JSON.stringify(tags, null, 2));
+    } else if (tags.length === 0) {
+      console.log('No tags.');
+    } else {
+      for (const t of tags) {
+        console.log(`  ${t.tag} → ${t.hash} (${t.message})`);
+      }
+    }
+  });
+
+versionCmd
+  .command('pending')
+  .description('Show uncommitted changes')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('--json', 'Output as JSON')
+  .action(async (opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    const { getPendingChanges } = await import('../runtime/versioning.js');
+    const changes = getPendingChanges(dir);
+
+    if (opts.json) {
+      console.log(JSON.stringify(changes, null, 2));
+    } else if (changes.length === 0) {
+      console.log('No pending changes.');
+    } else {
+      console.log(`${changes.length} pending change(s):\n`);
+      for (const c of changes) {
+        const icon = c.status === 'added' ? '+' : c.status === 'deleted' ? '-' : 'M';
+        console.log(`  [${icon}] ${c.file}`);
+      }
+    }
+  });
+
+versionCmd
+  .command('show')
+  .description('Show file content at a specific version')
+  .argument('<file>', 'File path relative to harness')
+  .argument('<hash>', 'Commit hash or tag')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .action(async (file: string, hash: string, opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    const { getFileAtVersion } = await import('../runtime/versioning.js');
+    const content = getFileAtVersion(dir, file, hash);
+    if (content === null) {
+      console.log(`File not found at version ${hash}.`);
+    } else {
+      console.log(content);
+    }
+  });
+
 program.parse();
