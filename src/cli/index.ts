@@ -189,12 +189,13 @@ program
       let coreContent: string | undefined;
       if (shouldGenerate && purpose) {
         console.log('Generating CORE.md...');
-        const generated = await generateCoreMd(agentName, purpose, {});
-        if (generated) {
-          coreContent = generated;
+        try {
+          coreContent = await generateCoreMd(agentName, purpose, {});
           console.log('✓ CORE.md generated via LLM');
-        } else {
-          console.log('  LLM generation failed, using template instead');
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.log(`  LLM generation failed: ${message}`);
+          console.log('  Using template instead');
         }
       }
 
@@ -260,7 +261,7 @@ program
       }
 
       console.log(`\nNext steps:`);
-      console.log(`  cd ${name}`);
+      console.log(`  cd ${agentName}`);
       console.log(`  # Edit CORE.md to define your agent's identity`);
       console.log(`  # Edit rules/, instincts/, skills/ to customize behavior`);
       console.log(`  harness run "Hello, who are you?"`);
@@ -659,7 +660,7 @@ program
     if (opts.web) {
       const { startWebServer } = await import('../runtime/web-server.js');
       const port = parseInt(opts.port, 10) || 3000;
-      webServer = startWebServer({
+      webServer = await startWebServer({
         harnessDir: dir,
         port,
         apiKey: opts.apiKey,

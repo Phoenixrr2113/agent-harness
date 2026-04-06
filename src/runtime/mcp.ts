@@ -2,7 +2,7 @@ import { createMCPClient, type MCPClient, type MCPClientConfig } from '@ai-sdk/m
 import { Experimental_StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio';
 import type { ToolSet } from 'ai';
 import type { HarnessConfig } from '../core/types.js';
-import { log } from '../core/logger.js';
+import { log, getGlobalLogLevel } from '../core/logger.js';
 
 // --- Types ---
 
@@ -63,12 +63,15 @@ function buildClientConfig(name: string, serverConfig: McpServerConfig): MCPClie
       if (!serverConfig.command) {
         throw new Error(`MCP server "${name}": stdio transport requires "command" field`);
       }
+      // Suppress MCP server stderr noise unless --verbose (log level debug)
+      const stderr = getGlobalLogLevel() === 'debug' ? 'inherit' as const : 'pipe' as const;
       return {
         transport: new Experimental_StdioMCPTransport({
           command: serverConfig.command,
           args: serverConfig.args,
           env: serverConfig.env ? { ...process.env, ...serverConfig.env } as Record<string, string> : undefined,
           cwd: serverConfig.cwd,
+          stderr,
         }),
         name: `harness-mcp-${name}`,
       };

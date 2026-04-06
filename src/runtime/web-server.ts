@@ -516,19 +516,34 @@ export function createWebApp(harnessDir: string, options?: CreateWebAppOptions):
 
 // --- Server Lifecycle ---
 
-export function startWebServer(options: WebServerOptions): { server: Server; broadcaster: SSEBroadcaster } {
-  const { harnessDir, port = 3000, apiKey, onStart } = options;
+export async function startWebServer(options: WebServerOptions): Promise<{ server: Server; broadcaster: SSEBroadcaster }> {
+  const { harnessDir, port: preferredPort = 3000, apiKey, onStart } = options;
   const { app, broadcaster } = createWebApp(harnessDir, { apiKey });
+  const maxAttempts = 10;
 
-  const server = serve({
-    fetch: app.fetch,
-    port,
-  }, () => {
-    log.info(`Web server started on http://localhost:${port}`);
-    onStart?.(port);
-  });
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const port = preferredPort + attempt;
+    try {
+      const server = await new Promise<Server>((resolve, reject) => {
+        const s = serve({ fetch: app.fetch, port }, () => {
+          log.info(`Web server started on http://localhost:${port}`);
+          onStart?.(port);
+          resolve(s as unknown as Server);
+        });
+        (s as unknown as Server).on('error', reject);
+      });
+      return { server, broadcaster };
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'EADDRINUSE' && attempt < maxAttempts - 1) {
+        log.warn(`Port ${port} in use, trying ${port + 1}...`);
+        continue;
+      }
+      throw err;
+    }
+  }
 
-  return { server: server as unknown as Server, broadcaster };
+  throw new Error(`No available port found (tried ${preferredPort}-${preferredPort + maxAttempts - 1})`);
 }
 
 // --- Helpers ---

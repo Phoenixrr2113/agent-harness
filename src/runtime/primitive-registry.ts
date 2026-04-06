@@ -218,9 +218,12 @@ export function packBundle(
 ): PackedBundle {
   let filePaths: string[] = options.files ?? [];
 
-  // If types specified, auto-collect all .md files from those dirs
-  if (options.types && options.types.length > 0 && filePaths.length === 0) {
-    for (const type of options.types) {
+  // If types specified (or no types and no files), auto-collect all .md files from those dirs
+  const types = (options.types && options.types.length > 0)
+    ? options.types
+    : (filePaths.length === 0 ? [...CORE_PRIMITIVE_DIRS] : []);
+  if (types.length > 0 && filePaths.length === 0) {
+    for (const type of types) {
       const dirPath = join(harnessDir, type);
       if (!existsSync(dirPath)) continue;
       const files = readdirSync(dirPath)

@@ -8,3 +8,4 @@ dist/
 # Ralph infrastructure (managed by ralph, not part of the project)
 .ralph/
 .ralphrc
+test-agent

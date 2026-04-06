@@ -277,13 +277,13 @@ export function generateSystemMd(harnessDir: string, agentName: string): string 
 
 /**
  * Generate a rich CORE.md using an LLM, given an agent name and purpose description.
- * Returns the generated markdown content, or null if generation fails.
+ * Returns the generated markdown content, or throws on failure.
  */
 export async function generateCoreMd(
   agentName: string,
   purpose: string,
   options: { provider?: string; modelId?: string; apiKey?: string },
-): Promise<string | null> {
+): Promise<string> {
   try {
     const { generate, getModel } = await import('../llm/provider.js');
     const { HarnessConfigSchema } = await import('../core/types.js');
@@ -330,8 +330,9 @@ The document should have these sections:
     });
 
     return result.text.trim();
-  } catch {
-    return null;
+  } catch (err: unknown) {
+    if (err instanceof Error) throw err;
+    throw new Error(String(err));
   }
 }
 

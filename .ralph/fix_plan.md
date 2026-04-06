@@ -9,7 +9,21 @@ Reference docs:
 
 ---
 
-## Phase 1 — Make It Actually Work (CURRENT PRIORITY)
+## Phase 11 — Bug Fixes from Manual Testing (CURRENT PRIORITY)
+
+Found during real end-to-end testing of all CLI commands.
+
+- [x] Fix `harness bundle` with no `--types` flag bundles 0 files — should default to including all primitive types (rules, instincts, skills, playbooks, workflows, tools, agents) when no `--types` specified
+  - `packBundle()` now defaults to CORE_PRIMITIVE_DIRS when no types and no files specified
+- [x] Fix `harness init` interactive CORE.md generation failure — currently says "LLM generation failed, using template instead" but swallows the error. Log the actual error message so users know what went wrong (e.g., API key issue, network error, model error)
+  - `generateCoreMd()` now throws with error message instead of returning null; caller shows actual error
+- [x] Fix 15 test failures in `tests/agent-framework.test.ts` and `tests/define-agent.test.ts` — all fail with "No API key found for provider openrouter". These tests must mock the provider using `ai/test` MockLanguageModelV3 instead of requiring a real API key. Follow the pattern used in other test files.
+  - Already fixed — all 27 tests pass
+- [x] Suppress MCP server noise in CLI output — betterstack proxy logs 20+ lines of JSON-RPC debug output, supabase-mcp-server prints a full Python traceback. MCP server stderr should be captured and only shown with `--verbose`, not on every `harness run`. The WARN lines for failed connections are fine to keep.
+  - `buildClientConfig()` now passes `stderr: 'pipe'` to StdioMCPTransport unless log level is debug (--verbose)
+- [ ] After fixing all bugs above, run EVERY CLI command against the test-agent directory and verify they all work. Use `harness init`, `harness run`, `harness run --stream`, `harness info`, `harness prompt`, `harness validate`, `harness status`, `harness doctor`, `harness gate run`, `harness journal`, `harness learn`, `harness enrich`, `harness suggest`, `harness contradictions`, `harness dead-primitives`, `harness auto-promote`, `harness discover search "code review"`, `harness sources list`, `harness discover project`, `harness discover env`, `harness version init`, `harness version snapshot`, `harness version log`, `harness export`, `harness bundle` (with AND without --types), `harness process`, `harness system`, `harness index`, `harness list-rules`, `harness check-rules "delete all data"`, `harness intelligence failures`, `harness playbook-gates`, `harness semantic stats`, `harness installed`, `harness browse`, `harness mcp search filesystem`. Every command must succeed (exit 0) and produce reasonable output. Document any failures in fix_plan.md and fix them before marking this task complete.
+
+## Phase 1 — Make It Actually Work
 
 Nothing else matters until someone can run `harness run "hello"` and get a real response. Every task in this phase must use REAL LLM calls, not mocks.
 
