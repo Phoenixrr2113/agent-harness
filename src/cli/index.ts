@@ -479,6 +479,34 @@ program
     }
   });
 
+// --- COMPRESS (weekly journal roll-ups) ---
+program
+  .command('compress')
+  .description('Compress daily journals into weekly roll-up summaries')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--force', 'Overwrite existing weekly summaries', false)
+  .action(async (opts: { dir: string; force: boolean }) => {
+    const { compressJournals } = await import('../runtime/journal.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const results = compressJournals(dir, { force: opts.force });
+
+    if (results.length === 0) {
+      console.log('\nNo complete past weeks to compress (or all already compressed).\n');
+      return;
+    }
+
+    console.log(`\n✓ ${results.length} weekly summary(ies) created:\n`);
+    for (const week of results) {
+      const insights = week.allInsights.length;
+      const instincts = week.allInstinctCandidates.length;
+      console.log(`  ${week.weekStart} to ${week.weekEnd} (${week.journalDates.length} days)`);
+      console.log(`    ${insights} insight(s), ${instincts} instinct candidate(s)`);
+    }
+    console.log();
+  });
+
 // --- LEARN (propose and install instincts) ---
 program
   .command('learn')
@@ -513,6 +541,49 @@ program
     } catch (err: unknown) {
       console.error(`Error: ${formatError(err)}`);
       process.exit(1);
+    }
+  });
+
+// --- HARVEST (extract instinct candidates from journals) ---
+program
+  .command('harvest')
+  .description('Extract instinct candidates from journal entries and optionally install them')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--from <date>', 'Start date (YYYY-MM-DD)')
+  .option('--to <date>', 'End date (YYYY-MM-DD)')
+  .option('--install', 'Auto-install candidates as draft instincts', false)
+  .action(async (opts: { dir: string; from?: string; to?: string; install: boolean }) => {
+    const { harvestInstincts } = await import('../runtime/instinct-learner.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const result = harvestInstincts(dir, {
+      from: opts.from,
+      to: opts.to,
+      install: opts.install,
+    });
+
+    console.log(`\nScanned ${result.journalsScanned} journal(s)`);
+
+    if (result.candidates.length === 0) {
+      console.log(`No new instinct candidates found.\n`);
+      return;
+    }
+
+    console.log(`Found ${result.candidates.length} candidate(s):\n`);
+    for (const c of result.candidates) {
+      const status = result.installed.includes(c.id)
+        ? '✓ installed'
+        : result.skipped.includes(c.id)
+          ? '⊘ skipped (exists)'
+          : '○ proposed';
+      console.log(`  [${status}] ${c.id}`);
+      console.log(`    ${c.behavior}`);
+      console.log(`    Source: ${c.provenance}\n`);
+    }
+
+    if (!opts.install && result.candidates.length > 0) {
+      console.log(`Run with --install to create instinct files.\n`);
     }
   });
 

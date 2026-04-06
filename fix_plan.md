@@ -90,9 +90,14 @@
 - [x] **Workflow retry with failure behavior** — Added `max_retries` and `retry_delay_ms` frontmatter fields to `FrontmatterSchema`. `Scheduler.executeWorkflow()` now retries failed workflows with exponential backoff (base delay * 2^attempt). New `onRetry` callback on `SchedulerOptions` reports each retry attempt. Defaults to 0 retries (no change in behavior for existing workflows). 4 new scheduler tests.
 - [x] **Remote URL-based capability install** — New `downloadCapability()` function in intake.ts fetches capability files from HTTPS URLs. Validates URL protocol (HTTPS only), response status, file size (max 1MB), and non-empty content. CLI `harness install` now accepts both local paths and HTTPS URLs, automatically detecting URL sources. `DownloadResult` type exported. 8 new download tests with mocked fetch.
 
+## Completed (Loop 15)
+
+- [x] **Instinct harvesting from journals** — New `harvestInstincts()` function in instinct-learner.ts scans journal entries for instinct candidate sections, extracts them, deduplicates against existing instincts (by id and L0 text), and optionally installs as draft instinct files. Pure file-based — no LLM calls needed. Date range filtering via `from`/`to` options. New `harness harvest` CLI command with `--from`, `--to`, `--install` flags. `HarvestResult` type exported. 6 new harvest tests.
+- [x] **Journal weekly compression** — New `compressJournals()` function in journal.ts groups daily journals by ISO week, aggregates structured sections (summary, insights, instinct candidates, knowledge updates) with deduplication, writes weekly roll-up files to `memory/journal/weekly/`. Skips current week (only compresses complete past weeks). `--force` option to overwrite existing. New `harness compress` CLI command. `WeekSummary` type exported. 5 new compression tests.
+
 ## All Plan Items Complete
 
-All items from the original fix plan have been implemented across 14 loops.
+All items from the original fix plan have been implemented across 15 loops.
 
 ## Architecture Notes
 

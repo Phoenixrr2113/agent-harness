@@ -271,3 +271,158 @@ export function listJournals(harnessDir: string): string[] {
     .sort()
     .reverse();
 }
+
+export interface WeekSummary {
+  weekStart: string;
+  weekEnd: string;
+  journalDates: string[];
+  summary: string;
+  allInsights: string[];
+  allInstinctCandidates: string[];
+  allKnowledgeUpdates: string[];
+  filePath: string;
+}
+
+/**
+ * Get the Monday of the ISO week for a given date string (YYYY-MM-DD).
+ */
+function getWeekStart(dateStr: string): string {
+  const date = new Date(dateStr + 'T12:00:00Z');
+  const day = date.getUTCDay();
+  const diff = day === 0 ? 6 : day - 1;
+  date.setUTCDate(date.getUTCDate() - diff);
+  return date.toISOString().split('T')[0];
+}
+
+/**
+ * Get the Sunday of the ISO week for a given date string.
+ */
+function getWeekEnd(dateStr: string): string {
+  const start = new Date(getWeekStart(dateStr) + 'T12:00:00Z');
+  start.setUTCDate(start.getUTCDate() + 6);
+  return start.toISOString().split('T')[0];
+}
+
+/**
+ * Compress daily journals into weekly roll-up summaries.
+ * Groups journals by ISO week, aggregates structured sections, writes
+ * weekly summary files to memory/journal/weekly/. Pure file-based — no LLM calls.
+ *
+ * Returns only weeks that were newly created (skips existing unless force=true).
+ */
+export function compressJournals(
+  harnessDir: string,
+  options?: { force?: boolean },
+): WeekSummary[] {
+  const journalDir = join(harnessDir, 'memory', 'journal');
+  if (!existsSync(journalDir)) return [];
+
+  const weeklyDir = join(journalDir, 'weekly');
+  if (!existsSync(weeklyDir)) {
+    mkdirSync(weeklyDir, { recursive: true });
+  }
+
+  // Load all daily journals
+  const files = readdirSync(journalDir)
+    .filter((f) => f.endsWith('.md') && !f.startsWith('.') && !f.startsWith('_'))
+    .sort();
+
+  // Group by week
+  const weeks = new Map<string, string[]>();
+  for (const file of files) {
+    const dateMatch = file.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (!dateMatch) continue;
+    const weekStart = getWeekStart(dateMatch[1]);
+    if (!weeks.has(weekStart)) weeks.set(weekStart, []);
+    weeks.get(weekStart)!.push(file);
+  }
+
+  const results: WeekSummary[] = [];
+
+  for (const [weekStart, journalFiles] of weeks) {
+    const weekEnd = getWeekEnd(weekStart);
+    const weeklyFile = join(weeklyDir, `${weekStart}.md`);
+
+    // Skip existing unless force
+    if (!options?.force && existsSync(weeklyFile)) continue;
+
+    // Only compress complete past weeks (not the current week)
+    const today = new Date().toISOString().split('T')[0];
+    const currentWeekStart = getWeekStart(today);
+    if (weekStart === currentWeekStart) continue;
+
+    // Aggregate structured sections from each journal
+    const allSummaries: string[] = [];
+    const allInsights: string[] = [];
+    const allInstinctCandidates: string[] = [];
+    const allKnowledgeUpdates: string[] = [];
+    const journalDates: string[] = [];
+
+    for (const file of journalFiles) {
+      const content = readFileSync(join(journalDir, file), 'utf-8');
+      const dateMatch = file.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (dateMatch) journalDates.push(dateMatch[1]);
+
+      const structured = parseJournalSynthesis(content);
+      if (structured.summary) allSummaries.push(`**${dateMatch?.[1]}:** ${structured.summary}`);
+      allInsights.push(...structured.insights);
+      allInstinctCandidates.push(...structured.instinct_candidates);
+      allKnowledgeUpdates.push(...structured.knowledge_updates);
+    }
+
+    // Deduplicate
+    const uniqueInsights = [...new Set(allInsights)];
+    const uniqueInstincts = [...new Set(allInstinctCandidates)];
+    const uniqueKnowledge = [...new Set(allKnowledgeUpdates)];
+
+    const weekSummary = allSummaries.join('\n\n');
+    const insightsBullets = uniqueInsights.map((i) => `- ${i}`).join('\n');
+    const instinctBullets = uniqueInstincts.map((i) => `- INSTINCT: ${i}`).join('\n');
+    const knowledgeBullets = uniqueKnowledge.map((k) => `- ${k}`).join('\n');
+
+    const weeklyContent = `---
+id: weekly-${weekStart}
+tags: [journal, weekly]
+created: ${weekStart}
+updated: ${new Date().toISOString().split('T')[0]}
+author: infrastructure
+status: active
+---
+
+<!-- L0: Weekly journal roll-up ${weekStart} to ${weekEnd} (${journalDates.length} days) -->
+<!-- L1: ${allSummaries[0]?.slice(0, 200) || 'No summaries available'} -->
+
+# Weekly Journal: ${weekStart} to ${weekEnd}
+
+**Days journaled:** ${journalDates.length}
+**Dates:** ${journalDates.join(', ')}
+
+## Summary
+${weekSummary || 'No daily summaries available.'}
+
+## Insights
+${insightsBullets || '(none)'}
+
+## Instinct Candidates
+${instinctBullets || '(none)'}
+
+## Knowledge Updates
+${knowledgeBullets || '(none)'}
+`;
+
+    writeFileSync(weeklyFile, weeklyContent, 'utf-8');
+
+    results.push({
+      weekStart,
+      weekEnd,
+      journalDates,
+      summary: weekSummary,
+      allInsights: uniqueInsights,
+      allInstinctCandidates: uniqueInstincts,
+      allKnowledgeUpdates: uniqueKnowledge,
+      filePath: weeklyFile,
+    });
+  }
+
+  return results;
+}

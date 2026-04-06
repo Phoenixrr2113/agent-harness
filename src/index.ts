@@ -29,9 +29,10 @@ export { buildIndex, writeIndexFile, rebuildAllIndexes } from './runtime/indexer
 export type { IndexOptions } from './runtime/indexer.js';
 export { createWatcher } from './runtime/watcher.js';
 export { Scheduler, isQuietHours } from './runtime/scheduler.js';
-export { synthesizeJournal, synthesizeJournalRange, listJournals, listUnjournaled, parseJournalSynthesis } from './runtime/journal.js';
-export type { JournalEntry, JournalSynthesis } from './runtime/journal.js';
-export { proposeInstincts, installInstinct, learnFromSessions } from './runtime/instinct-learner.js';
+export { synthesizeJournal, synthesizeJournalRange, listJournals, listUnjournaled, parseJournalSynthesis, compressJournals } from './runtime/journal.js';
+export type { JournalEntry, JournalSynthesis, WeekSummary } from './runtime/journal.js';
+export { proposeInstincts, installInstinct, learnFromSessions, harvestInstincts } from './runtime/instinct-learner.js';
+export type { HarvestResult } from './runtime/instinct-learner.js';
 export { fixCapability, evaluateCapability, installCapability, processIntake, downloadCapability } from './runtime/intake.js';
 export type { DownloadResult } from './runtime/intake.js';
 export { validateHarness, doctorHarness } from './runtime/validator.js';

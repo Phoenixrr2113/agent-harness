@@ -165,3 +165,119 @@ export async function learnFromSessions(
 
   return { candidates, installed, skipped };
 }
+
+export interface HarvestResult {
+  candidates: InstinctCandidate[];
+  installed: string[];
+  skipped: string[];
+  journalsScanned: number;
+}
+
+/**
+ * Harvest instinct candidates from journal entries.
+ * Scans all journals (or journals within a date range) for instinct candidate
+ * sections, deduplicates against existing instincts, and optionally installs them.
+ *
+ * Unlike learnFromSessions which uses LLM calls, harvestInstincts is pure file-based —
+ * it extracts already-identified candidates from journal synthesis output.
+ */
+export function harvestInstincts(
+  harnessDir: string,
+  options?: { from?: string; to?: string; install?: boolean },
+): HarvestResult {
+  const journalDir = join(harnessDir, 'memory', 'journal');
+  if (!existsSync(journalDir)) {
+    return { candidates: [], installed: [], skipped: [], journalsScanned: 0 };
+  }
+
+  const files = readdirSync(journalDir)
+    .filter((f) => f.endsWith('.md') && !f.startsWith('.') && !f.startsWith('_'))
+    .sort();
+
+  // Filter by date range
+  const from = options?.from;
+  const to = options?.to;
+  const filtered = files.filter((f) => {
+    const dateMatch = f.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (!dateMatch) return false;
+    const d = dateMatch[1];
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  });
+
+  // Load existing instinct IDs to deduplicate
+  const instinctsDir = join(harnessDir, 'instincts');
+  const existingIds = new Set<string>();
+  const existingBehaviors = new Set<string>();
+  if (existsSync(instinctsDir)) {
+    const docs = loadDirectory(instinctsDir);
+    for (const doc of docs) {
+      existingIds.add(doc.frontmatter.id);
+      if (doc.l0) existingBehaviors.add(doc.l0.toLowerCase());
+    }
+  }
+
+  const candidates: InstinctCandidate[] = [];
+  const seenIds = new Set<string>();
+
+  for (const file of filtered) {
+    const content = readFileSync(join(journalDir, file), 'utf-8');
+
+    // Extract instinct candidates section
+    const sectionMatch = content.match(/## Instinct Candidates\n([\s\S]*?)(?=\n## |\n*$)/);
+    if (!sectionMatch) continue;
+
+    const lines = sectionMatch[1]
+      .split('\n')
+      .filter((l) => l.startsWith('- '))
+      .map((l) => l.slice(2).trim().replace(/^INSTINCT:\s*/i, ''));
+
+    const dateMatch = file.match(/^(\d{4}-\d{2}-\d{2})/);
+    const journalDate = dateMatch ? dateMatch[1] : 'unknown';
+
+    for (const line of lines) {
+      if (!line) continue;
+
+      // Generate a kebab-case id from the behavior text
+      const id = line
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .slice(0, 50)
+        .replace(/-+$/, '');
+
+      if (!id) continue;
+      if (seenIds.has(id)) continue;
+      if (existingIds.has(id)) continue;
+
+      // Fuzzy dedup: skip if behavior text closely matches existing instinct L0
+      const behaviorLower = line.toLowerCase();
+      if (existingBehaviors.has(behaviorLower)) continue;
+
+      seenIds.add(id);
+      candidates.push({
+        id,
+        behavior: line,
+        provenance: `journal:${journalDate}`,
+        confidence: 0.75,
+      });
+    }
+  }
+
+  const installed: string[] = [];
+  const skipped: string[] = [];
+
+  if (options?.install) {
+    for (const candidate of candidates) {
+      const path = installInstinct(harnessDir, candidate);
+      if (path) {
+        installed.push(candidate.id);
+      } else {
+        skipped.push(candidate.id);
+      }
+    }
+  }
+
+  return { candidates, installed, skipped, journalsScanned: filtered.length };
+}
