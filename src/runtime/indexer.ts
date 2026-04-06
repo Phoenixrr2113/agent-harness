@@ -21,9 +21,15 @@ export function buildIndex(harnessDir: string, directory: string): IndexEntry[] 
   }));
 }
 
-export function writeIndexFile(harnessDir: string, directory: string): void {
+export interface IndexOptions {
+  /** Max characters for L0 summary in index table. Defaults to 120. */
+  summaryMaxLength?: number;
+}
+
+export function writeIndexFile(harnessDir: string, directory: string, options?: IndexOptions): void {
   const entries = buildIndex(harnessDir, directory);
   const dirPath = join(harnessDir, directory);
+  const maxLen = options?.summaryMaxLength ?? 120;
 
   if (!existsSync(dirPath)) {
     mkdirSync(dirPath, { recursive: true });
@@ -40,7 +46,7 @@ export function writeIndexFile(harnessDir: string, directory: string): void {
 
   for (const entry of entries) {
     const tags = entry.tags.join(', ');
-    const summary = entry.l0.slice(0, 80);
+    const summary = entry.l0.length > maxLen ? entry.l0.slice(0, maxLen - 3) + '...' : entry.l0;
     lines.push(`| ${entry.id} | ${tags} | ${entry.created} | ${entry.status} | ${summary} |`);
   }
 

@@ -41,6 +41,8 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.66",
+    "@ai-sdk/openai": "^3.0.50",
     "@openrouter/ai-sdk-provider": "^2.3.3",
     "ai": "^6.0.146",
     "chalk": "^5.6.2",

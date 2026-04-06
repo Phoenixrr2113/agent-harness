@@ -108,7 +108,10 @@ export interface ContextBudget {
 // --- Agent Options (programmatic API) ---
 export interface CreateHarnessOptions {
   dir: string;
+  /** Model ID override (e.g., "claude-sonnet-4-20250514" or "gpt-4o") */
   model?: string;
+  /** Provider override (e.g., "anthropic", "openai", "openrouter") */
+  provider?: string;
   apiKey?: string;
   config?: Partial<HarnessConfig>;
 }

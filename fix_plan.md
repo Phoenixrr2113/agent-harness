@@ -35,17 +35,18 @@
 - [x] **Context.md format (JSON-lines)** — Switched from fragile `### User`/`### Assistant` markdown to JSON-lines format (`context.jsonl`). Each line is one `{"role","content"}` object. Backward-compatible: auto-migrates legacy `context.md` on first load. Both parsers exported and tested. `.gitignore` updated.
 - [x] **Defaults/templates** — Populated `defaults/` with canonical primitives (rules, instincts, skills, playbooks, agents) using `{{DATE}}`/`{{AGENT_NAME}}` template variables. Created 4 model config templates: `base` (claude-sonnet), `claude-opus`, `gpt4`, `local` (llama-3.3-70b). Refactored scaffold.ts to read from `defaults/` and `templates/` at runtime instead of hardcoding strings (~50% code reduction). Added `--template` flag to `harness init`. Added `listTemplates()` export.
 
+## Completed (Loop 6)
+
+- [x] **Multi-provider support** — Refactored `provider.ts` to support 3 providers: `openrouter` (default), `anthropic` (direct Anthropic API), `openai` (direct OpenAI API). Each uses its native AI SDK package (`@openrouter/ai-sdk-provider`, `@ai-sdk/anthropic`, `@ai-sdk/openai`). Provider selected via `config.model.provider`. Cached per provider+key. Added `--provider` flag to CLI `run` command. 12 new provider tests.
+- [x] **createHarness model/provider override** — Fixed `options.model` which was accepted but never applied. Now properly overrides `config.model.id`. Added `options.provider` to override provider. Both applied before model creation.
+- [x] **Programmatic API tests** — 13 new tests for `createHarness()` lifecycle: boot, run, stream, shutdown, session recording, state transitions, model/provider overrides. Uses vitest `vi.mock('ai')` to mock `generateText`/`streamText` without real API calls.
+- [x] **Index L0 truncation** — Changed from hardcoded 80-char to configurable via `IndexOptions.summaryMaxLength` (default 120). Adds ellipsis when truncated. Exported `IndexOptions` type.
+
 ## Next Priority
-
-### P2 — Polish
-
-- [ ] **Index file improvements** — Index tables truncate L0 at 80 chars. Should be configurable.
 
 ### P3 — Future
 
-- [ ] **Multi-provider support** — Currently hardcoded to OpenRouter. Abstract provider to support direct Anthropic/OpenAI/local models.
 - [ ] **Plugin system** — Allow custom commands and primitives via a plugin directory.
-- [ ] **Programmatic API tests** — Test `createHarness()` with mocked LLM calls.
 - [ ] **CI/CD pipeline** — GitHub Actions for build + test on push.
 
 ## Architecture Notes
@@ -56,9 +57,10 @@
 - Session recording + journal synthesis loop is functional end-to-end
 - CLI is well-organized with consistent option patterns
 - Scaffold creates a fully functional agent in one command
+- Multi-provider: OpenRouter, Anthropic, OpenAI all work via standard config
+- Programmatic API is fully tested with mocked LLM calls
 
 ### Known Limitations
-- Provider singleton means you can't mix providers in the same process
 - Token estimation is 1:4 char ratio — good enough but not precise
 - No streaming for journal/learn commands (they use batch generation)
-- File locking: concurrent processes could corrupt state.md or context.md
+- File locking: concurrent processes could corrupt state.md or context.jsonl

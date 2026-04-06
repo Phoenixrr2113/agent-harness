@@ -129,7 +129,8 @@ program
   .option('-d, --dir <path>', 'Harness directory', '.')
   .option('-s, --stream', 'Stream output', false)
   .option('-m, --model <model>', 'Model override (or alias: gemma, qwen, glm, claude)')
-  .action(async (prompt: string, opts: { dir: string; stream: boolean; model?: string }) => {
+  .option('-p, --provider <provider>', 'Provider override (openrouter, anthropic, openai)')
+  .action(async (prompt: string, opts: { dir: string; stream: boolean; model?: string; provider?: string }) => {
     const { createHarness } = await import('../core/harness.js');
     const dir = resolve(opts.dir);
     loadEnvFromDir(dir);
@@ -140,7 +141,8 @@ program
     try {
       const agent = createHarness({
         dir,
-        config: modelId ? { model: { id: modelId, provider: 'openrouter', max_tokens: 200000 } } : undefined,
+        model: modelId,
+        provider: opts.provider,
       });
 
       if (opts.stream) {

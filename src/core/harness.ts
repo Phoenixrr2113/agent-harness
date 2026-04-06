@@ -22,6 +22,15 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
   }
 
   const config = loadConfig(dir, options.config);
+
+  // Apply model and provider overrides from options
+  if (options.model) {
+    config.model = { ...config.model, id: options.model };
+  }
+  if (options.provider) {
+    config.model = { ...config.model, provider: options.provider };
+  }
+
   const model = getModel(config, options.apiKey);
 
   let state: AgentState;

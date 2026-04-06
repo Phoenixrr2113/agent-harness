@@ -17,10 +17,11 @@ export { parseHarnessDocument, loadDirectory, loadAllPrimitives, estimateTokens,
 export { buildSystemPrompt } from './runtime/context-loader.js';
 export { loadState, saveState } from './runtime/state.js';
 export { getProvider, resetProvider, getModel, generate, generateWithMessages, streamGenerate, streamWithMessages } from './llm/provider.js';
-export type { GenerateOptions, GenerateWithMessagesOptions, GenerateResult, StreamWithMessagesResult } from './llm/provider.js';
+export type { GenerateOptions, GenerateWithMessagesOptions, GenerateResult, StreamWithMessagesResult, ProviderName } from './llm/provider.js';
 export { scaffoldHarness, listTemplates } from './cli/scaffold.js';
 export type { ScaffoldOptions } from './cli/scaffold.js';
 export { buildIndex, writeIndexFile, rebuildAllIndexes } from './runtime/indexer.js';
+export type { IndexOptions } from './runtime/indexer.js';
 export { createWatcher } from './runtime/watcher.js';
 export { Scheduler } from './runtime/scheduler.js';
 export { synthesizeJournal, synthesizeJournalRange, listJournals, listUnjournaled } from './runtime/journal.js';
