@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { resolve, join } from 'path';
+import { resolve, join, basename } from 'path';
 import { existsSync } from 'fs';
 import { config as loadDotenv } from 'dotenv';
 import { setGlobalLogLevel, type LogLevel } from '../core/logger.js';
@@ -1936,6 +1936,408 @@ program
       console.error(`Error: ${formatError(err)}`);
       process.exit(1);
     }
+  });
+
+// --- BUNDLE (pack primitives into shareable bundle) ---
+program
+  .command('bundle <output>')
+  .description('Pack primitives into a shareable bundle with manifest.yaml')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('-n, --name <name>', 'Bundle name')
+  .option('--description <text>', 'Bundle description', '')
+  .option('--author <name>', 'Author name')
+  .option('--version <ver>', 'Bundle version', '1.0.0')
+  .option('-t, --types <types...>', 'Primitive types to include (e.g., rules instincts)')
+  .option('-f, --files <files...>', 'Specific files to include (relative paths)')
+  .option('--tags <tags...>', 'Tags for search/discovery')
+  .option('--license <id>', 'License identifier (e.g., MIT)')
+  .option('--json', 'Output as JSON', false)
+  .action(async (output: string, opts: { dir: string; name?: string; description: string; author?: string; version: string; types?: string[]; files?: string[]; tags?: string[]; license?: string; json: boolean }) => {
+    const { packBundle, writeBundleDir } = await import('../runtime/primitive-registry.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const bundleName = opts.name ?? basename(dir);
+    const bundle = packBundle(dir, {
+      name: bundleName,
+      description: opts.description,
+      author: opts.author,
+      version: opts.version,
+      types: opts.types,
+      files: opts.files,
+      tags: opts.tags,
+      license: opts.license,
+    });
+
+    const outputPath = resolve(output);
+    writeBundleDir(bundle, outputPath);
+
+    if (opts.json) {
+      console.log(JSON.stringify(bundle.manifest, null, 2));
+    } else {
+      console.log(`\nBundled "${bundleName}" v${opts.version}`);
+      console.log(`  ${bundle.files.length} files in ${bundle.manifest.types.join(', ')}`);
+      console.log(`  Output: ${outputPath}/`);
+      console.log(`  Manifest: ${outputPath}/manifest.yaml\n`);
+    }
+  });
+
+// --- BUNDLE INSTALL (install from bundle directory or URL) ---
+program
+  .command('bundle-install <source>')
+  .description('Install primitives from a bundle directory, JSON file, or URL')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--overwrite', 'Overwrite existing files', false)
+  .option('--force', 'Skip dependency checks', false)
+  .option('--json', 'Output as JSON', false)
+  .action(async (source: string, opts: { dir: string; overwrite: boolean; force: boolean; json: boolean }) => {
+    const { readBundleDir, installBundle, fetchRemoteBundle } = await import('../runtime/primitive-registry.js');
+    const { readBundle } = await import('../runtime/export.js');
+    const dir = resolve(opts.dir);
+
+    try {
+      let bundle;
+
+      if (source.startsWith('https://') || source.startsWith('http://')) {
+        console.log(`Downloading bundle from ${source}...`);
+        bundle = await fetchRemoteBundle(source);
+      } else {
+        const sourcePath = resolve(source);
+        // Check if it's a directory with manifest.yaml
+        if (existsSync(join(sourcePath, 'manifest.yaml'))) {
+          bundle = readBundleDir(sourcePath);
+        } else if (source.endsWith('.json')) {
+          // Legacy JSON bundle — convert
+          const jsonBundle = readBundle(sourcePath);
+          const { CORE_PRIMITIVE_DIRS } = await import('../core/types.js');
+          const files = jsonBundle.entries;
+          const types = new Set<string>();
+          for (const entry of files) {
+            const entryDir = entry.path.split('/')[0];
+            if ((CORE_PRIMITIVE_DIRS as readonly string[]).includes(entryDir)) types.add(entryDir);
+          }
+          bundle = {
+            manifest: {
+              version: '1.0',
+              name: jsonBundle.agent_name ?? 'imported',
+              description: 'Imported from JSON bundle',
+              author: 'unknown',
+              bundle_version: '1.0.0',
+              created: jsonBundle.exported_at ?? new Date().toISOString(),
+              types: [...types],
+              tags: [],
+              files: files.map((f) => ({ path: f.path, type: f.path.split('/')[0], id: basename(f.path, '.md'), l0: '' })),
+            },
+            files,
+          };
+        } else {
+          console.error(`Error: ${sourcePath} is not a bundle directory (no manifest.yaml) or JSON file`);
+          process.exit(1);
+        }
+      }
+
+      const result = installBundle(dir, bundle, { overwrite: opts.overwrite, force: opts.force });
+
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        if (result.installed) {
+          console.log(`\nInstalled "${result.name}"`);
+          console.log(`  Files: ${result.files.length} installed, ${result.skipped.length} skipped`);
+          if (result.files.length > 0) {
+            for (const f of result.files) console.log(`    + ${f}`);
+          }
+          if (result.skipped.length > 0) {
+            for (const f of result.skipped) console.log(`    = ${f} (exists)`);
+          }
+        } else {
+          console.error(`\nInstallation failed:`);
+          for (const err of result.errors) console.error(`  - ${err}`);
+        }
+        console.log();
+      }
+    } catch (err: unknown) {
+      console.error(`Error: ${formatError(err)}`);
+      process.exit(1);
+    }
+  });
+
+// --- UNINSTALL (soft-delete primitives) ---
+program
+  .command('uninstall <bundle-name>')
+  .description('Uninstall a previously installed bundle (moves files to archive/)')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--hard', 'Permanently delete files instead of archiving', false)
+  .option('--json', 'Output as JSON', false)
+  .action(async (bundleName: string, opts: { dir: string; hard: boolean; json: boolean }) => {
+    const { uninstallBundle } = await import('../runtime/primitive-registry.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const result = uninstallBundle(dir, bundleName, { hard: opts.hard });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      if (result.uninstalled) {
+        console.log(`\nUninstalled "${bundleName}"`);
+        console.log(`  ${result.archived.length} files ${opts.hard ? 'deleted' : 'archived'}`);
+        for (const f of result.archived) console.log(`    - ${f}`);
+      } else {
+        console.error(`\nUninstall failed:`);
+        for (const err of result.errors) console.error(`  - ${err}`);
+        if (result.dependents.length > 0) {
+          console.error(`  Dependents: ${result.dependents.join(', ')}`);
+        }
+      }
+      console.log();
+    }
+  });
+
+// --- UPDATE (update installed bundle) ---
+program
+  .command('update <source>')
+  .description('Update an installed bundle from a new version')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--remove-deleted', 'Archive files removed in new version', false)
+  .option('--json', 'Output as JSON', false)
+  .action(async (source: string, opts: { dir: string; removeDeleted: boolean; json: boolean }) => {
+    const { readBundleDir, diffBundle, updateBundle, fetchRemoteBundle } = await import('../runtime/primitive-registry.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    try {
+      let bundle;
+
+      if (source.startsWith('https://') || source.startsWith('http://')) {
+        console.log(`Downloading bundle from ${source}...`);
+        bundle = await fetchRemoteBundle(source);
+      } else {
+        const sourcePath = resolve(source);
+        if (!existsSync(join(sourcePath, 'manifest.yaml'))) {
+          console.error(`Error: ${sourcePath} is not a bundle directory (no manifest.yaml)`);
+          process.exit(1);
+        }
+        bundle = readBundleDir(sourcePath);
+      }
+
+      // Show diff first
+      const diff = diffBundle(dir, bundle);
+      if (diff.added.length === 0 && diff.modified.length === 0 && diff.removed.length === 0) {
+        console.log(`\n"${bundle.manifest.name}" is already up to date.\n`);
+        return;
+      }
+
+      if (!opts.json) {
+        console.log(`\nUpdate "${bundle.manifest.name}" to v${bundle.manifest.bundle_version}:`);
+        if (diff.added.length > 0) {
+          console.log(`  Added (${diff.added.length}):`);
+          for (const f of diff.added) console.log(`    + ${f}`);
+        }
+        if (diff.modified.length > 0) {
+          console.log(`  Modified (${diff.modified.length}):`);
+          for (const f of diff.modified) console.log(`    ~ ${f}`);
+        }
+        if (diff.removed.length > 0) {
+          console.log(`  Removed (${diff.removed.length}):`);
+          for (const f of diff.removed) console.log(`    - ${f}`);
+        }
+        console.log();
+      }
+
+      const result = updateBundle(dir, bundle, { removeDeleted: opts.removeDeleted });
+
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        if (result.updated) {
+          console.log(`Updated "${result.name}" ${result.oldVersion ?? '?'} → ${result.newVersion ?? '?'}`);
+          console.log(`  ${result.added.length} added, ${result.modified.length} modified, ${result.removed.length} removed`);
+        } else {
+          console.error(`Update failed:`);
+          for (const err of result.errors) console.error(`  - ${err}`);
+        }
+        console.log();
+      }
+    } catch (err: unknown) {
+      console.error(`Error: ${formatError(err)}`);
+      process.exit(1);
+    }
+  });
+
+// --- INSTALLED (list installed bundles) ---
+program
+  .command('installed')
+  .description('List installed bundles')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--json', 'Output as JSON', false)
+  .action(async (opts: { dir: string; json: boolean }) => {
+    const { listInstalledBundles } = await import('../runtime/primitive-registry.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const bundles = listInstalledBundles(dir);
+
+    if (opts.json) {
+      console.log(JSON.stringify(bundles, null, 2));
+    } else {
+      if (bundles.length === 0) {
+        console.log('\nNo bundles installed.\n');
+      } else {
+        console.log(`\n${bundles.length} bundle(s) installed:\n`);
+        for (const b of bundles) {
+          console.log(`  ${b.name} v${b.version} — ${b.description}`);
+          console.log(`    ${b.fileCount} files, types: ${b.types.join(', ')}`);
+        }
+        console.log();
+      }
+    }
+  });
+
+// --- REGISTRY (search/install from configured registries) ---
+const registryCmd = program.command('registry').description('Search and install bundles from configured registries');
+
+registryCmd
+  .command('search <query>')
+  .description('Search all configured registries for bundles')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--limit <n>', 'Max results', '20')
+  .option('--json', 'Output as JSON', false)
+  .action(async (query: string, opts: { dir: string; limit: string; json: boolean }) => {
+    const { searchConfiguredRegistries } = await import('../runtime/primitive-registry.js');
+    const { loadConfig } = await import('../core/config.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const config = loadConfig(dir);
+    const registries = config.registries ?? [];
+    if (registries.length === 0) {
+      console.error('No registries configured. Add registries: to config.yaml');
+      process.exit(1);
+    }
+
+    try {
+      const result = await searchConfiguredRegistries(registries, query, { limit: parseInt(opts.limit, 10) });
+
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      console.log(`\nSearched ${result.registriesSearched} registry(ies) for "${query}"\n`);
+
+      if (result.errors.length > 0) {
+        for (const err of result.errors) {
+          console.log(`  [warn] ${err.registry}: ${err.error}`);
+        }
+        console.log();
+      }
+
+      if (result.results.length === 0) {
+        console.log('No bundles found.\n');
+        return;
+      }
+
+      for (const r of result.results) {
+        console.log(`  ${r.name} v${r.version} — ${r.description}`);
+        console.log(`    types: ${r.types.join(', ')} | tags: ${r.tags.join(', ') || 'none'} | from: ${r.registryName}`);
+      }
+      console.log(`\n  ${result.total} result(s) total\n`);
+    } catch (err: unknown) {
+      console.error(`Error: ${formatError(err)}`);
+      process.exit(1);
+    }
+  });
+
+registryCmd
+  .command('install <bundle-name>')
+  .description('Install a bundle from configured registries')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--version <ver>', 'Specific version to install')
+  .option('--overwrite', 'Overwrite existing files', false)
+  .option('--force', 'Skip dependency checks', false)
+  .option('--json', 'Output as JSON', false)
+  .action(async (bundleName: string, opts: { dir: string; version?: string; overwrite: boolean; force: boolean; json: boolean }) => {
+    const { installFromRegistry } = await import('../runtime/primitive-registry.js');
+    const { loadConfig } = await import('../core/config.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const config = loadConfig(dir);
+    const registries = config.registries ?? [];
+    if (registries.length === 0) {
+      console.error('No registries configured. Add registries: to config.yaml');
+      process.exit(1);
+    }
+
+    try {
+      console.log(`\nSearching registries for "${bundleName}"...`);
+      const result = await installFromRegistry(dir, registries, bundleName, {
+        version: opts.version,
+        overwrite: opts.overwrite,
+        force: opts.force,
+      });
+
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      if (result.installed) {
+        console.log(`Installed "${result.name}" from ${result.registryUrl ?? 'registry'}`);
+        console.log(`  Files: ${result.files.length} installed, ${result.skipped.length} skipped`);
+        if (result.files.length > 0) {
+          for (const f of result.files) console.log(`    + ${f}`);
+        }
+        if (result.skipped.length > 0) {
+          for (const f of result.skipped) console.log(`    = ${f} (exists)`);
+        }
+      } else {
+        console.error(`\nInstallation failed:`);
+        for (const err of result.errors) console.error(`  - ${err}`);
+      }
+      console.log();
+    } catch (err: unknown) {
+      console.error(`Error: ${formatError(err)}`);
+      process.exit(1);
+    }
+  });
+
+registryCmd
+  .command('list')
+  .description('List configured registries')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--json', 'Output as JSON', false)
+  .action(async (opts: { dir: string; json: boolean }) => {
+    const { loadConfig } = await import('../core/config.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    const config = loadConfig(dir);
+    const registries = config.registries ?? [];
+
+    if (opts.json) {
+      console.log(JSON.stringify(registries, null, 2));
+      return;
+    }
+
+    if (registries.length === 0) {
+      console.log('\nNo registries configured.');
+      console.log('Add to config.yaml:\n');
+      console.log('  registries:');
+      console.log('    - url: https://registry.example.com');
+      console.log('      name: My Registry\n');
+      return;
+    }
+
+    console.log(`\n${registries.length} registry(ies) configured:\n`);
+    for (const reg of registries) {
+      const name = reg.name ?? reg.url;
+      const auth = reg.token ? ' (authenticated)' : '';
+      console.log(`  ${name}${auth}`);
+      console.log(`    ${reg.url}`);
+    }
+    console.log();
   });
 
 // --- GRAPH (dependency analysis) ---

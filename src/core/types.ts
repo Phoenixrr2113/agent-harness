@@ -124,6 +124,15 @@ export const HarnessConfigSchema = z.object({
       enabled: z.boolean().default(true),
     }).passthrough()).default({}),
   }).passthrough().default({ servers: {} }),
+  /** Primitive bundle registries for search/install */
+  registries: z.array(z.object({
+    /** Registry URL (HTTPS endpoint) */
+    url: z.string().url(),
+    /** Optional display name */
+    name: z.string().optional(),
+    /** Optional auth token for private registries */
+    token: z.string().optional(),
+  }).passthrough()).default([]),
 }).passthrough();
 
 export type HarnessConfig = z.infer<typeof HarnessConfigSchema>;
@@ -143,6 +152,7 @@ export const CONFIG_DEFAULTS: HarnessConfig = {
   rate_limits: {},
   budget: { enforce: true },
   mcp: { servers: {} },
+  registries: [],
 };
 
 export const CORE_PRIMITIVE_DIRS = ['rules', 'instincts', 'skills', 'playbooks', 'workflows', 'tools', 'agents'] as const;

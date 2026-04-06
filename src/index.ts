@@ -91,3 +91,5 @@ export { autoProcessFile, autoProcessAll } from './runtime/auto-processor.js';
 export type { AutoProcessResult, AutoProcessOptions } from './runtime/auto-processor.js';
 export { createWebApp, startWebServer } from './runtime/web-server.js';
 export type { WebServerOptions, ServerSentEvent, CreateWebAppOptions } from './runtime/web-server.js';
+export { createManifest, writeManifest, readManifest, packBundle, writeBundleDir, readBundleDir, installBundle, uninstallBundle, diffBundle, updateBundle, readInstalledManifests, listInstalledBundles, fetchRemoteBundle, fetchFromRegistry, searchBundleRegistry, searchConfiguredRegistries, installFromRegistry } from './runtime/primitive-registry.js';
+export type { BundleManifest, BundleFileEntry, PackedBundle, PrimitiveInstallResult, PrimitiveUninstallResult, PrimitiveUpdateResult, RegistryConfig, BundleSearchResult, BundleSearchResponse, BundleSearchHit, MultiBundleSearchResponse } from './runtime/primitive-registry.js';
