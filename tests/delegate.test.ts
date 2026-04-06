@@ -410,4 +410,47 @@ status: active
       }
     });
   });
+
+  describe('delegateStream', () => {
+    it('should throw for non-existent agent', async () => {
+      const { delegateStream } = await import('../src/runtime/delegate.js');
+
+      expect(() =>
+        delegateStream({
+          harnessDir: testDir,
+          agentId: 'nonexistent',
+          prompt: 'test',
+        })
+      ).toThrow('Agent "nonexistent" not found');
+    });
+
+    it('should return agentId and sessionId for valid agent', async () => {
+      const { delegateStream } = await import('../src/runtime/delegate.js');
+
+      writeFileSync(
+        join(testDir, 'agents', 'streamer.md'),
+        `---
+id: agent-streamer
+tags: [agent]
+status: active
+---
+
+<!-- L0: Streamer agent. -->
+
+# Agent: Streamer
+`
+      );
+
+      const result = delegateStream({
+        harnessDir: testDir,
+        agentId: 'agent-streamer',
+        prompt: 'Stream test',
+        apiKey: 'test-key',
+      });
+
+      expect(result.agentId).toBe('agent-streamer');
+      expect(result.sessionId).toBeDefined();
+      expect(result.textStream).toBeDefined();
+    });
+  });
 });

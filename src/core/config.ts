@@ -1,11 +1,11 @@
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import YAML from 'yaml';
-import { CONFIG_DEFAULTS, HarnessConfigSchema, type HarnessConfig } from './types.js';
+import { CONFIG_DEFAULTS, HarnessConfigSchema, type HarnessConfig, type DeepPartial } from './types.js';
 
 const CONFIG_FILENAMES = ['config.yaml', 'config.yml', 'harness.yaml', 'harness.yml'];
 
-export function loadConfig(dir: string, overrides?: Partial<HarnessConfig>): HarnessConfig {
+export function loadConfig(dir: string, overrides?: DeepPartial<HarnessConfig>): HarnessConfig {
   let raw: Record<string, unknown> = {};
 
   for (const filename of CONFIG_FILENAMES) {

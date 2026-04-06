@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { resolve, join } from 'path';
 import { existsSync } from 'fs';
 import { config as loadDotenv } from 'dotenv';
+import { setGlobalLogLevel, type LogLevel } from '../core/logger.js';
 
 // Load .env from current directory and common locations
 loadDotenv();
@@ -95,7 +96,16 @@ function requireHarness(dir: string): void {
 program
   .name('harness')
   .description('Agent Harness — build AI agents by editing files, not writing code.')
-  .version('0.1.0');
+  .version('0.1.0')
+  .option('-q, --quiet', 'Suppress non-error output')
+  .option('-v, --verbose', 'Enable debug output')
+  .option('--log-level <level>', 'Set log level (debug, info, warn, error, silent)')
+  .hook('preAction', () => {
+    const opts = program.opts();
+    if (opts.quiet) setGlobalLogLevel('error');
+    else if (opts.verbose) setGlobalLogLevel('debug');
+    else if (opts.logLevel) setGlobalLogLevel(opts.logLevel as LogLevel);
+  });
 
 // --- INIT ---
 program
@@ -785,30 +795,44 @@ program
   .description('Delegate a prompt to a sub-agent')
   .option('-d, --dir <path>', 'Harness directory', '.')
   .option('-m, --model <model>', 'Model override (or alias: gemma, qwen, glm, claude)')
-  .option('-s, --stream', 'Stream output (not yet supported for delegation)', false)
+  .option('-s, --stream', 'Stream output', false)
   .action(async (agentId: string, prompt: string, opts: { dir: string; model?: string; stream: boolean }) => {
-    const { delegateTo } = await import('../runtime/delegate.js');
     const dir = resolve(opts.dir);
     loadEnvFromDir(dir);
     requireHarness(dir);
 
     const modelId = resolveModel(opts.model);
+    const delegateOpts = {
+      harnessDir: dir,
+      agentId,
+      prompt,
+      modelOverride: modelId,
+    };
 
     try {
-      console.error(`[delegate] Invoking agent "${agentId}"...`);
-      const result = await delegateTo({
-        harnessDir: dir,
-        agentId,
-        prompt,
-        modelOverride: modelId,
-      });
+      console.error(`[delegate] Invoking agent "${agentId}"${opts.stream ? ' (streaming)' : ''}...`);
 
-      console.log('\n' + result.text + '\n');
-      console.error(
-        `[delegate] Agent: ${result.agentId} | ` +
-        `${result.usage.totalTokens} tokens | ` +
-        `session: ${result.sessionId}`
-      );
+      if (opts.stream) {
+        const { delegateStream } = await import('../runtime/delegate.js');
+        const result = delegateStream(delegateOpts);
+        process.stdout.write('\n');
+        for await (const chunk of result.textStream) {
+          process.stdout.write(chunk);
+        }
+        process.stdout.write('\n\n');
+        console.error(
+          `[delegate] Agent: ${result.agentId} | session: ${result.sessionId}`
+        );
+      } else {
+        const { delegateTo } = await import('../runtime/delegate.js');
+        const result = await delegateTo(delegateOpts);
+        console.log('\n' + result.text + '\n');
+        console.error(
+          `[delegate] Agent: ${result.agentId} | ` +
+          `${result.usage.totalTokens} tokens | ` +
+          `session: ${result.sessionId}`
+        );
+      }
     } catch (err: unknown) {
       console.error(`Error: ${formatError(err)}`);
       process.exit(1);

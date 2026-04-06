@@ -54,6 +54,8 @@ export const HarnessConfigSchema = z.object({
     provider: z.string().default('openrouter'),
     id: z.string().min(1),
     max_tokens: z.number().int().positive().default(200000),
+    max_retries: z.number().int().nonnegative().default(2),
+    timeout_ms: z.number().int().positive().optional(),
   }).passthrough(),
   runtime: z.object({
     scratchpad_budget: z.number().int().nonnegative().default(10000),
@@ -78,7 +80,7 @@ export type HarnessConfig = z.infer<typeof HarnessConfigSchema>;
 
 export const CONFIG_DEFAULTS: HarnessConfig = {
   agent: { name: 'agent', version: '0.1.0' },
-  model: { provider: 'openrouter', id: 'anthropic/claude-sonnet-4', max_tokens: 200000 },
+  model: { provider: 'openrouter', id: 'anthropic/claude-sonnet-4', max_tokens: 200000, max_retries: 2 },
   runtime: {
     scratchpad_budget: 10000,
     quiet_hours: { start: 23, end: 6 },
@@ -105,6 +107,11 @@ export interface ContextBudget {
   loaded_files: string[];
 }
 
+// --- Utility Types ---
+export type DeepPartial<T> = {
+  [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P];
+};
+
 // --- Agent Options (programmatic API) ---
 export interface CreateHarnessOptions {
   dir: string;
@@ -113,7 +120,7 @@ export interface CreateHarnessOptions {
   /** Provider override (e.g., "anthropic", "openai", "openrouter") */
   provider?: string;
   apiKey?: string;
-  config?: Partial<HarnessConfig>;
+  config?: DeepPartial<HarnessConfig>;
 }
 
 // --- Agent Interface ---

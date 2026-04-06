@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { loadDirectory, estimateTokens, getAtLevel } from '../primitives/loader.js';
 import { loadConfig } from '../core/config.js';
-import { getModel, generate } from '../llm/provider.js';
+import { getModel, generate, streamGenerate } from '../llm/provider.js';
 import { createSessionId, writeSession, type SessionRecord } from './sessions.js';
 import type { HarnessDocument, HarnessConfig } from '../core/types.js';
 
@@ -148,20 +148,9 @@ export interface DelegateOptions {
   modelOverride?: string;
 }
 
-/**
- * Delegate a prompt to a sub-agent.
- * Sub-agents are stateless single-turn executors. They:
- * - Receive their own body as system prompt + rules + CORE.md
- * - Execute a single prompt
- * - Record a session (tagged with the agent id)
- * - Return the result
- *
- * They do NOT have persistent state, memory, or learning.
- */
-export async function delegateTo(opts: DelegateOptions): Promise<DelegationResult> {
-  const { harnessDir, agentId, prompt, apiKey } = opts;
+function prepareDelegation(opts: DelegateOptions) {
+  const { harnessDir, agentId, apiKey } = opts;
 
-  // Find the agent definition
   const agentDoc = findAgent(harnessDir, agentId);
   if (!agentDoc) {
     const available = listAgents(harnessDir);
@@ -173,16 +162,30 @@ export async function delegateTo(opts: DelegateOptions): Promise<DelegationResul
     );
   }
 
-  // Load config (potentially with model override)
   const config = loadConfig(harnessDir, opts.modelOverride
-    ? { model: { id: opts.modelOverride, provider: 'openrouter', max_tokens: 200000 } }
+    ? { model: { id: opts.modelOverride } }
     : undefined);
 
-  // Build sub-agent system prompt
   const systemPrompt = buildAgentPrompt(harnessDir, agentDoc, config);
   const model = getModel(config, apiKey);
 
-  // Execute
+  return { agentDoc, config, systemPrompt, model };
+}
+
+/**
+ * Delegate a prompt to a sub-agent.
+ * Sub-agents are stateless single-turn executors. They:
+ * - Receive their own body as system prompt + rules + CORE.md
+ * - Execute a single prompt
+ * - Record a session (tagged with the agent id)
+ * - Return the result
+ *
+ * They do NOT have persistent state, memory, or learning.
+ */
+export async function delegateTo(opts: DelegateOptions): Promise<DelegationResult> {
+  const { harnessDir, prompt } = opts;
+  const { agentDoc, config, systemPrompt, model } = prepareDelegation(opts);
+
   const sessionId = createSessionId();
   const started = new Date().toISOString();
 
@@ -190,11 +193,12 @@ export async function delegateTo(opts: DelegateOptions): Promise<DelegationResul
     model,
     system: systemPrompt,
     prompt,
+    maxRetries: config.model.max_retries,
+    timeoutMs: config.model.timeout_ms,
   });
 
   const ended = new Date().toISOString();
 
-  // Record session (tagged as delegation)
   const session: SessionRecord = {
     id: sessionId,
     started,
@@ -214,5 +218,62 @@ export async function delegateTo(opts: DelegateOptions): Promise<DelegationResul
     text: result.text,
     usage: result.usage,
     sessionId,
+  };
+}
+
+export interface DelegateStreamResult {
+  agentId: string;
+  sessionId: string;
+  textStream: AsyncIterable<string>;
+}
+
+/**
+ * Stream-delegate a prompt to a sub-agent.
+ * Returns an async iterable of text chunks. Session is recorded after
+ * the stream is fully consumed.
+ */
+export function delegateStream(opts: DelegateOptions): DelegateStreamResult {
+  const { harnessDir, prompt } = opts;
+  const { agentDoc, config, systemPrompt, model } = prepareDelegation(opts);
+
+  const sessionId = createSessionId();
+  const started = new Date().toISOString();
+
+  const stream = streamGenerate({
+    model,
+    system: systemPrompt,
+    prompt,
+    maxRetries: config.model.max_retries,
+    timeoutMs: config.model.timeout_ms,
+  });
+
+  async function* wrappedStream(): AsyncIterable<string> {
+    let fullText = '';
+    for await (const chunk of stream) {
+      fullText += chunk;
+      yield chunk;
+    }
+
+    const ended = new Date().toISOString();
+
+    const session: SessionRecord = {
+      id: sessionId,
+      started,
+      ended,
+      prompt,
+      summary: fullText.slice(0, 200),
+      tokens_used: 0,
+      model_id: config.model.id,
+      delegated_to: agentDoc.frontmatter.id,
+      steps: 1,
+    };
+
+    writeSession(harnessDir, session);
+  }
+
+  return {
+    agentId: agentDoc.frontmatter.id,
+    sessionId,
+    textStream: wrappedStream(),
   };
 }

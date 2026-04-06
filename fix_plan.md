@@ -42,12 +42,18 @@
 - [x] **Programmatic API tests** — 13 new tests for `createHarness()` lifecycle: boot, run, stream, shutdown, session recording, state transitions, model/provider overrides. Uses vitest `vi.mock('ai')` to mock `generateText`/`streamText` without real API calls.
 - [x] **Index L0 truncation** — Changed from hardcoded 80-char to configurable via `IndexOptions.summaryMaxLength` (default 120). Adds ellipsis when truncated. Exported `IndexOptions` type.
 
+## Completed (Loop 7)
+
+- [x] **Retry/timeout config** — Added `max_retries` (default 2) and `timeout_ms` (optional) to model config schema. All `generate()`, `generateWithMessages()`, `streamGenerate()`, and `streamWithMessages()` calls now pass retry/timeout/abortSignal through to AI SDK. New `CallOptions` interface exported. `DeepPartial<T>` utility type added for flexible config overrides. `loadConfig()` now accepts `DeepPartial<HarnessConfig>` instead of `Partial<HarnessConfig>`.
+- [x] **Streaming delegation** — New `delegateStream()` function in delegate.ts returns `{ agentId, sessionId, textStream }`. Stream wraps session recording (writes session after stream consumed). CLI `harness delegate --stream` flag now works (was previously a no-op stub). Fixed delegate config override that was hardcoding `provider: 'openrouter'` — now preserves the user's config provider. 2 new delegation stream tests.
+- [x] **Structured logger** — New `src/core/logger.ts` module with `Logger` interface supporting `debug|info|warn|error` levels and `silent` mode. Global level control via `setGlobalLogLevel()`. Child loggers with colon-delimited prefixes (`[parent:child]`). Harness core uses `log` singleton. CLI gains `--quiet`, `--verbose`, and `--log-level <level>` global flags via commander `preAction` hook. 16 new logger tests.
+- [x] **CI/CD pipeline** — GitHub Actions workflow (`.github/workflows/ci.yml`) runs on push/PR to main. Matrix strategy: Node 20 + 22. Steps: install, build, test, verify CLI entry point.
+
 ## Next Priority
 
 ### P3 — Future
 
 - [ ] **Plugin system** — Allow custom commands and primitives via a plugin directory.
-- [ ] **CI/CD pipeline** — GitHub Actions for build + test on push.
 
 ## Architecture Notes
 
@@ -59,6 +65,8 @@
 - Scaffold creates a fully functional agent in one command
 - Multi-provider: OpenRouter, Anthropic, OpenAI all work via standard config
 - Programmatic API is fully tested with mocked LLM calls
+- Structured logging with configurable verbosity
+- CI/CD: automated build + test on push/PR
 
 ### Known Limitations
 - Token estimation is 1:4 char ratio — good enough but not precise

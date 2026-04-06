@@ -98,14 +98,20 @@ export function getModel(config: HarnessConfig, apiKey?: string): LanguageModel 
   return factory(config.model.id);
 }
 
-export interface GenerateOptions {
+export interface CallOptions {
+  maxRetries?: number;
+  timeoutMs?: number;
+  abortSignal?: AbortSignal;
+}
+
+export interface GenerateOptions extends CallOptions {
   model: LanguageModel;
   system: string;
   prompt: string;
   maxOutputTokens?: number;
 }
 
-export interface GenerateWithMessagesOptions {
+export interface GenerateWithMessagesOptions extends CallOptions {
   model: LanguageModel;
   system: string;
   messages: ModelMessage[];
@@ -125,12 +131,21 @@ function extractUsage(usage: { inputTokens?: number; outputTokens?: number } | u
   };
 }
 
+function buildCallSettings(opts: CallOptions) {
+  return {
+    ...(opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}),
+    ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}),
+    ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
+  };
+}
+
 export async function generate(opts: GenerateOptions): Promise<GenerateResult> {
   const result = await generateText({
     model: opts.model,
     system: opts.system,
     prompt: opts.prompt,
     maxOutputTokens: opts.maxOutputTokens,
+    ...buildCallSettings(opts),
   });
 
   return { text: result.text, usage: extractUsage(result.usage) };
@@ -142,6 +157,7 @@ export async function generateWithMessages(opts: GenerateWithMessagesOptions): P
     system: opts.system,
     messages: opts.messages,
     maxOutputTokens: opts.maxOutputTokens,
+    ...buildCallSettings(opts),
   });
 
   return { text: result.text, usage: extractUsage(result.usage) };
@@ -153,6 +169,7 @@ export async function* streamGenerate(opts: GenerateOptions): AsyncIterable<stri
     system: opts.system,
     prompt: opts.prompt,
     maxOutputTokens: opts.maxOutputTokens,
+    ...buildCallSettings(opts),
   });
 
   for await (const chunk of result.textStream) {
@@ -171,6 +188,7 @@ export function streamWithMessages(opts: GenerateWithMessagesOptions): StreamWit
     system: opts.system,
     messages: opts.messages,
     maxOutputTokens: opts.maxOutputTokens,
+    ...buildCallSettings(opts),
   });
 
   const usage = Promise.resolve(result.usage).then((u) => extractUsage(u));

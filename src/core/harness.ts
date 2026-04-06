@@ -1,6 +1,7 @@
 import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { loadConfig } from './config.js';
+import { log } from './logger.js';
 import type {
   CreateHarnessOptions,
   HarnessConfig,
@@ -53,9 +54,8 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
 
       booted = true;
 
-      // Log boot info
-      console.error(
-        `[harness] Booted "${config.agent.name}" | ` +
+      log.info(
+        `Booted "${config.agent.name}" | ` +
         `${ctx.budget.loaded_files.length} files loaded | ` +
         `~${ctx.budget.used_tokens} tokens used | ` +
         `${ctx.budget.remaining} remaining`
@@ -72,6 +72,8 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
         model,
         system: systemPrompt,
         prompt,
+        maxRetries: config.model.max_retries,
+        timeoutMs: config.model.timeout_ms,
       });
 
       const ended = new Date().toISOString();
@@ -113,6 +115,8 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
         model,
         system: systemPrompt,
         prompt,
+        maxRetries: config.model.max_retries,
+        ...(config.model.timeout_ms ? { timeout: config.model.timeout_ms } : {}),
       });
 
       for await (const chunk of result.textStream) {
@@ -150,7 +154,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
       saveState(dir, state);
       booted = false;
 
-      console.error(`[harness] Shutdown "${config.agent.name}"`);
+      log.info(`Shutdown "${config.agent.name}"`);
     },
 
     getSystemPrompt() {
