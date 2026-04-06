@@ -60,6 +60,8 @@ export const HarnessConfigSchema = z.object({
     timeout_ms: z.number().int().positive().optional(),
     /** Cheap model for auto-generating summaries, tags, frontmatter (e.g. 'google/gemini-flash-1.5') */
     summary_model: z.string().optional(),
+    /** Fast model for validation, checks, and quick decisions (e.g. 'google/gemini-flash-1.5') */
+    fast_model: z.string().optional(),
   }).passthrough(),
   runtime: z.object({
     scratchpad_budget: z.number().int().nonnegative().default(10000),

@@ -25,7 +25,7 @@ export type { ParseError, LoadResult, LoadAllResult } from './primitives/loader.
 export { buildSystemPrompt } from './runtime/context-loader.js';
 export type { LoadedContext } from './runtime/context-loader.js';
 export { loadState, saveState } from './runtime/state.js';
-export { getProvider, resetProvider, getModel, generate, generateWithMessages, streamWithMessages, streamGenerateWithDetails } from './llm/provider.js';
+export { getProvider, resetProvider, getModel, getSummaryModel, getFastModel, generate, generateWithMessages, streamWithMessages, streamGenerateWithDetails } from './llm/provider.js';
 export type { CallOptions, GenerateOptions, GenerateWithMessagesOptions, GenerateResult, StreamWithMessagesResult, StreamGenerateResult, ProviderName } from './llm/provider.js';
 export { scaffoldHarness, listTemplates, generateSystemMd, generateCoreMd } from './cli/scaffold.js';
 export type { ScaffoldOptions } from './cli/scaffold.js';

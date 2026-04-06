@@ -99,6 +99,34 @@ export function getModel(config: HarnessConfig, apiKey?: string): LanguageModel 
   return factory(config.model.id);
 }
 
+/**
+ * Get the summary model for cheap auto-generation tasks (L0/L1 summaries, tags, frontmatter).
+ * Falls back to the primary model if summary_model is not configured.
+ *
+ * Usage: set `model.summary_model` in config.yaml, e.g.:
+ *   summary_model: "google/gemini-flash-1.5"
+ */
+export function getSummaryModel(config: HarnessConfig, apiKey?: string): LanguageModel {
+  const modelId = config.model.summary_model ?? config.model.id;
+  const providerName = (config.model.provider ?? 'openrouter') as ProviderName;
+  const factory = getOrCreateFactory(providerName, apiKey);
+  return factory(modelId);
+}
+
+/**
+ * Get the fast model for validation, checks, and quick decisions.
+ * Falls back to summary_model, then primary model.
+ *
+ * Usage: set `model.fast_model` in config.yaml, e.g.:
+ *   fast_model: "google/gemini-flash-1.5"
+ */
+export function getFastModel(config: HarnessConfig, apiKey?: string): LanguageModel {
+  const modelId = config.model.fast_model ?? config.model.summary_model ?? config.model.id;
+  const providerName = (config.model.provider ?? 'openrouter') as ProviderName;
+  const factory = getOrCreateFactory(providerName, apiKey);
+  return factory(modelId);
+}
+
 export interface CallOptions {
   maxRetries?: number;
   timeoutMs?: number;

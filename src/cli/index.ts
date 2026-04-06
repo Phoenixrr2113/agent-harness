@@ -575,6 +575,8 @@ program
     const { createWatcher } = await import('../runtime/watcher.js');
     const { Scheduler } = await import('../runtime/scheduler.js');
     const { autoProcessAll } = await import('../runtime/auto-processor.js');
+    const { generateSystemMd } = await import('../cli/scaffold.js');
+    const { writeFileSync } = await import('fs');
     const dir = resolve(opts.dir);
     loadEnvFromDir(dir);
 
@@ -595,6 +597,12 @@ program
         }
       }
     }
+
+    // Regenerate SYSTEM.md from current directory structure
+    const systemPath = join(dir, 'SYSTEM.md');
+    const newSystem = generateSystemMd(dir, config.agent.name);
+    writeFileSync(systemPath, newSystem, 'utf-8');
+    console.log(`[dev] SYSTEM.md regenerated from directory structure`);
 
     // Initial index build
     const extDirs = config.extensions?.directories ?? [];
@@ -696,6 +704,62 @@ program
 
     rebuildAllIndexes(dir, extDirs);
     console.log(`✓ All indexes rebuilt in ${dir}`);
+  });
+
+// --- PROCESS (auto-process all primitives) ---
+program
+  .command('process')
+  .description('Auto-process all primitives: fill missing frontmatter and generate L0/L1 summaries')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--no-frontmatter', 'Skip frontmatter generation')
+  .option('--no-summaries', 'Skip L0/L1 summary generation')
+  .action(async (opts: { dir: string; frontmatter: boolean; summaries: boolean }) => {
+    const { autoProcessAll } = await import('../runtime/auto-processor.js');
+    const dir = resolve(opts.dir);
+
+    requireHarness(dir);
+
+    const results = autoProcessAll(dir, {
+      generateFrontmatter: opts.frontmatter,
+      generateSummaries: opts.summaries,
+    });
+
+    if (results.length === 0) {
+      console.log('All primitives are up to date.');
+    } else {
+      for (const r of results) {
+        const rel = r.path.replace(dir + '/', '');
+        if (r.modified) {
+          console.log(`✓ ${rel}: ${r.fixes.join(', ')}`);
+        }
+        for (const err of r.errors) {
+          console.error(`✗ ${rel}: ${err}`);
+        }
+      }
+      const modified = results.filter((r) => r.modified).length;
+      const errors = results.filter((r) => r.errors.length > 0).length;
+      console.log(`\nProcessed ${modified} file(s)${errors > 0 ? `, ${errors} error(s)` : ''}`);
+    }
+  });
+
+// --- SYSTEM (regenerate SYSTEM.md from directory structure) ---
+program
+  .command('system')
+  .description('Regenerate SYSTEM.md from current directory structure')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .action(async (opts: { dir: string }) => {
+    const { loadConfig } = await import('../core/config.js');
+    const { generateSystemMd } = await import('../cli/scaffold.js');
+    const { writeFileSync } = await import('fs');
+    const dir = resolve(opts.dir);
+
+    requireHarness(dir);
+
+    const config = loadConfig(dir);
+    const systemPath = join(dir, 'SYSTEM.md');
+    const content = generateSystemMd(dir, config.agent.name);
+    writeFileSync(systemPath, content, 'utf-8');
+    console.log(`✓ SYSTEM.md regenerated at ${systemPath}`);
   });
 
 // --- JOURNAL (synthesize sessions into journal) ---

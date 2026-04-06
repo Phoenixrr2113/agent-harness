@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { getModel, resetProvider } from '../src/llm/provider.js';
+import { getModel, getSummaryModel, getFastModel, resetProvider } from '../src/llm/provider.js';
 import type { HarnessConfig } from '../src/core/types.js';
 import { CONFIG_DEFAULTS } from '../src/core/types.js';
 
@@ -84,6 +84,63 @@ describe('multi-provider support', () => {
       // Both should be valid models (not sharing cached instance)
       expect(model1).toBeDefined();
       expect(model2).toBeDefined();
+    });
+  });
+
+  describe('getSummaryModel', () => {
+    it('should return summary_model when configured', () => {
+      const config = makeConfig({
+        provider: 'openrouter',
+        id: 'anthropic/claude-sonnet-4',
+        summary_model: 'google/gemini-flash-1.5',
+      });
+      const model = getSummaryModel(config, 'test-key');
+      expect(model).toBeDefined();
+      expect(model.modelId).toBe('google/gemini-flash-1.5');
+    });
+
+    it('should fall back to primary model when summary_model not set', () => {
+      const config = makeConfig({
+        provider: 'openrouter',
+        id: 'anthropic/claude-sonnet-4',
+      });
+      const model = getSummaryModel(config, 'test-key');
+      expect(model).toBeDefined();
+      expect(model.modelId).toBe('anthropic/claude-sonnet-4');
+    });
+  });
+
+  describe('getFastModel', () => {
+    it('should return fast_model when configured', () => {
+      const config = makeConfig({
+        provider: 'openrouter',
+        id: 'anthropic/claude-sonnet-4',
+        fast_model: 'google/gemini-flash-2.0',
+      });
+      const model = getFastModel(config, 'test-key');
+      expect(model).toBeDefined();
+      expect(model.modelId).toBe('google/gemini-flash-2.0');
+    });
+
+    it('should fall back to summary_model when fast_model not set', () => {
+      const config = makeConfig({
+        provider: 'openrouter',
+        id: 'anthropic/claude-sonnet-4',
+        summary_model: 'google/gemini-flash-1.5',
+      });
+      const model = getFastModel(config, 'test-key');
+      expect(model).toBeDefined();
+      expect(model.modelId).toBe('google/gemini-flash-1.5');
+    });
+
+    it('should fall back to primary model when neither fast_model nor summary_model set', () => {
+      const config = makeConfig({
+        provider: 'openrouter',
+        id: 'anthropic/claude-sonnet-4',
+      });
+      const model = getFastModel(config, 'test-key');
+      expect(model).toBeDefined();
+      expect(model.modelId).toBe('anthropic/claude-sonnet-4');
     });
   });
 
