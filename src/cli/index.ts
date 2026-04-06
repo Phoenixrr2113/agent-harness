@@ -724,8 +724,8 @@ program
     try {
       const config = loadConfig(dir);
       extDirs = config.extensions?.directories ?? [];
-    } catch {
-      // Config may not exist for index command — proceed with core dirs only
+    } catch (err) {
+      if (process.env.DEBUG) console.error(`Config load skipped: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     rebuildAllIndexes(dir, extDirs);
@@ -1012,43 +1012,7 @@ program
     }
   });
 
-// --- INSTALL (install capability from file or URL) ---
-program
-  .command('install <source>')
-  .description('Install a capability from a local file or HTTPS URL')
-  .option('-d, --dir <path>', 'Harness directory', '.')
-  .action(async (source: string, opts: { dir: string }) => {
-    const { installCapability, downloadCapability } = await import('../runtime/intake.js');
-    const dir = resolve(opts.dir);
-
-    let filePath: string;
-
-    // Detect URL vs local path
-    if (source.startsWith('https://') || source.startsWith('http://')) {
-      console.log(`Downloading: ${source}`);
-      const dlResult = await downloadCapability(source);
-      if (!dlResult.downloaded) {
-        console.error(`✗ Download failed: ${dlResult.error}`);
-        process.exit(1);
-      }
-      filePath = dlResult.localPath;
-      console.log(`Downloaded to: ${filePath}`);
-    } else {
-      filePath = resolve(source);
-    }
-
-    const result = installCapability(dir, filePath);
-
-    if (result.installed) {
-      console.log(`✓ Installed ${result.evalResult.type} to ${result.destination}`);
-      if (result.evalResult.warnings.length > 0) {
-        result.evalResult.warnings.forEach(w => console.log(`  ⚠ ${w}`));
-      }
-    } else {
-      console.error(`✗ Installation failed:`);
-      result.evalResult.errors.forEach(e => console.error(`  - ${e}`));
-    }
-  });
+// NOTE: "install" command moved to universal installer below (Phase 9)
 
 // --- INTAKE (process all files in intake/) ---
 program
@@ -1497,8 +1461,8 @@ program
     let config;
     try {
       config = loadConfig(dir);
-    } catch {
-      // Proceed without config (uses core dirs only)
+    } catch (err) {
+      if (process.env.DEBUG) console.error(`Config load skipped: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     const results = searchPrimitives(dir, query, {
@@ -2353,7 +2317,7 @@ program
     requireHarness(dir);
 
     let config;
-    try { config = loadConfig(dir); } catch { /* proceed without */ }
+    try { config = loadConfig(dir); } catch (err) { if (process.env.DEBUG) console.error(`Config load skipped: ${err instanceof Error ? err.message : String(err)}`); }
 
     const graph = buildDependencyGraph(dir, config);
     const stats = getGraphStats(dir, config);
@@ -2550,7 +2514,7 @@ program
     requireHarness(dir);
 
     let config;
-    try { config = loadConfig(dir); } catch { /* proceed without */ }
+    try { config = loadConfig(dir); } catch (err) { if (process.env.DEBUG) console.error(`Config load skipped: ${err instanceof Error ? err.message : String(err)}`); }
 
     const result = detectDeadPrimitives(dir, config, {
       thresholdDays: parseInt(opts.days, 10),
@@ -2621,7 +2585,7 @@ program
     requireHarness(dir);
 
     let config;
-    try { config = loadConfig(dir); } catch { /* proceed without */ }
+    try { config = loadConfig(dir); } catch (err) { if (process.env.DEBUG) console.error(`Config load skipped: ${err instanceof Error ? err.message : String(err)}`); }
 
     const result = enrichSessions(dir, config, { from: opts.from, to: opts.to });
 
@@ -2659,7 +2623,7 @@ program
     requireHarness(dir);
 
     let config;
-    try { config = loadConfig(dir); } catch { /* proceed without */ }
+    try { config = loadConfig(dir); } catch (err) { if (process.env.DEBUG) console.error(`Config load skipped: ${err instanceof Error ? err.message : String(err)}`); }
 
     const result = suggestCapabilities(dir, config, {
       minFrequency: parseInt(opts.minFrequency, 10),
@@ -3513,7 +3477,7 @@ intelligenceCmd
     const { loadConfig } = await import('../core/config.js');
 
     let config;
-    try { config = loadConfig(dir); } catch { /* use default */ }
+    try { config = loadConfig(dir); } catch (err) { if (process.env.DEBUG) console.error(`Config load skipped: ${err instanceof Error ? err.message : String(err)}`); }
 
     const result = detectDeadPrimitives(dir, config, {
       thresholdDays: parseInt(opts.threshold, 10),
@@ -3576,7 +3540,7 @@ intelligenceCmd
     const { loadConfig } = await import('../core/config.js');
 
     let config;
-    try { config = loadConfig(dir); } catch { /* use default */ }
+    try { config = loadConfig(dir); } catch (err) { if (process.env.DEBUG) console.error(`Config load skipped: ${err instanceof Error ? err.message : String(err)}`); }
 
     const result = enrichSessions(dir, config, {
       from: opts.from,
@@ -3609,7 +3573,7 @@ intelligenceCmd
     const { loadConfig } = await import('../core/config.js');
 
     let config;
-    try { config = loadConfig(dir); } catch { /* use default */ }
+    try { config = loadConfig(dir); } catch (err) { if (process.env.DEBUG) console.error(`Config load skipped: ${err instanceof Error ? err.message : String(err)}`); }
 
     const result = suggestCapabilities(dir, config, {
       minFrequency: parseInt(opts.minFrequency, 10),
@@ -4206,10 +4170,10 @@ sourcesCmd
     }
   });
 
-// ── Discover ─────────────────────────────────────────────────────────────────
+// ── Discover Search (sub-command of existing discoverCmd) ────────────────────
 
-program
-  .command('discover')
+discoverCmd
+  .command('search')
   .description('Search all content sources for skills, agents, rules, hooks, MCP servers')
   .argument('<query>', 'Search query')
   .option('-d, --dir <dir>', 'Harness directory', '.')

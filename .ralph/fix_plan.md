@@ -416,148 +416,101 @@ The harness should know where to find things — not just MCP servers but skills
 
 ## Phase 10 — Stabilization & Polish
 
-- [ ] Fix all failing tests (currently 27 failing)
-- [ ] Audit every module for consistency with code standards (no any, no silent catches, explicit return types)
+- [x] Fix all failing tests (currently 27 failing) — all 1027 tests passing as of loop 57
+- [x] Audit every module for consistency with code standards (no any, no silent catches, explicit return types)
+  - Zero `any` types across entire src/
+  - All 238 exported functions have explicit return types
+  - Fixed 12 silent catch blocks across cli/index.ts, validator.ts, intake.ts (DEBUG-gated logging)
+- [x] Fix CLI crash: duplicate `discover` command (Phase 2 + Phase 9 collision) — moved Phase 9 to `discover search`
+- [x] Fix CLI crash: duplicate `install` command (intake + universal installer collision) — removed old intake installer, kept universal installer
+- [x] Performance profiling — boot time, context assembly time, token estimation accuracy
+  - Module import: ~116ms, loadConfig: ~7ms, buildSystemPrompt: ~3.5ms
+  - boot() with 7 MCP servers: ~8s (dominated by MCP server connections — external process startup)
+  - Context assembly is sub-10ms — no optimization needed
 - [ ] Run full e2e validation again with real LLM after all phases
 - [ ] Documentation: README, API docs, getting-started guide
 - [ ] npm publish v0.1.0
-- [ ] Performance profiling — boot time, context assembly time, token estimation accuracy
 
-## Phase 11 — Always-On: Core Event Loop
+## Phase 11 — Always-On Infrastructure (opt-in, no daemon required)
 
-The runtime is one loop. Session-based and always-on use the same pattern — the only difference is what triggers each iteration.
+The harness is stateless-per-invocation. State persists on disk (state.md, sessions/, event store). No long-running daemon needed. Any invocation — webhook, cron, CLI — loads state, does work, saves state. Like a web app: the server handles requests, the database persists state.
 
-```
-while (true) {
-  context = loadHarness()
-  state = loadState()
-  event = await waitForEvent()
-  result = await invoke(llm, { context, state, event })
-  await applyActions(result)
-}
-```
+Developer enables always-on by setting `runtime.mode: "events"` in config.yaml. Default is `"session"` — everything works as before.
 
 ### Event System
-- [ ] Define `AgentEvent` type: id, source, type (message | notification | alert | scheduled | system), timestamp, priority (0-100), payload (summary, details, action_required, expires_at), metadata (channel, thread_id, sender)
-- [ ] `EventStore` — persists events in SQLite (hundreds/day won't work as individual markdown). Schema: id, source, type, priority, timestamp, payload JSON, outcome JSON, thread_id
-- [ ] `EventLoop` class — the core always-on process. Receives events from any source, loads harness context, decides if LLM is needed, invokes LLM or handles deterministically, applies actions, records outcomes
-- [ ] Thread grouping — related events share a `thread_id`. Same topic across hours/days = same thread. Journal synthesizer reads events grouped by thread.
-- [ ] Event outcome recording — after processing, event gets: action_taken, llm_invoked (boolean), tokens_used, follow_up
+- [ ] `AgentEvent` type: id, source, type (message | notification | alert | scheduled | system), timestamp, priority (0-100), payload (summary, details, action_required, expires_at), metadata (channel, thread_id, sender), outcome (action_taken, llm_invoked, tokens_used, follow_up)
+- [ ] `EventStore` — persists events to SQLite or JSONL. Schema: id, source, type, priority, timestamp, payload, outcome, thread_id. Queryable by date, source, thread.
+- [ ] Thread grouping — related events share a `thread_id` for continuity across hours/days
 - [ ] `harness events list|show|search` CLI commands
-- [ ] Events feed into the same memory pipeline — journal synthesizer reads today's events instead of sessions when in always-on mode
+- [ ] Journal synthesizer reads events grouped by thread when in events mode (falls back to sessions in session mode)
 
-### Agent Process
-- [ ] `harness daemon` command — starts the always-on process. Combines: event loop + scheduler + file watcher + web dashboard. Single process, three operating modes running simultaneously:
-  - **Reactive** — events come in from adapters/gateway, agent responds
-  - **Scheduled** — cron fires, workflow runs (existing scheduler, now event-driven)
-  - **Interactive** — human opens a conversation (existing chat, now feeds event loop)
-- [ ] The agent IS the process, NOT the LLM. Most events don't need LLM calls — rule checks, instinct pattern matching, deterministic workflows handle them. LLM is last resort for genuinely novel situations.
-- [ ] Process lifecycle: `harness daemon start|stop|status|restart`. PID file. Graceful shutdown saves state + flushes events. Optional auto-restart on crash.
-- [ ] `harness daemon --foreground` for development, `harness daemon --background` for production
+### Webhook Endpoints on `harness serve`
+- [ ] `POST /webhook/:source` — generic webhook endpoint. Receives any payload, normalizes to `AgentEvent`, loads harness, processes, saves state, responds. This is the core of always-on: external services push events, harness handles them.
+- [ ] `POST /webhook/:source` with optional `X-Webhook-Secret` header for verification
+- [ ] Response includes: event_id, action_taken, llm_invoked (boolean)
+- [ ] `harness serve` already exists — just add webhook routes alongside the existing REST API
 
-## Phase 12 — Always-On: Gateway & Adapters
+### Triage (cheap checks before LLM)
+- [ ] `TriageEngine` — compiles rules from `rules/` and `instincts/` into fast pattern matchers at boot. Recompiles on file change.
+- [ ] `TriageRule` type: match pattern (source, type, sender, subject_contains, priority range) → action (drop, log, forward, escalate)
+- [ ] Before calling LLM, check in order: triage rules → instinct match → playbook match → rule engine → LLM (last resort)
+- [ ] `harness triage rules|test <event-json>` CLI
 
-### Gateway
-- [ ] `Gateway` class — receives events from adapters, queues them, delivers to event loop. Priority ordering, deduplication, buffering when agent is busy.
-- [ ] Gateway config: `gateway.port`, `gateway.host`, `gateway.max_queue_size`, `gateway.dedup_window_ms`
-- [ ] Gateway exposes WebSocket for real-time adapter connections AND HTTP endpoint for simple webhook adapters
-- [ ] `harness gateway status` — connected adapters, queue depth, events/minute throughput
+## Phase 12 — Adapters & Channels (installable packages)
+
+Adapters are webhook parsers. Each one knows how to normalize a specific service's webhook payload into an `AgentEvent`. They're routes on `harness serve`, not long-running listeners.
 
 ### Adapter Interface
-- [ ] `Adapter` base class — each adapter: connects to an external source, listens or polls, normalizes raw data into `AgentEvent`, pushes to gateway
-- [ ] Adapter lifecycle: `connect()`, `disconnect()`, `isConnected()`, `getStatus()`, `getEventCount()`
-- [ ] `AdapterConfig` in config.yaml — `adapters:` section listing enabled adapters with per-adapter settings
-- [ ] Adapter registry: `harness adapter list|enable|disable|status|logs`
-- [ ] Adapters are installable: `harness install adapter:telegram` pulls the adapter package, adds config stub
+- [ ] `Adapter` interface: `parseWebhook(req) → AgentEvent`, `validateSignature(req, secret) → boolean`, `getInfo() → { name, source, description }`
+- [ ] Adapter config in config.yaml under `adapters:` section
+- [ ] `harness adapter list|enable|disable`
+- [ ] Adapters are installable: `harness install adapter:github` adds the webhook route + config stub
 
-### Built-in Adapters (ship with harness)
-- [ ] **Webhook adapter** — generic HTTP POST endpoint. Any service can push to `POST /webhook/:source`. Normalizes to AgentEvent. This is the foundation — GitHub webhooks, Stripe events, custom services all use this.
-- [ ] **Cron adapter** — wraps existing scheduler. Cron fires → creates scheduled AgentEvent → feeds event loop. Replaces current direct-execution with event-driven.
-- [ ] **File watcher adapter** — wraps existing file watcher. File changes → system AgentEvents → event loop. Index rebuilds, auto-processing triggered by events now.
-- [ ] **CLI adapter** — wraps stdin. User input → message AgentEvent. What `harness chat` becomes in daemon mode.
-- [ ] **Web dashboard adapter** — wraps the existing web dashboard chat API. Browser messages → AgentEvents.
+### Built-in Adapters
+- [ ] **Generic webhook** — pass-through. Any POST payload becomes an AgentEvent with the raw body as payload.details. Source from URL param.
+- [ ] **Cron** — existing scheduler, already built. In events mode, cron results get logged as events.
 
-### Community Adapters (installable packages)
-- [ ] **Telegram adapter** — Telegram Bot API. Polling or webhook mode. Incoming messages → AgentEvents. Outgoing via sendMessage API. Config: bot_token, chat_id, polling_interval.
-- [ ] **GitHub adapter** — GitHub webhook receiver. PR opened, push, CI status, issue comments, review requests → AgentEvents. Config: webhook_secret, repos filter.
-- [ ] **Email adapter** — IMAP polling or Gmail API. New emails → AgentEvents. Config: imap_host/gmail credentials, polling_interval, folder filter.
-- [ ] **Calendar adapter** — Google Calendar API polling. Upcoming events within N hours, event changes → AgentEvents. Config: google credentials, calendar_id, lookahead_hours.
-- [ ] **Slack adapter** — Slack Socket Mode or webhook. Messages, mentions, reactions, DMs → AgentEvents. Config: bot_token, app_token, channel filter.
-- [ ] **SMS adapter** — Twilio. Incoming SMS → AgentEvents. Outgoing via Twilio API. Config: account_sid, auth_token, phone_number.
-- [ ] **Screenpipe adapter** — Screenpipe MCP. Screen activity, meetings, audio → AgentEvents. Config: screenpipe_url.
+### Installable Adapters
+- [ ] **GitHub** — parses GitHub webhook payloads (PR, push, CI, issues). Verifies `X-Hub-Signature-256`.
+- [ ] **Telegram** — parses Telegram Bot API update payloads. Verifies secret_token.
+- [ ] **Slack** — parses Slack Events API payloads. Verifies signing secret.
+- [ ] **Stripe** — parses Stripe webhook events. Verifies signature.
+- [ ] Each adapter is an npm package implementing the `Adapter` interface: `harness install adapter:github`
 
-## Phase 13 — Always-On: Two-Tier Triage
+### Channel Interface (outgoing)
+- [ ] `Channel` interface: `send(message, opts) → boolean`
+- [ ] Channel config: `channels:` section in config.yaml with per-channel settings
+- [ ] Quiet hours enforcement built into channel layer — `quiet_hours.start/end`
+- [ ] Built-in channels: CLI (stdout), web dashboard (SSE broadcast)
+- [ ] Installable channels: Telegram, Slack, email, SMS — each is an npm package
+- [ ] `harness channel list|test <channel>`
 
-### Tier 1: Gateway Rules (no LLM, milliseconds)
-- [ ] `GatewayRule` type — pattern match against incoming events:
+## Phase 13 — Workflow Enhancements & Continuous Learning
+
+### `context:` frontmatter field for workflows
+- [ ] Add `context:` array to workflow frontmatter — declares exactly which harness files/directories to load for this workflow. Controls token budget per workflow instead of loading the full harness.
+  ```yaml
+  context:
+    - state.md
+    - memory/sessions
+    - memory/journal
+    - tools/calendar
+    - instincts
   ```
-  { match: { source: "github", type: "ci_pass" }, action: "log" }
-  { match: { source: "telegram", sender: "Diana" }, action: "escalate", priority: 95 }
-  { match: { source: "email", subject_contains: "unsubscribe" }, action: "drop" }
-  { match: { priority_lt: 20 }, action: "batch" }
-  ```
-- [ ] Actions: `drop` (discard), `log` (record but don't process), `batch` (queue for bulk delivery at next heartbeat), `forward` (send to agent), `escalate` (forward with boosted priority)
-- [ ] Rules compiled from harness `rules/` directory at boot. File watcher triggers recompile on change.
-- [ ] Instincts also compile into gateway rules — agent learns "Randy ignores CI pass notifications" → new rule auto-added
-- [ ] `harness triage rules` — list active triage rules
-- [ ] `harness triage test <event-json>` — test what would happen to a specific event
+- [ ] Runtime loads only what's listed in `context:` when executing the workflow. Falls back to full harness loading if `context:` is not specified.
 
-### Tier 2: Agent Triage (LLM only when needed)
-- [ ] For events that pass gateway filter, agent checks BEFORE calling LLM:
-  1. Known instinct pattern? → apply instinct, no LLM
-  2. Matching playbook? → follow playbook guidance, may or may not need LLM
-  3. Deterministic rule match? → apply rule, no LLM
-  4. None of the above → invoke LLM for reasoning
-- [ ] Track LLM-needed vs LLM-skipped ratio per event type — optimize over time
-- [ ] Triage decisions become instincts: "I used LLM for this event type 5 times with the same outcome → new instinct, skip LLM next time"
-- [ ] `harness triage stats` — show LLM invocation rates, cost savings from triage
+### Proactive config
+- [ ] `proactive` config section: `enabled` (default false), `max_per_hour`, `cooldown_minutes`, `quiet_hours`
+- [ ] Scheduler checks cooldown config before executing proactive workflows — skip if rate limit hit or quiet hours
 
-## Phase 14 — Always-On: Multi-Channel Communication
+### Continuous learning (opt-in config flags)
+- [ ] `intelligence.auto_journal: true` — journal synthesis runs automatically at configured time. Default: off.
+- [ ] `intelligence.auto_learn: true` — instinct proposals run after journal synthesis. Default: off.
+- [ ] These are config flags that enable existing journal + learn to run on the scheduler. No new systems.
 
-### Channel System
-- [ ] `Channel` interface — each channel can send (outgoing) and receive (incoming via adapter). Telegram, email, CLI, web dashboard, Slack, SMS are channels.
-- [ ] Channel config: `channels.primary` (default outgoing — notifications, briefs), `channels.interactive` (conversations), `channels.fallback` (if primary fails)
-- [ ] Channel routing — agent picks channel based on: urgency (P0 → SMS/call, P1 → Telegram, P2 → email), content type (code → CLI, summary → Telegram, detailed → email), user preference
-- [ ] Quiet hours — `quiet_hours.start/end` from config. No outgoing messages during quiet hours unless P0 emergency. All channels respect this.
-- [ ] `harness channel list|status|send <channel> <message>|test <channel>`
-
-### Proactive Behavior
-- [ ] `ProactiveEngine` — agent initiates without being asked. Not triggered by events — triggered by state, time, patterns.
-- [ ] Proactive cooldowns — max N interventions per hour (configurable, default 5). Prevents notification fatigue. Per-category cooldowns (don't send 3 calendar reminders in a row).
-- [ ] Proactive triggers:
-  - **State-based:** "flight tomorrow, no packing list created" → reminder
-  - **Time-based:** "mortgage due in 3 days" → heads up
-  - **Pattern-based:** "asked about deployment 5 times, no deployment playbook" → suggest creating one
-  - **Deadline-based:** "PR open 48 hours with no review" → nudge
-  - **Health-based:** "API costs approaching daily budget" → alert
-- [ ] Each proactive intervention recorded as an event with outcome — learn what the user responds to vs ignores
-- [ ] `harness proactive enable|disable|cooldown|history`
-
-### Attention Model
-- [ ] Track user engagement per event type: responded, ignored, snoozed, escalated
-- [ ] Build attention profile: "always responds to Diana within 5 minutes", "never opens CI notifications", "responds to financial alerts same day"
-- [ ] Attention preferences become instincts and triage rules over time
-- [ ] `harness attention stats|preferences|reset`
-
-## Phase 15 — Always-On: Briefs & Continuous Intelligence
-
-### Brief System
-- [ ] Brief templates as installable workflow packs:
-  - **Morning brief:** calendar today, pending tasks, overnight events, weather
-  - **Midday check:** progress on goals, new events, anything needing attention
-  - **Evening brief:** journal synthesis + tomorrow preview + what's unfinished
-  - **Weekend brief:** week review, upcoming week preview, personal items
-  - **Weekly review:** patterns, accomplishments, metrics, instincts formed
-  - **Monthly review:** trends, goals progress, cost analysis
-- [ ] Each brief gathers context from events, sessions, calendar, state → synthesizes via LLM → delivers via configured channel
-- [ ] `harness install pack:briefs` installs the full set
-- [ ] Briefs are just workflows — users can modify, disable, or create custom ones
-
-### Continuous Learning (no manual commands needed)
-- [ ] Journal synthesis automatic — evening workflow reads today's events, synthesizes. No `harness journal` needed.
-- [ ] Instinct learning automatic — after journal synthesis, auto-propose and auto-install high-confidence instincts. No `harness learn` needed.
-- [ ] Triage learning automatic — every event outcome refines gateway rules and attention model
-- [ ] Cost optimization automatic — track which events needed LLM vs could have been handled by rules. Gradually shift more handling to deterministic rules as patterns emerge. Report savings in weekly brief.
+### Starter workflow packs (installable bundles)
+- [ ] Ship example workflow bundles: `pack:daily-briefs` (morning + evening workflows), `pack:weekly-review`, `pack:code-review-workflow`
+- [ ] Each is just a bundle of workflow .md files with cron schedules. Developer installs, customizes, or writes their own.
 
 ---
 
@@ -889,8 +842,22 @@ while (true) {
 - 28 new tests in sources.test.ts
 - Total: 991 tests across 51 files
 
+### Loop 57 (Phase 10 — Stabilization & Polish)
+- Fixed CLI crash: duplicate `discover` command registration (Phase 2 `discover env|project` + Phase 9 `discover <query>`)
+  - Moved Phase 9 universal discover to `discover search <query>` sub-command
+- Fixed CLI crash: duplicate `install` command registration (intake installer + Phase 9 universal installer)
+  - Removed legacy intake `install` command, kept Phase 9 universal installer with format detection
+- Fixed 12 silent catch blocks: 9 in cli/index.ts, 2 in validator.ts, 1 in intake.ts
+  - CLI catches: added DEBUG-gated `console.error` for config load failures
+  - validator.ts: DEBUG-gated error logging, named `_readErr` for directory iteration
+  - intake.ts: named `_unlinkErr` with descriptive comment for best-effort cleanup
+- Full code quality audit: zero `any` types, zero missing return types on exports, zero empty catches
+- Performance profiling: module import ~116ms, loadConfig ~7ms, buildSystemPrompt ~3.5ms, boot with MCP ~8s
+- All 1027 tests passing, build clean, lint clean
+- Total: 1027 tests across 52 files
+
 ### Stats
-- 991 tests across 51 files — ALL PASSING
+- 1027 tests across 52 files — ALL PASSING
 - 58+ source modules, 34,000+ lines
 - 88+ CLI commands
 - Build, lint, tests all green

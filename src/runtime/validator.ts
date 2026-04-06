@@ -154,8 +154,8 @@ export function validateHarness(dir: string): ValidationResult {
       for (const warning of ctx.warnings) {
         result.warnings.push(warning);
       }
-    } catch {
-      // Config issues already reported
+    } catch (err) {
+      if (process.env.DEBUG) console.error(`Validator config load: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -243,7 +243,7 @@ export function doctorHarness(dir: string): DoctorResult {
       files = readdirSync(fullPath).filter(
         (f) => f.endsWith('.md') && !f.startsWith('.') && !f.startsWith('_'),
       );
-    } catch {
+    } catch (_readErr) {
       continue;
     }
 

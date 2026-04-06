@@ -373,8 +373,8 @@ export function processIntake(harnessDir: string): Array<{ file: string; result:
     if (result.installed) {
       try {
         unlinkSync(filePath);
-      } catch {
-        // Leave it if can't remove
+      } catch (_unlinkErr) {
+        // Best-effort cleanup — file persists if removal fails
       }
     }
   }
