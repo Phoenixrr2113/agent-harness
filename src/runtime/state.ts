@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import type { AgentState } from '../core/types.js';
+import { withFileLockSync } from './file-lock.js';
 
 const DEFAULT_STATE: AgentState = {
   mode: 'idle',
@@ -24,7 +25,9 @@ export function loadState(harnessDir: string): AgentState {
 export function saveState(harnessDir: string, state: AgentState): void {
   const statePath = join(harnessDir, 'state.md');
   const content = renderStateMd(state);
-  writeFileSync(statePath, content, 'utf-8');
+  withFileLockSync(harnessDir, statePath, () => {
+    writeFileSync(statePath, content, 'utf-8');
+  });
 }
 
 function parseStateMd(content: string): AgentState {

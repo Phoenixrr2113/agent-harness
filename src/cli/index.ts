@@ -1800,6 +1800,61 @@ costsCmd
     }
   });
 
+// --- HEALTH (system health status) ---
+program
+  .command('health')
+  .description('Show system health status and metrics')
+  .option('-d, --dir <path>', 'Harness directory', '.')
+  .option('--reset', 'Reset health metrics', false)
+  .action(async (opts: { dir: string; reset: boolean }) => {
+    const { getHealthStatus, resetHealth } = await import('../runtime/health.js');
+    const dir = resolve(opts.dir);
+    requireHarness(dir);
+
+    if (opts.reset) {
+      resetHealth(dir);
+      console.log('Health metrics reset.');
+      return;
+    }
+
+    const health = getHealthStatus(dir);
+
+    const statusIcon = health.status === 'healthy' ? 'OK' : health.status === 'degraded' ? 'WARN' : 'FAIL';
+    console.log(`\nHealth: ${statusIcon} (${health.status})\n`);
+
+    for (const check of health.checks) {
+      const icon = check.status === 'pass' ? 'pass' : check.status === 'warn' ? 'WARN' : 'FAIL';
+      console.log(`  [${icon}] ${check.name}: ${check.message}`);
+    }
+
+    console.log(`\n  Metrics:`);
+    console.log(`    Total runs:    ${health.metrics.totalRuns}`);
+    console.log(`    Successes:     ${health.metrics.totalSuccesses}`);
+    console.log(`    Failures:      ${health.metrics.totalFailures}`);
+    console.log(`    Consecutive:   ${health.metrics.consecutiveFailures} failure(s)`);
+
+    if (health.metrics.bootedAt) {
+      console.log(`    Booted at:     ${health.metrics.bootedAt}`);
+    }
+    if (health.metrics.lastSuccessfulRun) {
+      console.log(`    Last success:  ${health.metrics.lastSuccessfulRun}`);
+    }
+    if (health.metrics.lastFailedRun) {
+      console.log(`    Last failure:  ${health.metrics.lastFailedRun}`);
+    }
+    if (health.metrics.lastError) {
+      console.log(`    Last error:    ${health.metrics.lastError.slice(0, 120)}`);
+    }
+
+    if (health.costToday > 0 || health.costThisMonth > 0) {
+      console.log(`\n  Spending:`);
+      console.log(`    Today:  $${health.costToday.toFixed(6)}`);
+      console.log(`    Month:  $${health.costThisMonth.toFixed(6)}`);
+    }
+
+    console.log();
+  });
+
 // --- RATELIMIT (rate limit management) ---
 const rateLimitCmd = program
   .command('ratelimit')

@@ -7,6 +7,7 @@ import { createHarness } from '../core/harness.js';
 import { archiveOldFiles } from './sessions.js';
 import { recordRun } from './metrics.js';
 import { log } from '../core/logger.js';
+import { recordSuccess, recordFailure } from './health.js';
 import type { HarnessConfig, HarnessDocument } from '../core/types.js';
 
 function sleep(ms: number): Promise<void> {
@@ -177,6 +178,9 @@ export class Scheduler {
         const result = await agent.run(prompt);
         await agent.shutdown();
 
+        // Record success in health metrics
+        recordSuccess(this.harnessDir);
+
         // Record successful run
         const endTime = Date.now();
         recordRun(this.harnessDir, {
@@ -204,6 +208,9 @@ export class Scheduler {
         }
       }
     }
+
+    // Record failure in health metrics
+    recordFailure(this.harnessDir, lastError?.message);
 
     // Record failed run
     const endTime = Date.now();

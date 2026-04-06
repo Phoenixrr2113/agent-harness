@@ -120,9 +120,14 @@
 - [x] **Rate limiter** — New `src/runtime/rate-limiter.ts` with sliding window rate limiting. `RateLimit` defines key/max_requests/window_ms. `checkRateLimit()` checks without recording, `tryAcquire()` atomically checks and records if allowed, `recordEvent()` records directly. `getUsage()` for current window stats, `clearRateLimits()` for cleanup. Persists to `memory/rate-limits.json` with 10k event cap and automatic 1-hour pruning. `retry_after_ms` calculated from oldest event in window. CLI: `harness ratelimit status <key>`, `harness ratelimit clear`. 12 new tests.
 - [x] **Cost tracker** — New `src/runtime/cost-tracker.ts` with per-model pricing and budget alerts. Default pricing for Claude (Sonnet/Opus/Haiku), GPT-4o, GPT-4o-mini, local models. `calculateCost()` computes USD from tokens using per-million pricing. `recordCost()` auto-calculates or accepts explicit cost. `getSpending()` aggregates by date range with model/provider breakdowns. `checkBudget()` checks daily/monthly limits with configurable alert threshold (default 80%). Wired into `createHarness()` — both `run()` and `stream()` automatically record costs. Persists to `memory/costs.json` with 5k entry cap. CLI: `harness costs show` (with `--from`/`--to`), `harness costs budget` (with `--daily`/`--monthly`), `harness costs clear`. 19 new tests.
 
+## Completed (Loop 21)
+
+- [x] **File-based concurrency locking** — New `src/runtime/file-lock.ts` with `tryLock()` (non-blocking via `wx` flag), `releaseLock()`, `acquireLock()` (async with timeout/polling), `withFileLock()` (async wrapper), `withFileLockSync()` (sync wrapper), `isLocked()`, `breakLock()`. Stale lock detection checks both timestamp age (default 30s) and PID liveness via `process.kill(pid, 0)`. Fail-open semantics — if lock can't be acquired, fn runs anyway. Lock files stored as `memory/<basename>.lock`. Wired into `saveState()` and `writeSession()`. 24 new tests.
+- [x] **Health monitor** — New `src/runtime/health.ts` with `HealthCheck`, `HealthMetrics`, `HealthStatus` types. `loadHealth()`/`saveHealth()` persist to `memory/health.json`. `recordSuccess()`/`recordFailure()`/`recordBoot()` for event recording. `getHealthStatus()` runs 5 checks: core-files (required files exist), memory-dir, api-keys (OpenRouter/Anthropic/OpenAI env vars), run-health (consecutive failures: 0=pass, 1-2=warn, 3+=fail), last-success (warn if >24h since last success). Status: healthy (0 fails, 0 warns), degraded (warnings), unhealthy (failures). Integrates with cost tracker for daily/monthly spending. Wired into `createHarness()` (boot/run/error) and `Scheduler.executeWorkflow()` (success/failure). CLI: `harness health` (full status with checks/metrics/spending), `--reset` to clear. `resetHealth()` for testing. 24 new tests.
+
 ## All Plan Items Complete
 
-All items from the original fix plan have been implemented across 20 loops.
+All items from the original fix plan have been implemented across 21 loops.
 
 ## Architecture Notes
 
@@ -157,8 +162,9 @@ All items from the original fix plan have been implemented across 20 loops.
 - Role-specific templates (assistant, code-reviewer) with domain-appropriate defaults
 - Sliding window rate limiter with per-key enforcement and retry-after calculation
 - Cost tracker with auto-pricing, budget alerts, and daily/monthly spending limits
+- File-based concurrency locking with fail-open semantics, stale detection, PID liveness
+- Health monitoring with 5-check system, cost integration, and CLI dashboard
 
 ### Known Limitations
 - Token estimation is 1:4 char ratio — good enough but not precise
 - No streaming for journal/learn commands (they use batch generation)
-- File locking: concurrent processes could corrupt state.md or context.jsonl

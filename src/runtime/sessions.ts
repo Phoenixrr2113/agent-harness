@@ -1,6 +1,7 @@
 import { writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync, copyFileSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
+import { withFileLockSync } from './file-lock.js';
 
 export interface SessionRecord {
   id: string;
@@ -60,7 +61,9 @@ ${session.prompt}
 ${session.summary}
 `;
 
-  writeFileSync(filePath, content, 'utf-8');
+  withFileLockSync(harnessDir, filePath, () => {
+    writeFileSync(filePath, content, 'utf-8');
+  });
   return filePath;
 }
 

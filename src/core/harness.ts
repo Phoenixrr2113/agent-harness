@@ -16,6 +16,7 @@ import { buildSystemPrompt } from '../runtime/context-loader.js';
 import { loadState, saveState } from '../runtime/state.js';
 import { createSessionId, writeSession, type SessionRecord } from '../runtime/sessions.js';
 import { recordCost } from '../runtime/cost-tracker.js';
+import { recordSuccess, recordFailure, recordBoot } from '../runtime/health.js';
 
 export function createHarness(options: CreateHarnessOptions): HarnessAgent {
   const dir = resolve(options.dir);
@@ -74,6 +75,9 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
         await hooks.onStateChange({ agent, previous: previousMode, current: 'active' });
       }
 
+      // Record boot in health metrics
+      recordBoot(dir);
+
       // Lifecycle: onBoot
       if (hooks.onBoot) {
         await hooks.onBoot({ agent, config, state });
@@ -97,6 +101,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
         });
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
+        recordFailure(dir, error.message);
         if (hooks.onError) {
           await hooks.onError({ agent, error, prompt });
         }
@@ -127,6 +132,9 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
         output_tokens: result.usage.outputTokens,
         source: `run:${sessionId}`,
       });
+
+      // Record success in health metrics
+      recordSuccess(dir);
 
       // Update state
       state.last_interaction = ended;

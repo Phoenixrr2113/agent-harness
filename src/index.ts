@@ -59,3 +59,7 @@ export { checkRateLimit, recordEvent, tryAcquire, getUsage, clearRateLimits, loa
 export type { RateEvent, RateLimit, RateLimitCheck, RateLimitStore } from './runtime/rate-limiter.js';
 export { calculateCost, recordCost, getSpending, checkBudget, clearCosts, findPricing, loadCosts, saveCosts } from './runtime/cost-tracker.js';
 export type { ModelPricing, CostEntry, BudgetConfig, BudgetStatus, SpendingSummary, CostStore } from './runtime/cost-tracker.js';
+export { tryLock, releaseLock, acquireLock, withFileLock, withFileLockSync, isLocked, breakLock } from './runtime/file-lock.js';
+export type { LockInfo, LockOptions } from './runtime/file-lock.js';
+export { loadHealth, saveHealth, recordSuccess, recordFailure, recordBoot, getHealthStatus, resetHealth } from './runtime/health.js';
+export type { HealthCheck, HealthMetrics, HealthStatus } from './runtime/health.js';
