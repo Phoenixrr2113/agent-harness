@@ -4322,6 +4322,69 @@ semanticCmd
     }
   });
 
+// ── Universal Installer ──────────────────────────────────────────────────────
+
+program
+  .command('install')
+  .description('Install a primitive from any source (file, URL, or name)')
+  .argument('<source>', 'File path, HTTPS URL, or source name to install')
+  .option('-d, --dir <dir>', 'Harness directory', '.')
+  .option('-t, --type <type>', 'Override detected type (skill, rule, agent, playbook, workflow, tool)')
+  .option('--id <id>', 'Override generated ID')
+  .option('--force', 'Force install despite validation warnings')
+  .option('--skip-fix', 'Skip auto-fix (no frontmatter/L0/L1 generation)')
+  .option('--tags <tags...>', 'Additional tags to add')
+  .option('--json', 'Output as JSON')
+  .action(async (source: string, opts: Record<string, unknown>) => {
+    const dir = resolve(opts.dir as string);
+    loadEnvFromDir(dir);
+    const { universalInstall } = await import('../runtime/universal-installer.js');
+
+    const result = await universalInstall(dir, source, {
+      type: opts.type as string | undefined,
+      id: opts.id as string | undefined,
+      force: opts.force as boolean | undefined,
+      skipFix: opts.skipFix as boolean | undefined,
+      tags: opts.tags as string[] | undefined,
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      if (result.installed) {
+        console.log(`Installed: ${result.destination}`);
+        console.log(`  Format:  ${result.format.format} (${(result.format.confidence * 100).toFixed(0)}% confidence)`);
+        if (result.format.primitiveType) {
+          console.log(`  Type:    ${result.format.primitiveType}`);
+        }
+        if (result.fixes.length > 0) {
+          console.log(`  Fixes:`);
+          for (const fix of result.fixes) {
+            console.log(`    - ${fix}`);
+          }
+        }
+        if (result.suggestedDependencies.length > 0) {
+          console.log(`  Dependencies to consider:`);
+          for (const dep of result.suggestedDependencies) {
+            console.log(`    - ${dep}`);
+          }
+        }
+      } else {
+        console.error(`Failed to install: ${source}`);
+        for (const err of result.errors) {
+          console.error(`  ${err}`);
+        }
+        if (result.fixes.length > 0) {
+          console.log(`  Attempted fixes:`);
+          for (const fix of result.fixes) {
+            console.log(`    - ${fix}`);
+          }
+        }
+        process.exitCode = 1;
+      }
+    }
+  });
+
 // ── Versioning ───────────────────────────────────────────────────────────────
 
 const versionCmd = program.command('version').description('Git-backed primitive versioning');
