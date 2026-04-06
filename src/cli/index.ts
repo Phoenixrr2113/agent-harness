@@ -564,12 +564,14 @@ program
 // --- DEV (watch mode + scheduler) ---
 program
   .command('dev')
-  .description('Start dev mode — watches for file changes, rebuilds indexes, runs scheduled workflows')
+  .description('Start dev mode — watches for file changes, rebuilds indexes, runs scheduled workflows, serves dashboard')
   .option('-d, --dir <path>', 'Harness directory', '.')
   .option('-k, --api-key <key>', 'API key override (default: from environment)')
   .option('--no-schedule', 'Disable workflow scheduler')
   .option('--no-auto-process', 'Disable auto-processing of primitives on save')
-  .action(async (opts: { dir: string; apiKey?: string; schedule: boolean; autoProcess: boolean }) => {
+  .option('--no-web', 'Disable web dashboard server')
+  .option('-p, --port <number>', 'Web dashboard port', '3000')
+  .action(async (opts: { dir: string; apiKey?: string; schedule: boolean; autoProcess: boolean; web: boolean; port: string }) => {
     const { loadConfig } = await import('../core/config.js');
     const { rebuildAllIndexes } = await import('../runtime/indexer.js');
     const { createWatcher } = await import('../runtime/watcher.js');
@@ -640,6 +642,22 @@ program
       }
     }
 
+    // Start web dashboard server
+    let webServer: { server: unknown; broadcaster: { broadcast: (e: { type: string; data: unknown; timestamp: string }) => void } } | null = null;
+    if (opts.web) {
+      const { startWebServer } = await import('../runtime/web-server.js');
+      const port = parseInt(opts.port, 10) || 3000;
+      webServer = startWebServer({
+        harnessDir: dir,
+        port,
+        onStart: (p) => console.log(`[dev] Dashboard: http://localhost:${p}`),
+      });
+    }
+
+    const sseBroadcast = (type: string, data: unknown): void => {
+      webServer?.broadcaster.broadcast({ type, data, timestamp: new Date().toISOString() });
+    };
+
     // Start watching (including extension directories and config.yaml)
     createWatcher({
       harnessDir: dir,
@@ -649,20 +667,24 @@ program
       onChange: (path, event) => {
         const rel = path.replace(dir + '/', '');
         console.log(`[dev] ${event}: ${rel}`);
+        sseBroadcast('file_change', { path: rel, event });
       },
       onIndexRebuild: (directory) => {
         console.log(`[dev] Index rebuilt: ${directory}/_index.md`);
+        sseBroadcast('index_rebuild', { directory });
       },
       onAutoProcess: (result) => {
         if (result.modified) {
           const rel = result.path.replace(dir + '/', '');
           console.log(`[dev] Auto-processed: ${rel} (${result.fixes.join(', ')})`);
+          sseBroadcast('auto_process', { path: rel, fixes: result.fixes });
         }
       },
       onConfigChange: () => {
         try {
           const newConfig = loadConfig(dir);
           console.log(`[dev] Config reloaded: model=${newConfig.model.id}`);
+          sseBroadcast('config_change', { model: newConfig.model.id });
         } catch (err: unknown) {
           console.error(`[dev] Config reload failed: ${formatError(err)}`);
         }
@@ -678,6 +700,9 @@ program
     const cleanup = () => {
       console.log(`\n[dev] Shutting down...`);
       if (scheduler) scheduler.stop();
+      if (webServer?.server && typeof (webServer.server as { close?: () => void }).close === 'function') {
+        (webServer.server as { close: () => void }).close();
+      }
       process.exit(0);
     };
     process.on('SIGINT', cleanup);

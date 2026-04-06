@@ -89,3 +89,5 @@ export { discoverProjectContext } from './runtime/project-discovery.js';
 export type { ProjectSignal, ProjectSuggestion, ProjectDiscoveryResult, ProjectDiscoveryOptions } from './runtime/project-discovery.js';
 export { autoProcessFile, autoProcessAll } from './runtime/auto-processor.js';
 export type { AutoProcessResult, AutoProcessOptions } from './runtime/auto-processor.js';
+export { createWebApp, startWebServer } from './runtime/web-server.js';
+export type { WebServerOptions, ServerSentEvent } from './runtime/web-server.js';
