@@ -127,6 +127,28 @@ jobs:
           ollama pull "${OLLAMA_TEST_MODEL}"
           ollama list
 
+      - name: Warm up the model (cold-start can exceed test timeouts)
+        run: |
+          # The first inference call to a freshly-pulled model has to load
+          # the weights into RAM, which can take 30+ seconds on standard
+          # runners — longer than the harness's max_retries window. Pre-warm
+          # the model with a trivial inference so the integration test's
+          # first real call uses the in-memory model. Also serves as a
+          # smoke test that the OpenAI-compat endpoint at /v1 actually works
+          # before we run a real test against it.
+          echo "Warming up ${OLLAMA_TEST_MODEL}..."
+          time ollama run "${OLLAMA_TEST_MODEL}" "Say hi" --verbose 2>&1 | tail -20
+          echo ""
+          echo "Verifying OpenAI-compat endpoint at ${OLLAMA_BASE_URL}..."
+          curl -sf "${OLLAMA_BASE_URL}/models" | head -20
+          echo ""
+          echo "Smoke-testing chat completions..."
+          curl -sf "${OLLAMA_BASE_URL}/chat/completions" \
+            -H "Content-Type: application/json" \
+            -d "{\"model\":\"${OLLAMA_TEST_MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hi\"}]}" \
+            | head -50
+          echo ""
+
       - name: Run integration tests
         env:
           INTEGRATION: '1'
