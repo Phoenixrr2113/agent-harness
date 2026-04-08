@@ -154,6 +154,61 @@ export const HarnessConfigSchema = z.object({
     /** Optional auth token for private registries */
     token: z.string().optional(),
   }).passthrough()).default([]),
+  /**
+   * License policy for `harness install <url>`. Controls how the universal
+   * installer reacts to the license detected on a fetched primitive (Level 3
+   * of task 12.14). Detection itself runs unconditionally — this only governs
+   * what happens after the license is determined.
+   */
+  install: z.object({
+    /**
+     * SPDX ids the installer accepts without warning. Permissive defaults
+     * cover the OSI-approved ecosystem most users care about. Add or remove
+     * here to tighten or loosen the policy.
+     */
+    allowed_licenses: z.array(z.string()).default([
+      'MIT',
+      'Apache-2.0',
+      'BSD-2-Clause',
+      'BSD-3-Clause',
+      'ISC',
+      'MPL-2.0',
+      'CC-BY-4.0',
+      'CC0-1.0',
+      'Unlicense',
+    ]),
+    /**
+     * What to do when the detected license is not in `allowed_licenses` and
+     * is not classified as PROPRIETARY. Includes the UNKNOWN case (no LICENSE
+     * file found anywhere) and any non-permissive SPDX id like GPL-3.0.
+     *
+     * - allow:  install silently (legacy v0.1.3 behavior — safest for migration)
+     * - warn:   install with a stderr warning naming the license_source
+     * - prompt: ask Y/n on TTY; treats non-TTY as `block`
+     * - block:  refuse the install with an error showing the override flag
+     */
+    on_unknown_license: z.enum(['allow', 'warn', 'prompt', 'block']).default('warn'),
+    /**
+     * What to do when the detected license is PROPRIETARY (text contains
+     * "all rights reserved" or no permission grant). Defaults to `block`
+     * because shipping proprietary content was the v0.1.0 yank cause.
+     */
+    on_proprietary: z.enum(['allow', 'warn', 'prompt', 'block']).default('block'),
+  }).passthrough().default({
+    allowed_licenses: [
+      'MIT',
+      'Apache-2.0',
+      'BSD-2-Clause',
+      'BSD-3-Clause',
+      'ISC',
+      'MPL-2.0',
+      'CC-BY-4.0',
+      'CC0-1.0',
+      'Unlicense',
+    ],
+    on_unknown_license: 'warn',
+    on_proprietary: 'block',
+  }),
 }).passthrough();
 
 export type HarnessConfig = z.infer<typeof HarnessConfigSchema>;
@@ -176,6 +231,21 @@ export const CONFIG_DEFAULTS: HarnessConfig = {
   proactive: { enabled: false, max_per_hour: 5, cooldown_minutes: 30 },
   mcp: { servers: {} },
   registries: [],
+  install: {
+    allowed_licenses: [
+      'MIT',
+      'Apache-2.0',
+      'BSD-2-Clause',
+      'BSD-3-Clause',
+      'ISC',
+      'MPL-2.0',
+      'CC-BY-4.0',
+      'CC0-1.0',
+      'Unlicense',
+    ],
+    on_unknown_license: 'warn',
+    on_proprietary: 'block',
+  },
 };
 
 export const CORE_PRIMITIVE_DIRS = ['rules', 'instincts', 'skills', 'playbooks', 'workflows', 'tools', 'agents'] as const;

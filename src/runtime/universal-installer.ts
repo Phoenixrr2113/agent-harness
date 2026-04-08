@@ -451,6 +451,90 @@ export interface UniversalInstallOptions {
   skipFix?: boolean;
   /** Additional tags to add */
   tags?: string[];
+  /**
+   * Override the license policy for THIS install only. Pass an SPDX id like
+   * "MIT" or "Apache-2.0" — the installer will treat the file as if its
+   * license were the override and skip the policy check entirely. Use only
+   * when you have written permission for the content. (Level 3 of 12.14.)
+   */
+  forceLicense?: string;
+}
+
+/**
+ * License policy enforcement decision (Level 3 of task 12.14).
+ *
+ * Returned by `evaluateLicensePolicy()` to tell the installer what to do
+ * about a detected license. The installer turns this into a console warning,
+ * an interactive prompt, or an error result depending on the action.
+ */
+export interface LicensePolicyDecision {
+  /** What the installer should do — block aborts, prompt asks, warn logs, allow continues */
+  action: 'allow' | 'warn' | 'prompt' | 'block';
+  /** Human-readable reason — used in warning text and block error messages */
+  reason: string;
+  /** The SPDX id (or PROPRIETARY/UNKNOWN) the policy was evaluated against */
+  spdxId: string;
+}
+
+/**
+ * Decide what to do about a detected license, given the user's `install:`
+ * config policy. Pure function — never makes decisions on its own, never
+ * prompts. The caller (universalInstall) handles UI side effects.
+ *
+ * Logic:
+ * - If `forceLicense` is set, always return `allow` (with the override SPDX id)
+ * - If the SPDX id is PROPRIETARY → use `on_proprietary` setting
+ * - If the SPDX id is in `allowed_licenses` → `allow`
+ * - Otherwise (UNKNOWN, GPL, anything not on the list) → use `on_unknown_license`
+ */
+export function evaluateLicensePolicy(
+  detected: LicenseInfo,
+  policy: {
+    allowed_licenses: readonly string[];
+    on_unknown_license: 'allow' | 'warn' | 'prompt' | 'block';
+    on_proprietary: 'allow' | 'warn' | 'prompt' | 'block';
+  },
+  forceLicense?: string,
+): LicensePolicyDecision {
+  // Force override — caller asserted permission. Skip the check entirely.
+  if (forceLicense) {
+    return {
+      action: 'allow',
+      reason: `forced license override: ${forceLicense}`,
+      spdxId: forceLicense,
+    };
+  }
+
+  const spdxId = detected.spdxId;
+
+  if (spdxId === 'PROPRIETARY') {
+    return {
+      action: policy.on_proprietary,
+      reason: detected.licenseSource
+        ? `proprietary content per ${detected.licenseSource}`
+        : 'proprietary content (license text says "all rights reserved")',
+      spdxId,
+    };
+  }
+
+  if (policy.allowed_licenses.includes(spdxId)) {
+    return {
+      action: 'allow',
+      reason: `${spdxId} is in allowed_licenses`,
+      spdxId,
+    };
+  }
+
+  // Either UNKNOWN or a non-permissive SPDX id (GPL, AGPL, etc.) the user
+  // didn't add to their allowed list.
+  return {
+    action: policy.on_unknown_license,
+    reason:
+      spdxId === 'UNKNOWN'
+        ? 'no LICENSE file found in source repo (per-file, repo root, or frontmatter)'
+        : `${spdxId} is not in your allowed_licenses (config.yaml install.allowed_licenses)`,
+    spdxId,
+  };
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -1068,6 +1152,81 @@ export async function universalInstall(
   if (source.startsWith('http://') || source.startsWith('https://')) {
     finalContent = await recordProvenance(finalContent, source);
     result.fixes.push('Recorded provenance (source, installed_at, installed_by)');
+
+    // Step 4c: License policy enforcement (Level 3 of task 12.14).
+    // The license fields are now in the frontmatter from recordProvenance.
+    // Re-parse them, evaluate against the user's `install:` config policy,
+    // and either continue, warn, prompt, or block based on the decision.
+    //
+    // Loaded inline so universalInstall stays decoupled from CLI lifecycle.
+    // Failures to load config fall back to safe defaults — never crash.
+    try {
+      const { loadConfig } = await import('../core/config.js');
+      const config = loadConfig(harnessDir);
+      const installPolicy = config.install;
+      const parsed = matter(finalContent);
+      const detected: LicenseInfo = {
+        spdxId: typeof parsed.data.license === 'string' ? parsed.data.license : 'UNKNOWN',
+        copyright: typeof parsed.data.copyright === 'string' ? parsed.data.copyright : undefined,
+        licenseSource:
+          typeof parsed.data.license_source === 'string' ? parsed.data.license_source : undefined,
+      };
+
+      const decision = evaluateLicensePolicy(detected, installPolicy, options?.forceLicense);
+
+      if (decision.action === 'block') {
+        result.errors.push(
+          `License policy blocked install: ${decision.reason}` +
+            (detected.licenseSource ? ` (${detected.licenseSource})` : '') +
+            `. To override, re-run with --force-license <SPDX> if you have written permission.`,
+        );
+        return result;
+      }
+
+      if (decision.action === 'warn') {
+        log.warn(
+          `[install] license policy warning: ${decision.reason}. ` +
+            `Installing anyway (set install.on_unknown_license: block in config.yaml to refuse).`,
+        );
+        result.fixes.push(`License policy: warned (${decision.spdxId})`);
+      }
+
+      if (decision.action === 'prompt') {
+        // Prompt only on TTY. In non-TTY (CI, piped input), default to BLOCK
+        // — safer than silently installing unknown content in automation.
+        if (process.stdin.isTTY && process.stdout.isTTY) {
+          const readline = await import('readline');
+          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+          const question = `\n  ⚠ License policy: ${decision.reason}\n  ${
+            detected.licenseSource ? `License source: ${detected.licenseSource}\n  ` : ''
+          }Install anyway? [y/N] `;
+          const answer = await new Promise<string>((res) => rl.question(question, res));
+          rl.close();
+          if (!/^y(es)?$/i.test(answer.trim())) {
+            result.errors.push('License policy prompt declined by user');
+            return result;
+          }
+          result.fixes.push(`License policy: prompted, user accepted (${decision.spdxId})`);
+        } else {
+          result.errors.push(
+            `License policy requires interactive confirmation (${decision.reason}) ` +
+              `but stdin/stdout is not a TTY. Re-run interactively, or pass ` +
+              `--force-license <SPDX> if you have written permission.`,
+          );
+          return result;
+        }
+      }
+
+      // 'allow' falls through silently.
+      if (decision.action === 'allow' && options?.forceLicense) {
+        result.fixes.push(`License policy: forced to ${decision.spdxId}`);
+      }
+    } catch (err) {
+      // Config load failure should not block install. Log for visibility.
+      log.warn(
+        `[install] license policy check skipped: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   // Step 5: Write normalized content to temp file for installation

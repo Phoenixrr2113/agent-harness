@@ -10,8 +10,13 @@ import {
   convertToRawUrl,
   universalInstall,
   recordProvenance,
+  evaluateLicensePolicy,
 } from '../src/runtime/universal-installer.js';
-import type { FormatDetection, UniversalInstallOptions } from '../src/runtime/universal-installer.js';
+import type {
+  FormatDetection,
+  UniversalInstallOptions,
+  LicenseInfo,
+} from '../src/runtime/universal-installer.js';
 
 describe('universal-installer', () => {
   let harnessDir: string;
@@ -732,6 +737,115 @@ describe('universal-installer', () => {
       // Author-set values preserved verbatim
       expect(parsed.data.license).toBe('Apache-2.0');
       expect(parsed.data.copyright).toBe('Copyright (c) 2020 Original Author');
+    });
+  });
+
+  // ─── License policy enforcement (task 12.14, Level 3) ──────────────────────
+  // Pure-function unit tests for evaluateLicensePolicy(). The end-to-end
+  // policy enforcement (block/warn/prompt UX) inside universalInstall() lives
+  // behind config loading + readline + log calls and is harder to mock cleanly,
+  // so the unit-level coverage of the decision logic is what matters here.
+
+  describe('evaluateLicensePolicy', () => {
+    /** Strict default policy — same shape as the config schema. */
+    const strictPolicy = {
+      allowed_licenses: ['MIT', 'Apache-2.0', 'BSD-3-Clause', 'ISC'],
+      on_unknown_license: 'block' as const,
+      on_proprietary: 'block' as const,
+    };
+
+    /** Permissive policy — accepts unknown with a warning. */
+    const lenientPolicy = {
+      allowed_licenses: ['MIT'],
+      on_unknown_license: 'warn' as const,
+      on_proprietary: 'warn' as const,
+    };
+
+    it('allows a license that is in allowed_licenses', () => {
+      const decision = evaluateLicensePolicy({ spdxId: 'MIT' }, strictPolicy);
+      expect(decision.action).toBe('allow');
+      expect(decision.spdxId).toBe('MIT');
+      expect(decision.reason).toContain('allowed_licenses');
+    });
+
+    it('blocks PROPRIETARY when on_proprietary is block', () => {
+      const decision = evaluateLicensePolicy(
+        { spdxId: 'PROPRIETARY', licenseSource: 'https://example.com/LICENSE.txt' },
+        strictPolicy,
+      );
+      expect(decision.action).toBe('block');
+      expect(decision.reason).toContain('proprietary');
+      expect(decision.reason).toContain('https://example.com/LICENSE.txt');
+    });
+
+    it('warns on PROPRIETARY when on_proprietary is warn', () => {
+      const decision = evaluateLicensePolicy({ spdxId: 'PROPRIETARY' }, lenientPolicy);
+      expect(decision.action).toBe('warn');
+      expect(decision.spdxId).toBe('PROPRIETARY');
+    });
+
+    it('blocks UNKNOWN under strict policy', () => {
+      const decision = evaluateLicensePolicy({ spdxId: 'UNKNOWN' }, strictPolicy);
+      expect(decision.action).toBe('block');
+      expect(decision.reason).toContain('no LICENSE file found');
+    });
+
+    it('blocks GPL-3.0 (not in allowed_licenses) under strict policy', () => {
+      const decision = evaluateLicensePolicy({ spdxId: 'GPL-3.0' }, strictPolicy);
+      expect(decision.action).toBe('block');
+      expect(decision.reason).toContain('GPL-3.0');
+      expect(decision.reason).toContain('allowed_licenses');
+    });
+
+    it('warns on UNKNOWN under lenient policy', () => {
+      const decision = evaluateLicensePolicy({ spdxId: 'UNKNOWN' }, lenientPolicy);
+      expect(decision.action).toBe('warn');
+    });
+
+    it('forceLicense override always returns allow regardless of detected', () => {
+      // PROPRIETARY would normally block under strict — force override permits it
+      const decision = evaluateLicensePolicy(
+        { spdxId: 'PROPRIETARY', licenseSource: 'https://example.com/LICENSE' },
+        strictPolicy,
+        'MIT',
+      );
+      expect(decision.action).toBe('allow');
+      expect(decision.spdxId).toBe('MIT');
+      expect(decision.reason).toContain('forced');
+    });
+
+    it('forceLicense overrides UNKNOWN to allow', () => {
+      const decision = evaluateLicensePolicy({ spdxId: 'UNKNOWN' }, strictPolicy, 'Apache-2.0');
+      expect(decision.action).toBe('allow');
+      expect(decision.spdxId).toBe('Apache-2.0');
+    });
+
+    it('config default policy: warn on unknown, block on proprietary', () => {
+      // Default schema values from src/core/types.ts install section
+      const defaultPolicy = {
+        allowed_licenses: [
+          'MIT',
+          'Apache-2.0',
+          'BSD-2-Clause',
+          'BSD-3-Clause',
+          'ISC',
+          'MPL-2.0',
+          'CC-BY-4.0',
+          'CC0-1.0',
+          'Unlicense',
+        ],
+        on_unknown_license: 'warn' as const,
+        on_proprietary: 'block' as const,
+      };
+
+      // PROPRIETARY blocked
+      expect(evaluateLicensePolicy({ spdxId: 'PROPRIETARY' }, defaultPolicy).action).toBe('block');
+      // UNKNOWN warns (so existing workflows don't break)
+      expect(evaluateLicensePolicy({ spdxId: 'UNKNOWN' }, defaultPolicy).action).toBe('warn');
+      // MIT allowed
+      expect(evaluateLicensePolicy({ spdxId: 'MIT' }, defaultPolicy).action).toBe('allow');
+      // GPL-3.0 warns (not in allowed_licenses, falls into on_unknown_license bucket)
+      expect(evaluateLicensePolicy({ spdxId: 'GPL-3.0' }, defaultPolicy).action).toBe('warn');
     });
   });
 });

@@ -4497,6 +4497,7 @@ program
   .option('--force', 'Force install despite validation warnings')
   .option('--skip-fix', 'Skip auto-fix (no frontmatter/L0/L1 generation)')
   .option('--tags <tags...>', 'Additional tags to add')
+  .option('--force-license <spdx>', 'Override license policy for this install (SPDX id, e.g. "MIT")')
   .option('--json', 'Output as JSON')
   .action(async (source: string, opts: Record<string, unknown>) => {
     const dir = resolve(opts.dir as string);
@@ -4568,6 +4569,7 @@ program
       force: opts.force as boolean | undefined,
       skipFix: opts.skipFix as boolean | undefined,
       tags: opts.tags as string[] | undefined,
+      forceLicense: opts.forceLicense as string | undefined,
     });
 
     if (opts.json) {
