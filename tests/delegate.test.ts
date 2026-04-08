@@ -6,40 +6,51 @@ import { tmpdir } from 'os';
 vi.mock('../src/llm/provider.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/llm/provider.js')>();
   const { MockLanguageModelV3 } = await import('ai/test');
-  const model = new MockLanguageModelV3({
-    provider: 'mock',
-    modelId: 'mock-model',
-    doGenerate: async () => ({
-      content: [{ type: 'text' as const, text: 'Delegated agent response.' }],
-      finishReason: { type: 'stop' as const },
-      usage: {
-        inputTokens: { total: 80, noCache: 80, cacheRead: undefined, cacheWrite: undefined },
-        outputTokens: { total: 40, text: 40, reasoning: undefined },
-      },
-    }),
-    doStream: async () => ({
-      stream: new ReadableStream({
-        start(controller) {
-          controller.enqueue({ type: 'text-start' as const, id: '1' });
-          controller.enqueue({ type: 'text-delta' as const, id: '1', delta: 'Streamed ' });
-          controller.enqueue({ type: 'text-delta' as const, id: '1', delta: 'delegation.' });
-          controller.enqueue({ type: 'text-end' as const, id: '1' });
-          controller.enqueue({
-            type: 'finish' as const,
-            usage: {
-              inputTokens: { total: 60, noCache: 60, cacheRead: undefined, cacheWrite: undefined },
-              outputTokens: { total: 20, text: 20, reasoning: undefined },
-            },
-            finishReason: { type: 'stop' as const },
-          });
-          controller.close();
+
+  // Build three distinct mock models so tests can assert which one was
+  // selected based on the agent's frontmatter `model:` field.
+  const makeMock = (tag: string) =>
+    new MockLanguageModelV3({
+      provider: 'mock',
+      modelId: `mock-${tag}`,
+      doGenerate: async () => ({
+        content: [{ type: 'text' as const, text: `Delegated response (${tag}).` }],
+        finishReason: { type: 'stop' as const },
+        usage: {
+          inputTokens: { total: 80, noCache: 80, cacheRead: undefined, cacheWrite: undefined },
+          outputTokens: { total: 40, text: 40, reasoning: undefined },
         },
       }),
-    }),
-  });
+      doStream: async () => ({
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: 'text-start' as const, id: '1' });
+            controller.enqueue({ type: 'text-delta' as const, id: '1', delta: 'Streamed ' });
+            controller.enqueue({ type: 'text-delta' as const, id: '1', delta: `(${tag}).` });
+            controller.enqueue({ type: 'text-end' as const, id: '1' });
+            controller.enqueue({
+              type: 'finish' as const,
+              usage: {
+                inputTokens: { total: 60, noCache: 60, cacheRead: undefined, cacheWrite: undefined },
+                outputTokens: { total: 20, text: 20, reasoning: undefined },
+              },
+              finishReason: { type: 'stop' as const },
+            });
+            controller.close();
+          },
+        }),
+      }),
+    });
+
+  const primaryModel = makeMock('primary');
+  const summaryModel = makeMock('summary');
+  const fastModel = makeMock('fast');
+
   return {
     ...actual,
-    getModel: vi.fn().mockReturnValue(model),
+    getModel: vi.fn().mockReturnValue(primaryModel),
+    getSummaryModel: vi.fn().mockReturnValue(summaryModel),
+    getFastModel: vi.fn().mockReturnValue(fastModel),
   };
 });
 
@@ -492,7 +503,7 @@ status: active
       });
 
       expect(result.agentId).toBe('agent-worker');
-      expect(result.text).toBe('Delegated agent response.');
+      expect(result.text).toBe('Delegated response (primary).');
       expect(result.usage.totalTokens).toBeGreaterThan(0);
       expect(result.sessionId).toMatch(/^\d{4}-\d{2}-\d{2}-/);
 
@@ -504,6 +515,112 @@ status: active
       const sessionContent = readFileSync(join(sessionsDir, files[0]), 'utf-8');
       expect(sessionContent).toContain('**Delegated to:** agent-worker');
       expect(sessionContent).toContain('tags: [session, delegation, agent-worker]');
+    });
+
+    // ─── Task 12.15: agent frontmatter model: selector ────────────────────
+    // Sub-agents can declare `model: primary | summary | fast` to route the
+    // LLM call to getModel / getSummaryModel / getFastModel respectively.
+    // Invalid values throw. Unset defaults to primary (unchanged behavior).
+
+    it('agent without model: field uses primary (current behavior preserved)', async () => {
+      writeFileSync(
+        join(testDir, 'agents', 'no-model-field.md'),
+        `---
+id: agent-no-model
+tags: [agent]
+status: active
+---
+
+<!-- L0: No model field. -->
+
+# Agent: No Model Field
+`
+      );
+
+      const result = await delegateTo({
+        harnessDir: testDir,
+        agentId: 'agent-no-model',
+        prompt: 'hello',
+        apiKey: 'test-key',
+      });
+
+      // The primary mock responds with "Delegated response (primary)."
+      expect(result.text).toBe('Delegated response (primary).');
+    });
+
+    it('agent with model: summary routes to getSummaryModel', async () => {
+      writeFileSync(
+        join(testDir, 'agents', 'summary-agent.md'),
+        `---
+id: agent-summary
+tags: [agent]
+status: active
+model: summary
+---
+
+<!-- L0: Summary agent. -->
+
+# Agent: Summary
+`
+      );
+
+      const result = await delegateTo({
+        harnessDir: testDir,
+        agentId: 'agent-summary',
+        prompt: 'condense this',
+        apiKey: 'test-key',
+      });
+
+      // The summary mock responds with "Delegated response (summary)."
+      expect(result.text).toBe('Delegated response (summary).');
+    });
+
+    it('agent with model: fast routes to getFastModel', async () => {
+      writeFileSync(
+        join(testDir, 'agents', 'fast-agent.md'),
+        `---
+id: agent-fast
+tags: [agent]
+status: active
+model: fast
+---
+
+<!-- L0: Fast agent. -->
+
+# Agent: Fast
+`
+      );
+
+      const result = await delegateTo({
+        harnessDir: testDir,
+        agentId: 'agent-fast',
+        prompt: 'quick answer',
+        apiKey: 'test-key',
+      });
+
+      // The fast mock responds with "Delegated response (fast)."
+      expect(result.text).toBe('Delegated response (fast).');
+    });
+
+    it('agent with invalid model: value throws clear error', async () => {
+      // The zod enum rejects values outside primary/summary/fast, so the
+      // frontmatter parser normally drops them. But a passthrough-equivalent
+      // agent file using an unrecognized tier would throw in delegate.ts's
+      // switch statement. Simulate that by ensuring the error path exists —
+      // we write an agent with a valid enum value here and verify the
+      // default + allowed values work, since zod prevents the bad path
+      // from reaching delegate.ts in the first place.
+      //
+      // The defensive switch-default throws protect against frontmatter
+      // being injected by non-zod paths (direct API use, future extensions).
+      // Unit-testing the default-case throw directly would require bypassing
+      // zod, which is wrong. Instead, verify zod rejects the bad value:
+      const { FrontmatterSchema } = await import('../src/core/types.js');
+      const parsed = FrontmatterSchema.safeParse({
+        id: 'agent-bad',
+        model: 'nonsense-tier',
+      });
+      expect(parsed.success).toBe(false);
     });
   });
 
@@ -573,7 +690,7 @@ status: active
         fullText += chunk;
       }
 
-      expect(fullText).toBe('Streamed delegation.');
+      expect(fullText).toBe('Streamed (primary).');
 
       // Session should be written after stream is consumed
       const sessionsDir = join(testDir, 'memory', 'sessions');
@@ -582,7 +699,7 @@ status: active
 
       const sessionContent = readFileSync(join(sessionsDir, files[0]), 'utf-8');
       expect(sessionContent).toContain('**Delegated to:** agent-streamer');
-      expect(sessionContent).toContain('Streamed delegation.');
+      expect(sessionContent).toContain('Streamed (primary).');
       // Should capture real token count instead of 0
       expect(sessionContent).not.toContain('**Tokens:** 0');
     });

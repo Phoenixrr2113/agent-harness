@@ -731,3 +731,67 @@ New flag: `harness doctor --audit-licenses` re-fetches license metadata from eac
 - **L3 prompt is TTY-only**: when stdin/stdout is not a TTY (CI, piped input, npm scripts), `prompt` mode falls through to `block` rather than silently allowing. Documented in the install command's body. Anyone running `harness install` in CI with the default `on_unknown_license: warn` is fine; users who set it to `prompt` need to know it auto-blocks in non-interactive contexts.
 - **L3 config load failure handling**: the policy check is wrapped in try/catch. If `loadConfig()` throws (corrupt config.yaml, permission error, anything), the check is skipped with a warn-level log and the install proceeds. Level 3 must never block on its own bugs — that would be a worse failure mode than silent install.
 - **Subagent dropout rate during the 13:00-14:00 UTC window was ~80%**: 4 of 5 subagents I spawned for this task hit Anthropic API 529 overloaded errors mid-execution. One died at start (zero work), one died after writing partial code and zero tests, two completed their commits before crashing on the final report-back step, and one completed cleanly. Lesson: when farming work to subagents during high API load, design tasks so partial work is recoverable from durable artifacts (commits, files) rather than relying on the subagent's report-back. After the second L2 subagent died, I switched to direct implementation and finished L2 and L3 myself in roughly the same time the previous subagents were taking — sometimes the orchestration overhead exceeds the parallelism win.
+
+---
+
+## Phase 14 — Sub-agent model selection (minimal viable)
+
+### 12.15 — Agent frontmatter `model:` selector
+
+**Target**: v0.1.8. **Effort**: ~1 hour. **Risk**: low. **Commits**: 1.
+
+**Why**: Sub-agents today always use the primary config model. `summarizer` burns Sonnet tokens to condense text when a cheap model would do the same job. The harness already has `summary_model` and `fast_model` fields in `config.yaml` (in `src/core/types.ts` and `src/llm/provider.ts:getSummaryModel/getFastModel`), with existing fallback logic: `fast_model → summary_model → primary`. The only missing piece is wiring these into `delegate.ts`.
+
+**What this task is NOT**:
+- Not multi-provider (alternate models must use the same provider as the primary — if you're on OpenRouter your `summary_model` is an OpenRouter id)
+- Not a tier abstraction layer (`{{fast}}` template syntax was rejected — model ids are provider-specific, the abstraction leaks)
+- Not a per-agent tools allowlist (deferred to Obsidian backlog)
+- Not a CLI `--tier` override flag (deferred)
+- Not wrapped-agent-mode (Direction A, v0.2.0+)
+
+**Scope — exactly these changes, nothing more**:
+
+1. **`src/core/types.ts`**: add an optional `model` field to the agent frontmatter schema. Enum: `'primary' | 'summary' | 'fast'`. Default (when unset): `'primary'`.
+
+2. **`src/runtime/delegate.ts`** (`prepareDelegation`): read `agentDoc.frontmatter.model`, branch to the right provider helper:
+   ```ts
+   const modelTier = (agentDoc.frontmatter.model as string | undefined) ?? 'primary';
+   const model =
+     modelTier === 'fast'    ? getFastModel(config, apiKey) :
+     modelTier === 'summary' ? getSummaryModel(config, apiKey) :
+                               getModel(config, apiKey);
+   ```
+   Invalid values → throw at delegation time with the agent id and the bad value. Log the selected tier when non-default.
+
+3. **`tests/delegate.test.ts`**: 4 new cases.
+   - Agent without `model:` → uses primary (current behavior preserved)
+   - Agent with `model: fast`, no `fast_model` in config → falls back to primary
+   - Agent with `model: fast` AND `fast_model` set → uses configured fast model
+   - Agent with `model: invalid` → throws with clear error
+
+4. **`defaults/agents/summarizer.md`**: add `model: fast` to frontmatter as canonical example. Safe — `getFastModel` falls back to primary when unset, so fresh scaffolds are unchanged.
+
+5. **`README.md`**: one paragraph under sub-agents explaining the new field and referencing existing `fast_model`/`summary_model` config fields. ≤15 lines.
+
+6. **`package.json`**: bump to `0.1.8`.
+
+**Forbidden files** (do NOT touch):
+- `src/runtime/conversation.ts`, `journal.ts`, `instinct-learner.ts`, `mcp.ts`
+- `src/llm/provider.ts` — `getFastModel` / `getSummaryModel` already exist with fallback logic. Using them is the whole point.
+- `src/runtime/tool-executor.ts` — unrelated
+- `.github/workflows/*` — unrelated
+
+**Acceptance**:
+- `npm run lint` zero errors
+- `npm run build` success
+- `npm test` 1076+ passing (was 1072, +4 new)
+- `INTEGRATION=1 npm test -- tests/integration/learning-loop.e2e.test.ts` still green (learning loop uses `run`, not `delegate`, should be unaffected)
+- Fresh `harness init` → `validate`/`doctor`/`graph`/`info` all clean
+- `defaults/agents/summarizer.md` has `model: fast`
+- README updated
+- `package.json` version `0.1.8`
+
+**Commit**: `feat(agents): agent frontmatter can select primary/summary/fast model (v0.1.8)`
+
+- [x] **12.15 COMPLETE** — v0.1.8. Commit: see `feat(agents): agent frontmatter can select primary/summary/fast model`. Tests: 1076/1076 unit (+4 new), 5/5 local E2E still green. Deferred to backlog: tools allowlist, multi-provider sub-agents, CLI `--tier` override flag.
+

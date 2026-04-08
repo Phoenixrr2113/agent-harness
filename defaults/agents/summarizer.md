@@ -5,6 +5,10 @@ created: {{DATE}}
 updated: {{DATE}}
 author: human
 status: active
+# Summarizing is cheap — use the `fast` model tier from config.yaml if set.
+# Falls back to summary_model → primary model when fast_model isn't configured,
+# so this works on a fresh scaffold with zero config changes.
+model: fast
 related:
   - research
 ---

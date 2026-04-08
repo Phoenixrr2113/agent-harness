@@ -1,6 +1,21 @@
 import { z } from 'zod';
 
 // --- Frontmatter ---
+/**
+ * Which config.yaml model a sub-agent's LLM call should use when invoked
+ * via `harness delegate`. Only meaningful on agent primitives.
+ *
+ * - 'primary' (default): config.model.id — same as `harness run`
+ * - 'summary': config.model.summary_model (falls back to primary if unset)
+ * - 'fast':    config.model.fast_model (falls back to summary → primary)
+ *
+ * All three use the SAME provider as the primary config. Multi-provider
+ * sub-agents are explicitly not supported in this field — model ids are
+ * provider-specific and a portable tier abstraction leaks. If you need a
+ * different provider, that's a separate feature (backlog).
+ */
+export type AgentModelTier = 'primary' | 'summary' | 'fast';
+
 export const FrontmatterSchema = z.object({
   id: z.string(),
   tags: z.array(z.string()).default([]),
@@ -15,6 +30,8 @@ export const FrontmatterSchema = z.object({
   duration_minutes: z.number().optional(),
   max_retries: z.number().int().nonnegative().optional(),
   retry_delay_ms: z.number().int().positive().optional(),
+  /** Sub-agent only: which config model tier to use. See AgentModelTier above. */
+  model: z.enum(['primary', 'summary', 'fast']).optional(),
 });
 
 export type Frontmatter = z.infer<typeof FrontmatterSchema>;

@@ -459,6 +459,31 @@ memory:
 #   enforce: true
 ```
 
+## Sub-agent model selection
+
+Sub-agents in `agents/` can declare which config model to use for their delegated LLM call via an optional `model:` frontmatter field. This lets cheap tasks (summarizing, triage, classification) run on smaller/faster models while your primary agent uses a stronger one for reasoning.
+
+```yaml
+---
+id: agent-summarizer
+tags: [agent, utility]
+model: fast        # primary (default) | summary | fast
+---
+
+# Agent: Summarizer
+...
+```
+
+The three values map to existing `config.yaml` fields:
+
+- **`primary`** (default) — uses `config.model.id`. Same as `harness run`.
+- **`summary`** — uses `config.model.summary_model`, falling back to `primary` if unset.
+- **`fast`** — uses `config.model.fast_model`, falling back to `summary` → `primary`.
+
+All three resolve to a model on the **same provider** as your primary config. Multi-provider sub-agents (e.g. primary on OpenRouter with summarizer on local Ollama) aren't supported in this field — model ids are provider-specific and a portable abstraction leaks. If you need cross-provider routing, file an issue describing the use case.
+
+The default `agents/summarizer.md` ships with `model: fast` as a canonical example. It's safe on fresh scaffolds: when `fast_model` isn't configured, the fallback chain lands on your primary model, so you get the same behavior as v0.1.7 until you opt in by setting `fast_model` in `config.yaml`.
+
 ## Environment Variables
 
 | Variable | Required | Description |

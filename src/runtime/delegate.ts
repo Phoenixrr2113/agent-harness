@@ -3,7 +3,13 @@ import { join } from 'path';
 import { loadDirectory, estimateTokens, getAtLevel } from '../primitives/loader.js';
 import { loadConfig } from '../core/config.js';
 import { log } from '../core/logger.js';
-import { getModel, generate, streamGenerateWithDetails } from '../llm/provider.js';
+import {
+  getModel,
+  getSummaryModel,
+  getFastModel,
+  generate,
+  streamGenerateWithDetails,
+} from '../llm/provider.js';
 import { buildToolSet } from './tool-executor.js';
 import { createSessionId, writeSession, type SessionRecord } from './sessions.js';
 import type { HarnessDocument, HarnessConfig } from '../core/types.js';
@@ -176,7 +182,41 @@ function prepareDelegation(opts: DelegateOptions) {
     : undefined);
 
   const systemPrompt = buildAgentPrompt(harnessDir, agentDoc, config);
-  const model = getModel(config, apiKey);
+
+  // Sub-agent may declare `model: primary | summary | fast` in its
+  // frontmatter to route the delegated LLM call to a different config
+  // model than `harness run` uses. Defaults to 'primary' (same as
+  // today's behavior). Resolves via the existing provider helpers:
+  //
+  //   primary → config.model.id                      (always set)
+  //   summary → config.model.summary_model           (falls back to primary)
+  //   fast    → config.model.fast_model              (falls back to summary → primary)
+  //
+  // Invalid values throw a clear error at delegation time.
+  const modelTier = (agentDoc.frontmatter as { model?: string }).model ?? 'primary';
+  let model;
+  switch (modelTier) {
+    case 'primary':
+      model = getModel(config, apiKey);
+      break;
+    case 'summary':
+      model = getSummaryModel(config, apiKey);
+      log.debug(
+        `[delegate] agent "${agentDoc.frontmatter.id}" using summary model tier`,
+      );
+      break;
+    case 'fast':
+      model = getFastModel(config, apiKey);
+      log.debug(
+        `[delegate] agent "${agentDoc.frontmatter.id}" using fast model tier`,
+      );
+      break;
+    default:
+      throw new Error(
+        `Agent "${agentDoc.frontmatter.id}" declares model: "${modelTier}" ` +
+          `which is not valid. Allowed values: primary, summary, fast.`,
+      );
+  }
 
   // Load tools from the harness so sub-agents can use them
   const toolSet = buildToolSet(harnessDir);
