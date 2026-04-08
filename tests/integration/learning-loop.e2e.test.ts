@@ -7,30 +7,49 @@
  *   → verify instinct file written → verify next run loads it
  *
  * It uses **local Ollama** as the LLM backend so it costs $0/run and doesn't
- * need any API keys in CI. Skips automatically if Ollama isn't reachable or
- * the required model isn't pulled — so adding it to `tests/` doesn't break
+ * need any API keys. Skips automatically if Ollama isn't reachable or the
+ * required model isn't pulled — so adding it to `tests/` doesn't break
  * `npm test` on machines without Ollama installed.
  *
- * To run this manually:
+ * ## This test does NOT run in CI
  *
- *   1. Start Ollama: `ollama serve` (or it auto-starts on Mac)
- *   2. Pull the model: `ollama pull qwen3:1.7b`
- *   3. `INTEGRATION=1 npm test -- tests/integration/learning-loop.e2e.test.ts`
+ * Tried once (workflow `integration.yml`, commit 71a4f99, run 24143297177)
+ * and removed after two failed runs. GitHub's free runners don't have a GPU,
+ * so CPU inference of even a small 1.4 GB model (qwen3:1.7b) was slower than
+ * the test's per-prompt timeouts. Spending CI minutes on a flaky workflow
+ * that everyone learns to ignore is worse than no workflow at all.
  *
- * Without `INTEGRATION=1` this test self-skips even when Ollama is up,
- * because the full sequence takes 30–60 seconds and noisy log output isn't
- * appropriate for the regular `npm test` developer feedback loop. Set the
- * env var to opt in.
+ * ## How to run this — ALWAYS BEFORE PUSHING CODE THAT TOUCHES THE LEARNING LOOP
  *
- * To run as part of CI: add a separate workflow that installs Ollama, pulls
- * `qwen3:1.7b`, and runs `INTEGRATION=1 npm test`. The model is small (1.4 GB)
- * so the workflow setup is feasible on standard runners.
+ *   1. Start Ollama (auto-starts on Mac; `ollama serve` on Linux)
+ *   2. Pull the model once: `ollama pull qwen3:1.7b`
+ *   3. Build the harness: `npm run build`
+ *   4. Run the test: `INTEGRATION=1 npm test -- tests/integration/learning-loop.e2e.test.ts`
  *
- * If this test FAILS, it means the headline feature of the harness — the
- * learning loop that produces measurably different behavior over time — is
- * broken in some way the unit tests don't catch. Six releases shipped during
- * the v0.1.0 → v0.1.6 development cycle without an automated check for this,
- * relying on a single manual run. This test is the codification of that gap.
+ * Expected runtime on M-series Mac: ~60-90 seconds. On non-Mac Linux with
+ * CPU inference: 3-5 minutes. On Linux with GPU: comparable to Mac.
+ *
+ * Without `INTEGRATION=1` this test self-skips even when Ollama is up. That's
+ * deliberate — the full sequence is too slow and noisy for the regular
+ * developer feedback loop. Set the env var to opt in.
+ *
+ * ## What to do if this test FAILS
+ *
+ * It means the headline feature of the harness — the learning loop that
+ * produces measurably different behavior over time — is broken in some way
+ * the unit tests don't catch. Six releases shipped during the v0.1.0 → v0.1.6
+ * development cycle without an automated check for this, relying on a single
+ * manual run from session 1 of v0.1.0 development. This test is the
+ * codification of that gap. Fix whatever broke before pushing.
+ *
+ * ## Configuration
+ *
+ * Override these via env vars for non-default setups:
+ *   - OLLAMA_NATIVE_URL  — defaults to http://localhost:11434 (no /v1, probes /api/tags)
+ *   - OLLAMA_BASE_URL    — defaults to http://localhost:11434/v1 (with /v1, for chat completions)
+ *   - OLLAMA_TEST_MODEL  — defaults to qwen3:1.7b
+ *
+ * See `~/.claude/CLAUDE.md` testing gotchas for why these are two separate URLs.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
