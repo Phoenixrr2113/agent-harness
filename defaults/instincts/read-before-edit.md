@@ -6,6 +6,8 @@ updated: {{DATE}}
 author: agent
 status: active
 source: learned-behavior
+related:
+  - search-before-create
 ---
 
 <!-- L0: Always read a file before editing it. -->

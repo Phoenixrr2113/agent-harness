@@ -5,6 +5,8 @@ created: {{DATE}}
 updated: {{DATE}}
 author: human
 status: active
+related:
+  - research
 ---
 
 <!-- L0: Stateless summarizer agent — condenses long text into structured summaries. -->

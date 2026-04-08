@@ -6,6 +6,8 @@ updated: {{DATE}}
 author: agent
 status: active
 source: learned-behavior
+related:
+  - read-before-edit
 ---
 
 <!-- L0: Search for existing solutions before creating new ones. -->

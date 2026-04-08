@@ -6,6 +6,8 @@ updated: {{DATE}}
 author: agent
 status: active
 source: learned-behavior
+related:
+  - respect-the-user
 ---
 
 <!-- L0: Always lead with the answer, not the reasoning. -->

@@ -5,6 +5,9 @@ created: {{DATE}}
 updated: {{DATE}}
 author: human
 status: active
+related:
+  - read-before-edit
+  - search-before-create
 ---
 
 <!-- L0: Ship a feature — understand, research, plan, build, verify, deliver. -->

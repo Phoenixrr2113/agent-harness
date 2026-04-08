@@ -5,6 +5,8 @@ created: {{DATE}}
 updated: {{DATE}}
 author: human
 status: active
+related:
+  - respect-the-user
 ---
 
 <!-- L0: Core operational rules — communication, code standards, security, financial boundaries. -->

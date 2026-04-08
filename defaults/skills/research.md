@@ -5,6 +5,8 @@ created: {{DATE}}
 updated: {{DATE}}
 author: human
 status: active
+related:
+  - ask-before-assuming
 ---
 
 <!-- L0: Deep research — clarify question, find primary sources, verify, deliver recommendation. -->
