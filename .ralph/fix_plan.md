@@ -605,7 +605,7 @@
 
 **Commit:** no commit needed — the tag is the output. If `.ralph/smoke-test.md` was edited to append the log line, commit that: `chore(release): log v0.1.0 tag push`
 
-- [ ] **12.13 COMPLETE**
+- [~] **12.13 PARTIALLY COMPLETE** — local tag `v0.1.0` created at `fe6ff07`. Push BLOCKED: repo has no `origin` remote. See `.ralph/smoke-test.md` for the 7-step manual ship procedure the user must run.
 
 ---
 
@@ -625,3 +625,4 @@ _(Ralph: add discoveries, surprises, and notes here as you work. One bullet per 
 - **12.2**: The Node 18 `ExperimentalWarning: The Fetch API is an experimental feature` warning is suppressed by removing all default `warning` listeners and re-installing a filtered handler that drops only the fetch-related ExperimentalWarnings. All other warnings (e.g. deprecation, unhandled promise rejection) still print as before. Verified clean on both Node 18.12.1 and Node 22.22.1.
 - **12.2**: Discovered a small unrelated bug in `harness init`: when given a full path like `/tmp/v122-test`, it sets `agent.name` in `config.yaml` to the full path string instead of the basename `v122-test`. Not in 12.2's scope. Fix in 12.5 (which is doing the init UX cleanup anyway).
 - **12.10**: ⚠️ ACTION REQUIRED before tagging v0.1.0 — User must add `NPM_TOKEN` secret in GitHub repo settings (Settings → Secrets and variables → Actions → New repository secret). Token is generated at https://www.npmjs.com/settings/{username}/tokens with "Automation" type. Without it, the release workflow will fail at the publish step.
+- **12.13**: ⚠️ MAJOR DISCOVERY — repo has no `origin` git remote configured at all. `git remote -v` is empty. This was missed in the original ship plan. The release workflow can only fire on tag-push to GitHub, so before v0.1.0 can ship, the user must (1) create a GitHub repo, (2) `git remote add origin <url>`, (3) `git push -u origin main` (all commits from this session), (4) add `NPM_TOKEN` secret, (5) `git push origin v0.1.0`. Local tag was created at commit `fe6ff07` so step 5 is just a push, no re-tagging. Full procedure is in `.ralph/smoke-test.md`.
