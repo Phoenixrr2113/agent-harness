@@ -51,7 +51,7 @@
 
 **Commit:** `fix(sources): switch discover --remote to Contents API`
 
-- [ ] **12.1 COMPLETE**
+- [x] **12.1 COMPLETE**
 
 ---
 
@@ -618,3 +618,6 @@ _(Ralph: add discoveries, surprises, and notes here as you work. One bullet per 
 - **12.0**: `anthropics/skills` has no top-level LICENSE file. License verification for pre-bundled content is DEFERRED. v0.1.0 does not pre-bundle from external sources; all default content is written in-repo.
 - **12.0**: `discover --remote` fails on all sources because it uses GitHub Code Search API which requires auth. Fix is task 12.1.
 - **12.0**: `bench/terminal-bench/` scaffold is parked (correct code against correct Harbor contract, but waiting for out-of-scope runtime features). Do not touch.
+- **12.1**: Live CLI integration test (`harness discover search "skill" --remote`) was rate-limit-blocked during execution because my first naive implementation enumerated all 60+ wshobson plugin subdirs in one query and exhausted the 60 req/hr unauth limit. Fixed by (a) scoping top-level scans to the source's declared `content[]` field, (b) selectively recursing into `plugins/<topic>/` only when `<topic>` matches the query, (c) sharing a 50-call budget across all sources per discoverRemote call. Logic verified by 5 new mocked unit tests in tests/sources.test.ts. Live integration retry blocked until rate limit resets at 2026-04-08T07:12:03Z (~1 hour from commit). Discoveries should be revisited when 12.4 starts running live discover.
+- **12.1**: Pre-existing test `should find sources by name` was searching for "VibeGuard" — that source was removed from sources.yaml in an earlier session. Updated to search for "wshobson" which is still live. Folded into the 12.1 commit since it was blocking the test verification path.
+- **12.1**: Code Search API path is preserved as opt-in fallback only when BOTH `GITHUB_TOKEN` is set AND `HARNESS_DISCOVER_USE_CODE_SEARCH=1` is exported. Default for everyone is the unauthenticated Contents API. Power users get richer query semantics if they explicitly opt in.
