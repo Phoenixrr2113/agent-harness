@@ -460,7 +460,7 @@
 
 **Commit:** `docs(readme): rewrite for v0.1.0 with learning loop and MCP pitch`
 
-- [ ] **12.11 COMPLETE**
+- [x] **12.11 COMPLETE**
 
 ---
 
