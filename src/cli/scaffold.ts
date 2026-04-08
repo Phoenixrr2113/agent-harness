@@ -57,7 +57,7 @@ function copyDefaults(targetDir: string, vars: TemplateVars): void {
   const defaultsDir = join(getPackageRoot(), 'defaults');
   if (!existsSync(defaultsDir)) return;
 
-  const primitiveDirs = ['rules', 'instincts', 'skills', 'playbooks', 'agents'];
+  const primitiveDirs = ['rules', 'instincts', 'skills', 'playbooks', 'agents', 'tools', 'workflows'];
   for (const dir of primitiveDirs) {
     const srcDir = join(defaultsDir, dir);
     if (!existsSync(srcDir)) continue;

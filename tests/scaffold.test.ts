@@ -369,10 +369,13 @@ describe('harness init (scaffolding)', () => {
     it('should handle empty directories', () => {
       scaffoldHarness(agentDir, 'empty-agent');
 
-      // workflows/ and tools/ should be empty
+      // Defaults now ship with at least one workflow and one tool example,
+      // so these sections should list primitives rather than being empty.
       const systemMd = generateSystemMd(agentDir, 'empty-agent');
-      expect(systemMd).toContain('`workflows/` — (empty)');
-      expect(systemMd).toContain('`tools/` — (empty)');
+      expect(systemMd).toContain('`workflows/`');
+      expect(systemMd).toContain('`tools/`');
+      expect(systemMd).toContain('daily-reflection');
+      expect(systemMd).toContain('example-web-search');
     });
   });
 });
