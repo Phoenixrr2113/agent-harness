@@ -7,16 +7,28 @@ import type { HarnessConfig, ToolCallInfo } from '../core/types.js';
 import type { AIToolSet } from '../runtime/tool-executor.js';
 
 /** Supported provider names for config.model.provider */
-export type ProviderName = 'openrouter' | 'anthropic' | 'openai';
+export type ProviderName = 'openrouter' | 'anthropic' | 'openai' | 'ollama';
 
 /** Provider factory — maps provider names to (apiKey) => LanguageModel functions */
 type ProviderFactory = (modelId: string, apiKey?: string) => LanguageModel;
 
-const ENV_KEYS: Record<ProviderName, string> = {
+/**
+ * Environment variable each provider reads its API key from.
+ * Ollama runs locally and needs no auth, so it has no env key.
+ */
+const ENV_KEYS: Partial<Record<ProviderName, string>> = {
   openrouter: 'OPENROUTER_API_KEY',
   anthropic: 'ANTHROPIC_API_KEY',
   openai: 'OPENAI_API_KEY',
 };
+
+/**
+ * Default base URL for the local Ollama HTTP server. Ollama exposes an
+ * OpenAI-compatible chat completions endpoint at /v1 on this port.
+ * Override with the OLLAMA_BASE_URL env var when running on a non-default
+ * host or port (e.g. in Docker, on a remote box, behind a proxy).
+ */
+const OLLAMA_DEFAULT_BASE_URL = 'http://localhost:11434/v1';
 
 /** Cached provider instances keyed by provider name */
 const _providers: Map<string, ProviderFactory> = new Map();
@@ -27,7 +39,7 @@ function getOrCreateFactory(providerName: ProviderName, apiKey?: string): Provid
   if (cached) return cached;
 
   const envKey = ENV_KEYS[providerName];
-  const key = apiKey ?? process.env[envKey];
+  const key = apiKey ?? (envKey ? process.env[envKey] : undefined);
 
   let factory: ProviderFactory;
 
@@ -55,10 +67,21 @@ function getOrCreateFactory(providerName: ProviderName, apiKey?: string): Provid
       factory = (modelId) => provider(modelId);
       break;
     }
+    case 'ollama': {
+      // Ollama exposes an OpenAI-compatible chat completions endpoint at
+      // http://localhost:11434/v1 by default. Reuses @ai-sdk/openai with a
+      // baseURL override and a dummy apiKey (Ollama doesn't authenticate but
+      // the OpenAI SDK requires the field to be set to something).
+      // Override the host with OLLAMA_BASE_URL env var when needed.
+      const baseURL = process.env.OLLAMA_BASE_URL ?? OLLAMA_DEFAULT_BASE_URL;
+      const provider = createOpenAI({ baseURL, apiKey: 'ollama' });
+      factory = (modelId) => provider(modelId);
+      break;
+    }
     default:
       throw new Error(
         `Unknown provider "${providerName}". ` +
-        `Supported providers: ${Object.keys(ENV_KEYS).join(', ')}`
+        `Supported providers: openrouter, anthropic, openai, ollama`
       );
   }
 
