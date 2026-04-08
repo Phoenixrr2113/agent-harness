@@ -1,0 +1,3 @@
+Monolith or microservices for a 3-person team building an MVP?
+JWT or session cookies for a B2B SaaS with 200 orgs?
+Should I adopt TypeScript strict mode from day 1 or gradually?

@@ -1,0 +1,3 @@
+Should I use Redis or Postgres for caching user sessions? App has 10k DAU.
+SQLite vs Postgres for a new side project that might grow to ~1000 users?
+REST or GraphQL for an internal admin dashboard used by ~20 employees?
