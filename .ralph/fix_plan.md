@@ -377,7 +377,7 @@
 
 **Commit:** `chore(release): verify npm name and local install round-trip` (no-op commit if nothing changed, or the package.json rename if name was taken)
 
-- [ ] **12.9 COMPLETE**
+- [x] **12.9 COMPLETE**
 
 ---
 
