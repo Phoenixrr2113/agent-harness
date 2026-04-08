@@ -1,14 +1,16 @@
 # Agent Harness
 
-A file-first agent operating system. Build AI agents by editing markdown files, not writing code.
+> **The first agent framework where the agent gets measurably better as you use it. You write markdown, not code. Tools come from MCP.**
 
-## The Idea
+Agent Harness is a file-first framework for building agents by editing markdown. It's designed for anyone who wants to build an agent in 2026 — coder or non-coder — and its differentiator is a built-in learning loop: every interaction is journaled, patterns become instincts, and the agent improves without retraining or fine-tuning.
 
-Every AI agent framework today requires you to write code. LangChain, CrewAI, Anthropic Agent SDK, Vercel AI SDK — all code-first. If you can't program, you can't build agents.
+The code layer exists as an escape hatch, not the entry point. The folder IS the agent.
 
-Agent Harness takes a different approach: **the agent is the filesystem, not the code.**
+## Why this is different
 
-You `npm install` the harness, scaffold a directory, and get a working autonomous agent. Customize it by editing markdown files — identity, rules, instincts, skills, playbooks. The code layer exists but is optional. It's the escape hatch, not the entry point.
+- **Self-learning by default**: every interaction is journaled, patterns become instincts, agents get measurably better with use — no retraining, no fine-tuning.
+- **File-first authoring**: edit markdown, not code. The folder IS the agent.
+- **MCP-native tools**: the entire MCP ecosystem is your toolbox. No custom adapter layer.
 
 ## Quick Start
 
@@ -23,8 +25,8 @@ cd my-agent
 # Set your API key
 export OPENROUTER_API_KEY=sk-or-...
 
-# Talk to your agent
-harness run "Who are you?"
+# Ask your agent to do something useful
+harness run "Help me decide between two options: A or B"
 
 # Or start an interactive chat
 harness chat
@@ -35,6 +37,21 @@ harness info
 # Watch for file changes
 harness dev
 ```
+
+## The Learning Loop
+
+Agent Harness agents learn from experience through an automated pipeline:
+
+```
+Interaction → Session recorded → Journal synthesized → Instincts proposed → Auto-installed
+```
+
+1. Every interaction is saved as a **session** in `memory/sessions/`
+2. Run `harness journal` to synthesize sessions into a daily **journal** entry
+3. Run `harness learn --install` to detect behavioral patterns and install new **instincts**
+4. On the next run, the agent loads its new instincts and behaves differently
+
+This means your agent gets better over time — without you writing any code.
 
 ## How It Works
 
@@ -251,6 +268,18 @@ Use `-m` with a shorthand instead of full OpenRouter model IDs:
 | `claude` | anthropic/claude-sonnet-4 |
 | `gpt4o` | openai/gpt-4o |
 
+## Tools
+
+Agent Harness uses three tool layers, in priority order:
+
+1. **MCP servers** — the primary tool layer. Anything an agent reaches beyond its own files comes from an MCP server: web search, browsers, databases, file systems, code execution. Search the registry with `harness mcp search <query>` or detect what's already on your machine with `harness mcp discover`.
+
+2. **Markdown HTTP tools** — for trivial REST APIs where spinning up an MCP server is overkill. Drop a markdown file in `tools/` with frontmatter, an `## Authentication` section, and an `## Operations` section. The harness's HTTP executor calls them directly.
+
+3. **Programmatic tools** — escape hatch. For latency-critical or harness-internal access where you need a real JS function. Register via `defineAgent().withTool(...)`.
+
+You almost always want option 1.
+
 ## MCP Integration
 
 Agent Harness connects to [MCP servers](https://modelcontextprotocol.io/) to give your agent tools — file access, APIs, databases, and more.
@@ -390,21 +419,6 @@ On every run, the harness:
 5. Loads **scratch.md** if it has content
 
 Total harness overhead is typically ~1,000-3,000 tokens depending on how many primitives you have.
-
-## The Learning Loop
-
-Agent Harness agents learn from experience through an automated pipeline:
-
-```
-Interaction → Session recorded → Journal synthesized → Instincts proposed → Auto-installed
-```
-
-1. Every interaction is saved as a **session** in `memory/sessions/`
-2. Run `harness journal` to synthesize sessions into a daily **journal** entry
-3. Run `harness learn --install` to detect behavioral patterns and install new **instincts**
-4. On the next run, the agent loads its new instincts and behaves differently
-
-This means your agent gets better over time — without you writing any code.
 
 ## Tested Models
 
