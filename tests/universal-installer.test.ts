@@ -1,13 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import matter from 'gray-matter';
 import { scaffoldHarness } from '../src/cli/scaffold.js';
 import {
   detectFormat,
   normalizeToHarness,
   convertToRawUrl,
   universalInstall,
+  recordProvenance,
 } from '../src/runtime/universal-installer.js';
 import type { FormatDetection, UniversalInstallOptions } from '../src/runtime/universal-installer.js';
 
@@ -358,6 +360,151 @@ describe('universal-installer', () => {
       expect(result.installed).toBe(true);
       expect(result.format.format).toBe('mcp-config');
       expect(result.destination).toContain('tools');
+    });
+  });
+
+  // ─── Provenance recording (task 12.14, Level 1) ────────────────────────────
+  // Verifies the recordProvenance() helper writes source/installed_at/installed_by
+  // into a file's frontmatter, with the idempotency rule for source/source_commit.
+  // The github commit-SHA resolution path is mocked since it makes a network call.
+
+  describe('recordProvenance', () => {
+    let originalFetch: typeof globalThis.fetch;
+    let fetchSpy: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      originalFetch = globalThis.fetch;
+      fetchSpy = vi.fn();
+      globalThis.fetch = fetchSpy as unknown as typeof globalThis.fetch;
+    });
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    /** Helper: build a minimal harness markdown file body with given frontmatter. */
+    const buildContent = (data: Record<string, unknown>): string => {
+      const dummyBody = '<!-- L0: Test stub -->\n\n# Test Body\n\nLorem ipsum.';
+      return matter.stringify(dummyBody, data);
+    };
+
+    it('records provenance with source_commit on a github raw URL', async () => {
+      const fortyHexSha = 'a'.repeat(40);
+      // Mock the GitHub Contents API response — the only network call recordProvenance makes.
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ sha: fortyHexSha }),
+      } as Response);
+
+      const sourceUrl =
+        'https://raw.githubusercontent.com/owner/repo/main/skills/test.md';
+      const before = buildContent({
+        id: `test-${Math.random().toString(36).slice(2, 10)}`,
+        tags: ['skill'],
+        status: 'active',
+      });
+
+      const after = await recordProvenance(before, sourceUrl);
+      const parsed = matter(after);
+
+      expect(parsed.data.source).toBe(sourceUrl);
+      expect(parsed.data.source_commit).toBe(fortyHexSha);
+      expect(typeof parsed.data.installed_at).toBe('string');
+      expect(parsed.data.installed_by).toMatch(/^agent-harness@/);
+
+      // Verify the API was called with the right URL shape.
+      const calledUrl = fetchSpy.mock.calls[0]?.[0] as string;
+      expect(calledUrl).toContain('api.github.com/repos/owner/repo/contents/skills/test.md');
+      expect(calledUrl).toContain('ref=main');
+    });
+
+    it('records provenance without source_commit on a non-github URL', async () => {
+      // No fetch calls expected — non-github URLs skip the SHA resolution path.
+      const sourceUrl = 'https://example.com/some/file.md';
+      const before = buildContent({
+        id: `test-${Math.random().toString(36).slice(2, 10)}`,
+        tags: ['skill'],
+        status: 'active',
+      });
+
+      const after = await recordProvenance(before, sourceUrl);
+      const parsed = matter(after);
+
+      expect(parsed.data.source).toBe(sourceUrl);
+      expect(parsed.data.source_commit).toBeUndefined();
+      expect(typeof parsed.data.installed_at).toBe('string');
+      expect(parsed.data.installed_by).toMatch(/^agent-harness@/);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('install still succeeds when the GitHub Contents API fails', async () => {
+      // Simulate an API failure — network error, 5xx, abort, whatever.
+      fetchSpy.mockRejectedValueOnce(new Error('network down'));
+
+      const sourceUrl =
+        'https://raw.githubusercontent.com/owner/repo/main/skills/test.md';
+      const before = buildContent({
+        id: `test-${Math.random().toString(36).slice(2, 10)}`,
+        tags: ['skill'],
+        status: 'active',
+      });
+
+      const after = await recordProvenance(before, sourceUrl);
+      const parsed = matter(after);
+
+      // source still set, source_commit silently omitted.
+      expect(parsed.data.source).toBe(sourceUrl);
+      expect(parsed.data.source_commit).toBeUndefined();
+      expect(typeof parsed.data.installed_at).toBe('string');
+    });
+
+    it('preserves an existing source field (idempotency)', async () => {
+      const oldSource = 'https://old.example.com/foo.md';
+      const newSource = 'https://new.example.com/bar.md';
+      const before = buildContent({
+        id: 'test',
+        tags: ['skill'],
+        status: 'active',
+        source: oldSource,
+      });
+
+      const after = await recordProvenance(before, newSource);
+      const parsed = matter(after);
+
+      // source: NOT overwritten
+      expect(parsed.data.source).toBe(oldSource);
+      // installed_at and installed_by ARE updated
+      expect(typeof parsed.data.installed_at).toBe('string');
+      expect(parsed.data.installed_by).toMatch(/^agent-harness@/);
+      // No fetch — non-github URL, and source already set so SHA resolution is moot
+      // (current impl still attempts SHA resolution because source_commit is missing,
+      // but the URL is non-github so the regex match fails fast — verify no network call)
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('writes a valid ISO 8601 timestamp in installed_at', async () => {
+      const sourceUrl = 'https://example.com/file.md';
+      const before = buildContent({
+        id: `test-${Math.random().toString(36).slice(2, 10)}`,
+        tags: ['skill'],
+        status: 'active',
+      });
+
+      const beforeMs = Date.now();
+      const after = await recordProvenance(before, sourceUrl);
+      const afterMs = Date.now();
+
+      const parsed = matter(after);
+      const installedAt = parsed.data.installed_at as string;
+      const parsedMs = new Date(installedAt).getTime();
+
+      expect(Number.isNaN(parsedMs)).toBe(false);
+      // Must be within the test execution window (a few ms tolerance for clock).
+      expect(parsedMs).toBeGreaterThanOrEqual(beforeMs - 100);
+      expect(parsedMs).toBeLessThanOrEqual(afterMs + 100);
+      // Round-trip check: a parsed Date should re-stringify to ISO format.
+      expect(new Date(parsedMs).toISOString()).toBe(installedAt);
     });
   });
 });

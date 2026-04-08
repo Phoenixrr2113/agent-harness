@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'fs';
 import { join, basename, extname } from 'path';
 import { tmpdir } from 'os';
+import { createRequire } from 'module';
 import matter from 'gray-matter';
 import { parse as parseYaml } from 'yaml';
 import { fixCapability, installCapability, downloadCapability } from './intake.js';
@@ -8,6 +9,136 @@ import { autoProcessFile } from './auto-processor.js';
 import { discoverSources, loadAllSources } from './sources.js';
 import type { Source, SourceDiscoveryResult } from './sources.js';
 import { log } from '../core/logger.js';
+
+// ─── Provenance ──────────────────────────────────────────────────────────────
+
+/**
+ * Read the harness's own package.json version for the `installed_by` field.
+ *
+ * Has to handle three possible runtime layouts because tsup bundles flat:
+ *   - Dev/test:   src/runtime/universal-installer.ts → ../../package.json
+ *   - Built bin:  dist/cli/index.js                  → ../../package.json
+ *   - Built lib:  dist/<bundle>.js                   → ../package.json
+ *
+ * Walks up one directory at a time, requires `package.json`, and returns
+ * the version of the FIRST one whose name is `@agntk/agent-harness`. Stops
+ * after a few levels so a broken environment never causes an infinite loop.
+ * Returns "unknown" on any failure so an install never blocks on this.
+ */
+function getHarnessVersion(): string {
+  try {
+    const require = createRequire(import.meta.url);
+    const candidates = [
+      '../package.json',
+      '../../package.json',
+      '../../../package.json',
+    ];
+    for (const candidate of candidates) {
+      try {
+        const pkg = require(candidate) as { name?: string; version?: string };
+        if (pkg.name === '@agntk/agent-harness' && pkg.version) {
+          return pkg.version;
+        }
+      } catch {
+        // Candidate didn't resolve — try the next one.
+      }
+    }
+    return 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * Resolve a commit SHA for a GitHub raw URL by calling the GitHub Contents API.
+ *
+ * Input URL shape:
+ *   https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{path}
+ * where {ref} is either a 40-char commit SHA or a branch/tag name.
+ *
+ * Returns the SHA (either the one already in the URL, or the one resolved from
+ * a branch name via the Contents API). Returns `null` on any failure — network
+ * error, timeout, 404, non-github host, unparseable URL — so the install can
+ * proceed without source_commit.
+ */
+async function resolveGithubCommitSha(url: string): Promise<string | null> {
+  // Only handle raw.githubusercontent.com URLs
+  const match = url.match(
+    /^https?:\/\/raw\.githubusercontent\.com\/([^/]+)\/([^/]+)\/([^/]+)\/(.+)$/,
+  );
+  if (!match) return null;
+  const [, owner, repo, ref, path] = match;
+
+  // If ref is already a 40-char hex SHA, just return it
+  if (/^[0-9a-f]{40}$/i.test(ref)) return ref;
+
+  // Otherwise resolve via the Contents API
+  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${ref}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(apiUrl, {
+      signal: controller.signal,
+      headers: { 'Accept': 'application/vnd.github+json' },
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { sha?: string };
+    if (typeof data.sha === 'string' && /^[0-9a-f]{40}$/i.test(data.sha)) {
+      return data.sha;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Inject provenance fields into a normalized markdown file's frontmatter.
+ *
+ * Rules:
+ * - `source` and `source_commit` are preserved if already present (idempotent)
+ * - `installed_at` and `installed_by` are always updated to reflect the most
+ *   recent install action
+ * - `source_commit` is only written when a SHA could be resolved
+ *
+ * @param content Normalized markdown content with existing frontmatter
+ * @param originalSource The exact URL the user passed to `harness install`
+ * @returns The content with provenance fields merged into frontmatter
+ */
+export async function recordProvenance(
+  content: string,
+  originalSource: string,
+): Promise<string> {
+  let parsed: ReturnType<typeof matter>;
+  try {
+    parsed = matter(content);
+  } catch {
+    return content;
+  }
+
+  const data = parsed.data as Record<string, unknown>;
+
+  // Preserve existing source — idempotency rule
+  if (!data.source) {
+    data.source = originalSource;
+  }
+
+  // Preserve existing source_commit; only resolve if missing AND URL is github raw
+  if (!data.source_commit) {
+    const sha = await resolveGithubCommitSha(originalSource);
+    if (sha) {
+      data.source_commit = sha;
+    }
+  }
+
+  // Always update these to reflect the most recent install
+  data.installed_at = new Date().toISOString();
+  data.installed_by = `agent-harness@${getHarnessVersion()}`;
+
+  return matter.stringify(parsed.content, data);
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -673,11 +804,20 @@ export async function universalInstall(
   const normalized = normalizeToHarness(content, filename, detection, options);
   result.fixes.push(...normalized.fixes);
 
+  // Step 4b: Record provenance for URL installs so every installed file is
+  // traceable back to its source. Local-path installs are skipped — the path
+  // on disk is not a stable identifier.
+  let finalContent = normalized.content;
+  if (source.startsWith('http://') || source.startsWith('https://')) {
+    finalContent = await recordProvenance(finalContent, source);
+    result.fixes.push('Recorded provenance (source, installed_at, installed_by)');
+  }
+
   // Step 5: Write normalized content to temp file for installation
   const tempDir = join(tmpdir(), 'harness-install');
   mkdirSync(tempDir, { recursive: true });
   const tempPath = join(tempDir, normalized.filename);
-  writeFileSync(tempPath, normalized.content, 'utf-8');
+  writeFileSync(tempPath, finalContent, 'utf-8');
 
   // Step 6: Apply auto-fix if not skipped
   if (!options?.skipFix) {
