@@ -216,7 +216,7 @@
 
 **Source attribution:** Each pulled file's frontmatter must preserve its `source:` field (the universal installer sets this). If it doesn't, add it manually pointing to the original `download_url`. This is the licensing trail — users can trace any default back to where it came from.
 
-- [ ] **12.4 COMPLETE**
+- [x] **12.4 COMPLETE**
 
 ---
 
