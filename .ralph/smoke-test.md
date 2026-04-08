@@ -4,13 +4,16 @@
 >
 > - **v0.1.0** (2026-04-08) — Published as `@randywilson/agent-harness@0.1.0`, **YANKED ~2 hours later**. A license review sub-agent discovered 10 of the bundled default skills (from `anthropics/skills`) carried per-file proprietary LICENSE.txt files reading "© 2025 Anthropic, PBC. All rights reserved". Unpublished within the 72-hour window. See `.ralph/source-licenses.md` for the full review.
 >
-> - **v0.1.1** (2026-04-08) — ✅ **CURRENT.** Published as `@agntk/agent-harness@0.1.1` to npm via GitHub Actions release workflow (run `24137271301`). Commit `210126c`. Clean release: all 10 proprietary files removed, 2 retained wshobson/agents files got MIT attribution + NOTICE file at repo root, package renamed from `@randywilson` to `@agntk`.
+> - **v0.1.1** (2026-04-08) — Published as `@agntk/agent-harness@0.1.1` via run `24137271301`, commit `210126c`. License cleanup ship: all 10 proprietary files removed, 2 retained wshobson/agents files got MIT attribution + NOTICE file at repo root, package renamed from `@randywilson` to `@agntk`. **Superseded by v0.1.2** within minutes — `harness --version` was printing `0.1.0` because the version string was hardcoded in `src/cli/index.ts` and I forgot to bump it when I bumped `package.json`.
+>
+> - **v0.1.2** (2026-04-08) — ✅ **CURRENT.** Published as `@agntk/agent-harness@0.1.2` via run `24137570409`, commit `1547986`. Fixes the CLI version-string bug by reading `package.json.version` at runtime via `createRequire`. Future version bumps flow through automatically. All content unchanged from v0.1.1.
 >
 > **Live package:** https://www.npmjs.com/package/@agntk/agent-harness
 >
 > **Release URLs:**
 > - v0.1.0 (yanked): https://github.com/Phoenixrr2113/agent-harness/releases/tag/v0.1.0
-> - v0.1.1: https://github.com/Phoenixrr2113/agent-harness/releases/tag/v0.1.1
+> - v0.1.2 (latest): https://github.com/Phoenixrr2113/agent-harness/releases/tag/v0.1.2
+> - v0.1.1 tag exists on origin but has no GitHub release entry (transitional, superseded quickly)
 
 Ran: 2026-04-08T06:52:00Z
 By: Ralph task 12.12 (executed manually via Claude sub-agent)
