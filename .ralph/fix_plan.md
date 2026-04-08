@@ -318,7 +318,7 @@
 
 **Commit:** `chore: add LICENSE file (MIT)`
 
-- [ ] **12.7 COMPLETE**
+- [x] **12.7 COMPLETE**
 
 ---
 
