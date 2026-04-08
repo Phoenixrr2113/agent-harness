@@ -507,4 +507,231 @@ describe('universal-installer', () => {
       expect(new Date(parsedMs).toISOString()).toBe(installedAt);
     });
   });
+
+  // ─── License detection (task 12.14, Level 2) ───────────────────────────────
+  // Verifies detectLicense() walks the lookup chain (per-file LICENSE sibling →
+  // GitHub License API → fall back to UNKNOWN), correctly classifies license
+  // text, extracts copyright lines, and integrates with recordProvenance.
+
+  describe('detectLicense', () => {
+    let originalFetch: typeof globalThis.fetch;
+    let fetchSpy: ReturnType<typeof vi.fn>;
+
+    /** Mock-Response helpers (same shape vitest expects from fetch). */
+    const okText = (body: string): Response =>
+      ({ ok: true, status: 200, text: async () => body, json: async () => ({}) }) as Response;
+    const okJson = (body: unknown): Response =>
+      ({ ok: true, status: 200, text: async () => '', json: async () => body }) as Response;
+    const notFound = (): Response =>
+      ({ ok: false, status: 404, text: async () => 'Not Found', json: async () => ({}) }) as Response;
+
+    beforeEach(() => {
+      originalFetch = globalThis.fetch;
+      fetchSpy = vi.fn();
+      globalThis.fetch = fetchSpy as unknown as typeof globalThis.fetch;
+    });
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    it('finds a per-file LICENSE sibling and classifies as MIT', async () => {
+      const { detectLicense } = await import('../src/runtime/universal-installer.js');
+      // First sibling probe (LICENSE) returns MIT body. No further calls.
+      fetchSpy.mockResolvedValueOnce(
+        okText(
+          'MIT License\n\nCopyright (c) 2024 Acme Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software...',
+        ),
+      );
+
+      const info = await detectLicense(
+        'https://raw.githubusercontent.com/owner/repo/main/skills/test/SKILL.md',
+      );
+
+      expect(info.spdxId).toBe('MIT');
+      expect(info.copyright).toBe('Copyright (c) 2024 Acme Inc.');
+      expect(info.licenseSource).toBe(
+        'https://raw.githubusercontent.com/owner/repo/main/skills/test/LICENSE',
+      );
+    });
+
+    it('per-file LICENSE.txt with "All rights reserved" → PROPRIETARY', async () => {
+      const { detectLicense } = await import('../src/runtime/universal-installer.js');
+      // First sibling (LICENSE) 404, second (LICENSE.txt) returns proprietary text.
+      fetchSpy.mockResolvedValueOnce(notFound());
+      fetchSpy.mockResolvedValueOnce(
+        okText(
+          '© 2025 Anthropic, PBC. All rights reserved.\n\nYou may not extract materials from the Services, retain copies outside them, reproduce, create derivative works, or distribute to third parties.',
+        ),
+      );
+
+      const info = await detectLicense(
+        'https://raw.githubusercontent.com/anthropics/skills/main/skills/pdf/SKILL.md',
+      );
+
+      expect(info.spdxId).toBe('PROPRIETARY');
+      expect(info.copyright).toMatch(/all rights reserved/i);
+      expect(info.licenseSource).toContain('LICENSE.txt');
+    });
+
+    it('falls back to GitHub License API when no sibling found', async () => {
+      const { detectLicense } = await import('../src/runtime/universal-installer.js');
+      // All 5 sibling probes return 404 (LICENSE, LICENSE.txt, LICENSE.md, COPYING, COPYING.txt).
+      for (let i = 0; i < 5; i++) {
+        fetchSpy.mockResolvedValueOnce(notFound());
+      }
+      // Then the GitHub License API returns Apache-2.0.
+      fetchSpy.mockResolvedValueOnce(
+        okJson({
+          license: { spdx_id: 'Apache-2.0' },
+          html_url: 'https://github.com/owner/repo/blob/main/LICENSE',
+        }),
+      );
+
+      const info = await detectLicense(
+        'https://raw.githubusercontent.com/owner/repo/main/file.md',
+      );
+
+      expect(info.spdxId).toBe('Apache-2.0');
+      expect(info.licenseSource).toBe(
+        'https://github.com/owner/repo/blob/main/LICENSE',
+      );
+
+      // Verify the API was called.
+      const apiCall = fetchSpy.mock.calls.find((c) =>
+        (c[0] as string).includes('api.github.com/repos/owner/repo/license'),
+      );
+      expect(apiCall).toBeDefined();
+    });
+
+    it('non-github URL → returns UNKNOWN without any fetch calls', async () => {
+      const { detectLicense } = await import('../src/runtime/universal-installer.js');
+
+      const info = await detectLicense('https://example.com/somewhere/file.md');
+
+      expect(info.spdxId).toBe('UNKNOWN');
+      expect(info.copyright).toBeUndefined();
+      expect(info.licenseSource).toBeUndefined();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('GitHub License API returns NOASSERTION → UNKNOWN', async () => {
+      const { detectLicense } = await import('../src/runtime/universal-installer.js');
+      // All siblings 404.
+      for (let i = 0; i < 5; i++) {
+        fetchSpy.mockResolvedValueOnce(notFound());
+      }
+      // API returns NOASSERTION.
+      fetchSpy.mockResolvedValueOnce(
+        okJson({
+          license: { spdx_id: 'NOASSERTION' },
+          html_url: 'https://github.com/owner/repo/blob/main/LICENSE',
+        }),
+      );
+
+      const info = await detectLicense(
+        'https://raw.githubusercontent.com/owner/repo/main/file.md',
+      );
+
+      expect(info.spdxId).toBe('UNKNOWN');
+    });
+
+    it('GitHub License API body is decoded and copyright is extracted', async () => {
+      const { detectLicense } = await import('../src/runtime/universal-installer.js');
+      // All siblings 404.
+      for (let i = 0; i < 5; i++) {
+        fetchSpy.mockResolvedValueOnce(notFound());
+      }
+      // API returns Apache-2.0 with a base64-encoded body containing a copyright.
+      const licenseBody = 'Apache License\nVersion 2.0, January 2004\n\nCopyright (c) 2024 Example Corp\n\nLicensed under the Apache License...';
+      const base64Body = Buffer.from(licenseBody, 'utf-8').toString('base64');
+      fetchSpy.mockResolvedValueOnce(
+        okJson({
+          license: { spdx_id: 'Apache-2.0' },
+          html_url: 'https://github.com/owner/repo/blob/main/LICENSE',
+          content: base64Body,
+          encoding: 'base64',
+        }),
+      );
+
+      const info = await detectLicense(
+        'https://raw.githubusercontent.com/owner/repo/main/file.md',
+      );
+
+      expect(info.spdxId).toBe('Apache-2.0');
+      expect(info.copyright).toBe('Copyright (c) 2024 Example Corp');
+    });
+
+    it('classifies BSD-3-Clause text correctly', async () => {
+      const { detectLicense } = await import('../src/runtime/universal-installer.js');
+      fetchSpy.mockResolvedValueOnce(
+        okText(
+          'Copyright (c) 2023 Foo\n\nRedistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:\n\n1. ...\n2. ...\n3. Neither the name of the copyright holder nor the names of its contributors may be used...',
+        ),
+      );
+
+      const info = await detectLicense(
+        'https://raw.githubusercontent.com/foo/bar/main/lib.md',
+      );
+
+      expect(info.spdxId).toBe('BSD-3-Clause');
+    });
+
+    it('integration: license fields appear in recordProvenance output', async () => {
+      const { recordProvenance } = await import('../src/runtime/universal-installer.js');
+      // Mock chain: Contents API for source_commit, then LICENSE sibling for license.
+      fetchSpy.mockResolvedValueOnce(
+        okJson({ sha: 'b'.repeat(40) }),
+      );
+      fetchSpy.mockResolvedValueOnce(
+        okText('MIT License\n\nCopyright (c) 2024 Test User\n\nPermission is hereby granted...'),
+      );
+
+      const sourceUrl =
+        'https://raw.githubusercontent.com/owner/repo/main/skills/test.md';
+      const dummyBody = '<!-- L0: Test stub -->\n\n# Test Body\n\nLorem ipsum.';
+      // Unique id to avoid gray-matter content cache pollution.
+      const before = matter.stringify(dummyBody, {
+        id: `lic-int-${Math.random().toString(36).slice(2, 10)}`,
+        tags: ['skill'],
+        status: 'active',
+      });
+
+      const after = await recordProvenance(before, sourceUrl);
+      const parsed = matter(after);
+
+      // Provenance fields from Level 1
+      expect(parsed.data.source).toBe(sourceUrl);
+      expect(parsed.data.source_commit).toBe('b'.repeat(40));
+      // License fields from Level 2
+      expect(parsed.data.license).toBe('MIT');
+      expect(parsed.data.copyright).toBe('Copyright (c) 2024 Test User');
+      expect(typeof parsed.data.license_source).toBe('string');
+    });
+
+    it('integration: existing license: field is preserved (idempotency)', async () => {
+      const { recordProvenance } = await import('../src/runtime/universal-installer.js');
+      // The mock would say MIT, but the file already declares Apache-2.0 — author wins.
+      fetchSpy.mockResolvedValueOnce(
+        okText('MIT License\n\nCopyright (c) 2024 Other\n\nPermission is hereby granted...'),
+      );
+
+      const sourceUrl = 'https://example.com/file.md'; // non-github → no SHA call
+      const dummyBody = '<!-- L0: Test stub -->\n\n# Test Body';
+      const before = matter.stringify(dummyBody, {
+        id: `lic-keep-${Math.random().toString(36).slice(2, 10)}`,
+        tags: ['skill'],
+        status: 'active',
+        license: 'Apache-2.0',
+        copyright: 'Copyright (c) 2020 Original Author',
+      });
+
+      const after = await recordProvenance(before, sourceUrl);
+      const parsed = matter(after);
+
+      // Author-set values preserved verbatim
+      expect(parsed.data.license).toBe('Apache-2.0');
+      expect(parsed.data.copyright).toBe('Copyright (c) 2020 Original Author');
+    });
+  });
 });
