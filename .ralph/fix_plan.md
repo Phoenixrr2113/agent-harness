@@ -82,7 +82,7 @@
 
 **Commit:** `fix(cli): suppress dotenvx banners and Node fetch experimental warning`
 
-- [ ] **12.2 COMPLETE**
+- [x] **12.2 COMPLETE**
 
 ---
 
@@ -621,3 +621,6 @@ _(Ralph: add discoveries, surprises, and notes here as you work. One bullet per 
 - **12.1**: Live CLI integration test (`harness discover search "skill" --remote`) was rate-limit-blocked during execution because my first naive implementation enumerated all 60+ wshobson plugin subdirs in one query and exhausted the 60 req/hr unauth limit. Fixed by (a) scoping top-level scans to the source's declared `content[]` field, (b) selectively recursing into `plugins/<topic>/` only when `<topic>` matches the query, (c) sharing a 50-call budget across all sources per discoverRemote call. Logic verified by 5 new mocked unit tests in tests/sources.test.ts. Live integration retry blocked until rate limit resets at 2026-04-08T07:12:03Z (~1 hour from commit). Discoveries should be revisited when 12.4 starts running live discover.
 - **12.1**: Pre-existing test `should find sources by name` was searching for "VibeGuard" — that source was removed from sources.yaml in an earlier session. Updated to search for "wshobson" which is still live. Folded into the 12.1 commit since it was blocking the test verification path.
 - **12.1**: Code Search API path is preserved as opt-in fallback only when BOTH `GITHUB_TOKEN` is set AND `HARNESS_DISCOVER_USE_CODE_SEARCH=1` is exported. Default for everyone is the unauthenticated Contents API. Power users get richer query semantics if they explicitly opt in.
+- **12.2**: The CLI uses plain `dotenv@17.4.1`, NOT dotenvx. The banners we saw (`◇ injected env (N) from .env // tip: ⌘ ...`) are from dotenv 17.x's own behavior — the package was rebranded by the dotenvx team and the modern version always logs by default. Fixed by passing `{ quiet: true }` to both `loadDotenv()` calls. Banners come back via `HARNESS_VERBOSE=1`.
+- **12.2**: The Node 18 `ExperimentalWarning: The Fetch API is an experimental feature` warning is suppressed by removing all default `warning` listeners and re-installing a filtered handler that drops only the fetch-related ExperimentalWarnings. All other warnings (e.g. deprecation, unhandled promise rejection) still print as before. Verified clean on both Node 18.12.1 and Node 22.22.1.
+- **12.2**: Discovered a small unrelated bug in `harness init`: when given a full path like `/tmp/v122-test`, it sets `agent.name` in `config.yaml` to the full path string instead of the basename `v122-test`. Not in 12.2's scope. Fix in 12.5 (which is doing the init UX cleanup anyway).

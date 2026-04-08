@@ -1,12 +1,32 @@
+// Suppress Node 18 ExperimentalWarning for the Fetch API. Must run BEFORE any
+// import that triggers fetch (most of the Vercel AI SDK chain). Node 20+ users
+// won't see this warning at all; Node 18 users get clean output.
+// We listen on the 'warning' event and re-emit everything except the fetch one.
+const __defaultWarningHandlers = process.listeners('warning');
+process.removeAllListeners('warning');
+process.on('warning', (warning: NodeJS.ErrnoException) => {
+  if (warning.name === 'ExperimentalWarning' && /fetch/i.test(warning.message)) {
+    return;
+  }
+  // Restore default behavior: print the warning to stderr.
+  for (const handler of __defaultWarningHandlers) {
+    (handler as (w: NodeJS.ErrnoException) => void)(warning);
+  }
+});
+
 import { Command } from 'commander';
 import { resolve, join, basename } from 'path';
 import { existsSync } from 'fs';
 import { config as loadDotenv } from 'dotenv';
 import { setGlobalLogLevel, type LogLevel } from '../core/logger.js';
 
-// Load .env from current directory and common locations
-loadDotenv();
-loadDotenv({ path: resolve('.env.local') });
+// Load .env from current directory and common locations.
+// `quiet: true` suppresses dotenv 17.x's "injected env (N) from .env" banners
+// and the rotating "tip:" marketing text. Users who want the banners back can
+// run with HARNESS_VERBOSE=1 or unset DOTENV_CONFIG_QUIET in their shell.
+const __dotenvQuiet = process.env.HARNESS_VERBOSE !== '1';
+loadDotenv({ quiet: __dotenvQuiet });
+loadDotenv({ path: resolve('.env.local'), quiet: __dotenvQuiet });
 
 const program = new Command();
 
