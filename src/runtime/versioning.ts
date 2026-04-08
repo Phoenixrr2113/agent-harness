@@ -70,17 +70,34 @@ export interface VersionDiff {
 // ─── Git Helpers ─────────────────────────────────────────────────────────────
 
 /**
+ * Identity used for internal harness versioning commits. This keeps harness
+ * snapshots functional on machines (and CI runners) where the user has no
+ * global `user.name` / `user.email` configured. Harness versioning is an
+ * internal bookkeeping feature; the commits never leave the user's disk,
+ * so a synthetic identity is appropriate and doesn't pollute user git history.
+ */
+const HARNESS_GIT_AUTHOR_NAME = 'agent-harness';
+const HARNESS_GIT_AUTHOR_EMAIL = 'versioning@agent-harness.local';
+
+/**
  * Execute a git command in the harness directory.
  * Returns stdout as a string, or null if the command failed.
+ *
+ * All invocations automatically inject a synthetic author identity so commits
+ * succeed on machines without global git user config (e.g. CI runners, Docker
+ * containers, fresh VMs).
  */
 function gitExec(harnessDir: string, args: string): string | null {
   try {
-    const result = execSync(`git ${args}`, {
-      cwd: harnessDir,
-      encoding: 'utf-8',
-      timeout: 10000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const result = execSync(
+      `git -c user.name="${HARNESS_GIT_AUTHOR_NAME}" -c user.email="${HARNESS_GIT_AUTHOR_EMAIL}" ${args}`,
+      {
+        cwd: harnessDir,
+        encoding: 'utf-8',
+        timeout: 10000,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    );
     return result.trim();
   } catch {
     return null;
