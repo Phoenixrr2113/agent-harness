@@ -1,28 +1,30 @@
 # v0.1.0 Smoke Test Results
 
-> **Tag status (task 12.13):** Local tag `v0.1.0` created at commit
-> `fe6ff07` on 2026-04-08T06:55Z. Push to GitHub is **BLOCKED** because
-> the repo has no `origin` remote configured. The release workflow at
-> `.github/workflows/release.yml` only fires when GitHub sees a tag pushed
-> to it. **To actually ship v0.1.0:**
+> **Tag status (task 12.13): ✅ SHIPPED.** Published as
+> `@randywilson/agent-harness@0.1.0` to npm on 2026-04-08 via GitHub
+> Actions release workflow (run `24135947274`). Provenance signed via
+> sigstore (transparency log `logIndex=1253805158`). Tag `v0.1.0` points
+> at commit `896157d` on `Phoenixrr2113/agent-harness`.
 >
-> 1. Create the GitHub repo at https://github.com/new (suggested name:
->    `agent-harness` under your user — the npm package is scoped as
->    `@randywilson/agent-harness` so the GitHub name doesn't have to match)
-> 2. `git remote add origin git@github.com:<you>/agent-harness.git`
-> 3. `git push -u origin main` (pushes all commits from this session)
-> 4. Add `NPM_TOKEN` secret in GitHub repo Settings → Secrets and variables
->    → Actions. Generate at https://www.npmjs.com/settings/<you>/tokens with
->    type "Automation".
-> 5. `git push origin v0.1.0` (this triggers the release workflow which
->    builds, tests, lints, and runs `npm publish --access public --provenance`)
-> 6. Watch the workflow at https://github.com/<you>/agent-harness/actions
-> 7. After it succeeds: `npm view @randywilson/agent-harness@0.1.0` to
->    confirm the package is live
+> **Ship sequence — three attempts, three lessons learned:**
 >
-> If the release workflow fails at the publish step but everything else
-> passed, that's almost always the NPM_TOKEN secret missing or wrong. Add
-> it and re-run the workflow from the GitHub UI — no need to delete the tag.
+> 1. First tag `fe6ff07` → tests/versioning.test.ts failed on CI because
+>    fresh CI runners have no global git `user.email` / `user.name`.
+>    Fixed by injecting a synthetic identity into the `gitExec` helper
+>    (commit `84c08f6`).
+>
+> 2. Second tag `84c08f6` → `npm publish` returned `ENEEDAUTH`. Root
+>    cause: `NPM_TOKEN` had been added as a GitHub **Variable** instead
+>    of a **Secret**. Moved to Secrets and re-ran the workflow.
+>
+> 3. Third attempt → `npm publish` returned `E422` from sigstore
+>    provenance verification: `package.json` had no `repository.url`,
+>    so npm couldn't verify the provenance statement's GitHub source
+>    claim. Fixed by adding `repository`, `homepage`, `bugs` fields
+>    (commit `896157d`). Re-tagged, re-pushed, green.
+>
+> **Live package:** https://www.npmjs.com/package/@randywilson/agent-harness
+> **Release URL:** see `gh release view v0.1.0 --repo Phoenixrr2113/agent-harness`
 
 Ran: 2026-04-08T06:52:00Z
 By: Ralph task 12.12 (executed manually via Claude sub-agent)
