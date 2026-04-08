@@ -4046,31 +4046,6 @@ emoCmd
     console.log('Emotional state reset to defaults.');
   });
 
-// ── Check Action ─────────────────────────────────────────────────────────────
-
-program
-  .command('check-action')
-  .description('Check if an action is allowed by harness rules (agent-framework guardrails)')
-  .argument('<action>', 'Action description to check')
-  .option('-d, --dir <dir>', 'Harness directory', '.')
-  .option('--tags <tags>', 'Filter by rule tags (comma-separated)')
-  .option('--json', 'Output as JSON')
-  .action(async (action: string, opts: Record<string, unknown>) => {
-    const dir = resolve(opts.dir as string);
-    loadEnvFromDir(dir);
-    const { checkAction } = await import('../runtime/agent-framework.js');
-    const tags = opts.tags ? (opts.tags as string).split(',').map((t: string) => t.trim()) : undefined;
-    const result = checkAction(dir, action, { ruleTags: tags });
-
-    if (opts.json) {
-      console.log(JSON.stringify(result, null, 2));
-    } else if (result.allowed) {
-      console.log('[OK] Action allowed.');
-    } else {
-      console.log(`[BLOCKED] ${result.reason}`);
-    }
-  });
-
 // ── Serve ────────────────────────────────────────────────────────────────────
 
 program

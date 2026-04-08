@@ -68,7 +68,7 @@ Writing an agent in TypeScript or Python couples the agent's behavior to your pr
 - **The harness can write back** — `harness learn` produces markdown files you can read and edit by hand before accepting them.
 - **Portability** — the folder IS the agent. Share it by copying. Version it with git. Deploy it by tarring it.
 
-The code layer exists as an escape hatch when you need it — programmatic tool registration, custom hooks, library usage — but it's never the entry point.
+agent-harness is a CLI, not a library. There is no `import { createAgent }` API to wire into a TypeScript app — the entire authoring surface is markdown files inside a harness directory and the `harness` command. If you need programmatic control, script the CLI from your shell or call `harness run` from any process spawn (subprocess, Lambda, GitHub Actions). The tool is the boundary, not a JavaScript module.
 
 ## Why this is different
 
@@ -422,43 +422,6 @@ harness dev --no-auto-process  # Skip auto-processing
 ```
 
 The dashboard includes: agent status, health checks, spending, sessions, workflows, primitives browser, file editor, MCP status, settings editor, and a chat interface.
-
-## Using as a Library
-
-```typescript
-import { createHarness } from '@agntk/agent-harness';
-
-const agent = createHarness({
-  dir: './my-agent',
-  apiKey: process.env.OPENROUTER_API_KEY,
-});
-
-await agent.boot();
-
-// One-shot
-const result = await agent.run('What should I work on today?');
-console.log(result.text);
-
-// Streaming
-for await (const chunk of agent.stream('Explain this codebase')) {
-  process.stdout.write(chunk);
-}
-
-await agent.shutdown();
-```
-
-### Fluent Builder API
-
-```typescript
-import { defineAgent } from '@agntk/agent-harness';
-
-const agent = defineAgent('./my-agent')
-  .model('anthropic/claude-sonnet-4')
-  .provider('openrouter')
-  .onBoot(({ config }) => console.log(`Booted ${config.agent.name}`))
-  .onError(({ error }) => console.error(error))
-  .build();
-```
 
 ## Configuration
 
