@@ -103,7 +103,7 @@
 
 **Commit:** `fix(defaults): add missing primitive tags to scaffold files`
 
-- [ ] **12.3 COMPLETE**
+- [x] **12.3 COMPLETE**
 
 ---
 

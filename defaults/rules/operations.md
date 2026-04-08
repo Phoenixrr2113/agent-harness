@@ -1,6 +1,6 @@
 ---
 id: operations
-tags: [rules, operations, safety]
+tags: [rule, operations, safety]
 created: {{DATE}}
 updated: {{DATE}}
 author: human
