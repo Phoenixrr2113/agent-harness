@@ -44,84 +44,78 @@ sources:
     description: "Curated MCP server directory"
 
   # ── Skills & Agents ───────────────────────────────────────────────────────
-  - name: "ClawHub Skills"
-    url: "https://github.com/anthropics/clawhub"
+  - name: "Anthropic Skills"
+    url: "https://github.com/anthropics/skills"
     type: github
-    content: [skills, agents]
-    tags: [skills, agents, official, claude]
-    description: "Official Anthropic skills and agents hub"
+    content: [skills]
+    tags: [skills, official, claude, anthropic]
+    description: "Official Anthropic Agent Skills repository — pdf, docx, pptx, xlsx, mcp-builder, skill-creator, canvas-design, and more"
 
-  - name: "awesome-claude-code-toolkit"
-    url: "https://github.com/anthropics/awesome-claude-code-toolkit"
+  - name: "awesome-claude-code"
+    url: "https://github.com/hesreallyhim/awesome-claude-code"
     type: github
-    content: [skills, agents, templates, hooks]
-    tags: [skills, agents, templates, curated, official]
-    description: "Official curated collection of Claude Code extensions"
+    content: [skills, agents, hooks, templates]
+    tags: [skills, agents, curated, awesome-list]
+    description: "Canonical curated list of Claude Code resources — skills, agents, hooks, plugins, slash commands"
 
   - name: "wshobson/agents"
     url: "https://github.com/wshobson/agents"
     type: github
     content: [agents, skills]
     tags: [agents, skills, large-collection]
-    description: "112 agents and 146 skills for Claude Code"
+    description: "112 agents and 146 skills for Claude Code (organized as plugins/<topic>/agents/)"
     stats:
       agents: 112
       skills: 146
 
-  - name: "faf-skills"
-    url: "https://github.com/mlefrancois/faf-skills"
-    type: github
-    content: [skills]
-    tags: [skills, faf-format]
-    description: "31 skills in .faf YAML format"
-    stats:
-      skills: 31
-
-  - name: "oh-my-claudecode"
-    url: "https://github.com/nicobailon/oh-my-claudecode"
-    type: github
-    content: [skills, agents]
-    tags: [skills, agents, community]
-    description: "28 skills and 19 agents for Claude Code"
-    stats:
-      skills: 28
-      agents: 19
-
   # ── Hooks & Rules ─────────────────────────────────────────────────────────
-  - name: "claude-code-hooks"
-    url: "https://github.com/anthropics/claude-code-hooks"
+  - name: "karanb192/claude-code-hooks"
+    url: "https://github.com/karanb192/claude-code-hooks"
     type: github
     content: [hooks]
-    tags: [hooks, lifecycle, official]
-    description: "15 production-ready Claude Code hooks"
-    stats:
-      hooks: 15
+    tags: [hooks, lifecycle, community]
+    description: "Community collection of Claude Code lifecycle hooks (no official Anthropic hooks repo exists)"
 
-  - name: "VibeGuard"
-    url: "https://github.com/stormrageqb/VibeGuard"
-    type: github
-    content: [rules, hooks]
-    tags: [rules, hooks, security, quality]
-    description: "88 rules and 13 hooks for code quality and security"
-    stats:
-      rules: 88
-      hooks: 13
-
-  - name: "obey"
-    url: "https://github.com/nicobailon/obey"
-    type: github
-    content: [hooks]
-    tags: [hooks, lifecycle, middleware]
-    description: "17 lifecycle hooks for Claude Code"
-    stats:
-      hooks: 17
-
-  # ── Templates ─────────────────────────────────────────────────────────────
-  - name: "Claude Code Plugins"
-    url: "https://github.com/anthropics/claude-code-plugins"
+  # ── Templates & Plugins ───────────────────────────────────────────────────
+  - name: "Anthropic Plugins (Official)"
+    url: "https://github.com/anthropics/claude-plugins-official"
     type: github
     content: [templates, plugins]
-    tags: [templates, plugins, official]
-    description: "13 official Claude Code plugin templates"
-    stats:
-      plugins: 13
+    tags: [plugins, templates, official, anthropic]
+    description: "Official Anthropic-managed directory of high-quality Claude Code plugins"
+
+  - name: "Anthropic Plugins (Community)"
+    url: "https://github.com/anthropics/claude-plugins-community"
+    type: github
+    content: [templates, plugins]
+    tags: [plugins, templates, community, anthropic]
+    description: "Community plugin marketplace mirror for Claude Code (Apache-2.0)"
+
+  # ── Lossy analogues — review before enabling ───────────────────────────────
+  # These were proposed as replacements for sources that turned out to be
+  # fabricated (faf-skills, oh-my-claudecode, obey, VibeGuard). They are real
+  # repos but DO NOT match the original descriptions or content shape. Review
+  # each one and uncomment if it adds value, or delete the block if not.
+  #
+  # - name: "daymade/claude-code-skills"
+  #   url: "https://github.com/daymade/claude-code-skills"
+  #   type: github
+  #   content: [skills]
+  #   tags: [skills, community, unverified]
+  #   description: "REVIEW: closest analogue to mlefrancois/faf-skills (fabricated). Not .faf format."
+  #
+  # - name: "davila7/claude-code-templates"
+  #   url: "https://github.com/davila7/claude-code-templates"
+  #   type: github
+  #   content: [templates]
+  #   tags: [templates, community, unverified]
+  #   description: "REVIEW: closest analogue to nicobailon/oh-my-claudecode (fabricated). Templates, not skills/agents."
+  #
+  # - name: "disler/claude-code-hooks-mastery"
+  #   url: "https://github.com/disler/claude-code-hooks-mastery"
+  #   type: github
+  #   content: [hooks]
+  #   tags: [hooks, reference, unverified]
+  #   description: "REVIEW: closest analogue to nicobailon/obey (fabricated). Reference repo, not curated collection."
+
+  # No replacement found for stormrageqb/VibeGuard — the GitHub user does not exist.

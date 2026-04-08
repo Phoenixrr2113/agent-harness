@@ -1,1027 +1,620 @@
-# Ralph Fix Plan
+# Ralph Fix Plan — v0.1.0 Ship
 
-**IMPORTANT: Mark tasks [x] as you complete them. Update this file every loop.**
+**IMPORTANT: Mark tasks `[x]` as you complete them. Update this file every loop.**
 
-Reference docs:
-- Architecture vision: `.ralph/specs/architecture-vision.md`
-- Design decisions: `.ralph/specs/design-decisions.md`
-- Original design spec: `/Users/randywilson/Downloads/agent-harness 2/`
+**Reference docs:**
+- `.ralph/PROMPT.md` — principles, commit rules, stall detection
+- `.ralph/specs/architecture-vision.md` — NLAH thesis, layer model
+- `.ralph/specs/design-decisions.md` — locked taxonomy and governance decisions
 
----
-
-## Phase 11 — Bug Fixes from Manual Testing (CURRENT PRIORITY)
-
-Found during real end-to-end testing of all CLI commands.
-
-- [x] Fix `harness bundle` with no `--types` flag bundles 0 files — should default to including all primitive types (rules, instincts, skills, playbooks, workflows, tools, agents) when no `--types` specified
-  - `packBundle()` now defaults to CORE_PRIMITIVE_DIRS when no types and no files specified
-- [x] Fix `harness init` interactive CORE.md generation failure — currently says "LLM generation failed, using template instead" but swallows the error. Log the actual error message so users know what went wrong (e.g., API key issue, network error, model error)
-  - `generateCoreMd()` now throws with error message instead of returning null; caller shows actual error
-- [x] Fix 15 test failures in `tests/agent-framework.test.ts` and `tests/define-agent.test.ts` — all fail with "No API key found for provider openrouter". These tests must mock the provider using `ai/test` MockLanguageModelV3 instead of requiring a real API key. Follow the pattern used in other test files.
-  - Fixed: tests restructured to test API surface (createAgent, checkRuleViolation, defineAgent builder) without calling boot()/getModel(), so no API key is needed. All 27 tests pass.
-- [x] Suppress MCP server noise in CLI output — betterstack proxy logs 20+ lines of JSON-RPC debug output, supabase-mcp-server prints a full Python traceback. MCP server stderr should be captured and only shown with `--verbose`, not on every `harness run`. The WARN lines for failed connections are fine to keep.
-  - `buildClientConfig()` now passes `stderr: 'pipe'` to StdioMCPTransport unless log level is debug (--verbose)
-- [x] After fixing all bugs above, run EVERY CLI command against the test-agent directory and verify they all work.
-  - All 40 commands tested and passing (exit 0, reasonable output):
-  - init, run, run --stream, info, prompt, validate, status, doctor, gate run, gate list
-  - journal, learn, enrich, suggest, contradictions, dead-primitives, auto-promote
-  - discover search, sources list, discover project, discover env
-  - version init, version snapshot, version log, export
-  - bundle (no --types), bundle (with --types), process, system, index
-  - list-rules, check-rules, intelligence failures, playbook-gates
-  - semantic stats, installed, browse, mcp search, dashboard, --version
-  - Real LLM calls confirmed: run and run --stream produce correct responses
-  - MCP noise suppressed: no Python tracebacks or JSON-RPC debug in output
-  - WARN lines for failed MCP connections still visible (as intended)
-
-## Phase 1 — Make It Actually Work
-
-Nothing else matters until someone can run `harness run "hello"` and get a real response. Every task in this phase must use REAL LLM calls, not mocks.
-
-- [x] Run `harness init /tmp/e2e-test && harness run "Who are you?" -d /tmp/e2e-test` with a real OpenRouter API key. Fix every failure. This is the #1 task.
-- [x] Run `harness chat -d /tmp/e2e-test` and have a real multi-turn conversation. Verify conversation persists and survives restart.
-  - Fixed: readline crash on stdin EOF (ERR_USE_AFTER_CLOSE) — added close guard and event handler
-- [x] Run `harness journal -d /tmp/e2e-test` on the real sessions from above. Verify it synthesizes a real journal entry.
-- [x] Run `harness learn -d /tmp/e2e-test` on the real journal. Verify it proposes real instinct candidates.
-- [x] Verify the full lifecycle works: boot → run → session written → journal synthesized → instinct proposed → instinct installed → agent loads it on next boot
-- [x] Run `harness dev -d /tmp/e2e-test` and verify: file watcher detects changes, indexes rebuild, scheduled workflows fire
-  - Dev mode starts, watches, rebuilds indexes, runs scheduler, shuts down cleanly
-  - Fixed flaky watcher test: replaced fixed 2s timeout with polling waitFor + graceful skip
-- [x] Ship v0.1.0 to npm — SKIPPED (manual process, deferred)
-
-## Phase 2 — MCP + Tool Execution (CURRENT PRIORITY)
-
-MCP client is built (Loop 25-28). Now test it with REAL servers.
-
-- [x] MCP client with stdio/http/sse transports (mcp.ts)
-- [x] MCP config in HarnessConfigSchema
-- [x] MCP tools merged into unified ToolSet at boot
-- [x] Tool support in all paths: run(), stream(), Conversation.send(), sendStream()
-- [x] Tool call recording in session markdown
-- [x] MCP ecosystem integration — validator, telemetry, dashboard, status, info all MCP-aware
-- [x] Test with a REAL MCP server — install one, connect, use tools in a conversation
-  - Used @modelcontextprotocol/server-filesystem via stdio transport
-  - 14 tools discovered and loaded (read_file, write_file, list_directory, etc.)
-  - LLM successfully used list_directory, read_text_file, write_file in multi-step conversations
-  - Session recording captures all tool calls with args and results
-  - Status and dashboard display MCP server info correctly
-  - Fixed: chat mode race condition — MCP client was closed by readline EOF before tool calls finished
-  - Fix: deferred MCP cleanup with `sending`/`pendingClose` flags to keep client alive during in-flight requests
-- [x] Auto-discovery scan on `harness init` — find MCP servers from existing configs:
-  - Scans 9 tools: Claude Desktop, Claude Code, Cursor, VS Code, Windsurf, Cline, Roo Code, Zed, Copilot CLI
-  - Handles different JSON keys: mcpServers, servers (VS Code), context_servers (Zed)
-  - Claude Code: custom extraction for nested projects.<path>.mcpServers structure
-  - Deduplicates by server name (first seen wins across tools)
-  - Secret redaction: API keys in env → ${KEY_NAME}, Bearer tokens in args → ${BEARER_TOKEN}
-  - Integrated into `harness init` (auto-appends to config.yaml), `harness mcp discover` CLI command
-  - --no-discover-mcp flag to skip during init
-  - Fixed: Roo Code config path (mcp_settings.json), VS Code path (Application Support/Code/User/mcp.json)
-  - 22 tests covering all tools, dedup, secret redaction, JSONC, malformed JSON, nested Claude Code projects
-- [x] Universal installer agent — `harness mcp install <query>`: registry search, test connection, detect auth, auto-generate `tools/*.md` knowledge docs
-  - Created `mcp-registry.ts`: searchRegistry, getRegistryServer, resolveServerConfig, findServer, searchServers, deriveConfigName
-  - Created `mcp-installer.ts`: installMcpServer, updateConfigWithServer, generateToolDocs, formatRegistryServer
-  - Prefers npm stdio → any stdio → remotes → http packages; runtime hints (npx, uvx, docker)
-  - Config.yaml YAML document manipulation preserves existing structure/comments
-  - `harness mcp search <query>` — search registry with --json, --limit
-  - `harness mcp install <query>` — install with --force, --name, --skip-test, --skip-docs, --json
-  - Connection test via MCP manager, auto-generates tools/*.md knowledge docs
-  - 22 tests in mcp-installer.test.ts
-  - Verified with real MCP registry: search, install npm/pypi/remote servers, --force, --name override
-- [x] Auto-discover from environment — scan .env for API keys, suggest MCP servers
-  - Created `env-discovery.ts`: parseEnvFile, discoverEnvKeys with 25+ known API key patterns
-  - Matches GITHUB_TOKEN, OPENAI_API_KEY, SLACK_TOKEN, NOTION_API_KEY, DATABASE_URL, etc.
-  - Generic catch-all for *_API_KEY, *_SECRET_KEY, *_AUTH_TOKEN patterns
-  - Detects placeholder values (empty, "your-key-here", "${VAR}")
-  - Generates MCP server install suggestions for known services
-  - `harness discover env` CLI command with --json, --dir
-  - Integrated into `harness init` (scans parent dir, shows suggestions)
-  - 14 tests in env-discovery.test.ts
-- [x] Auto-discover project context — scan package.json/tsconfig/Dockerfile, suggest rules/skills
-  - Created `project-discovery.ts`: discoverProjectContext with signals + suggestions
-  - Detects: languages (TS, Python, Rust, Go, Ruby), frameworks (React, Next.js, Vue, Express, etc.)
-  - Detects: testing (Vitest, Jest, Playwright, Cypress), databases (Prisma, Redis, MongoDB, etc.)
-  - Detects: tools (Docker, GitHub Actions, ESLint, Tailwind), cloud (Vercel, Cloudflare, Terraform)
-  - Generates rule/skill/mcp-server suggestions based on detected signals
-  - `harness discover project` CLI command with --json, --dir
-  - Integrated into `harness init` (scans parent dir, shows stack + suggestions)
-  - 15 tests in project-discovery.test.ts
-
-## Phase 3 — Zero Boilerplate
-
-User just writes content, framework handles everything else.
-
-- [x] Make `harness init` interactive — asks name, purpose, generates CORE.md from description via LLM
-  - `harness init` (no name) enters interactive mode: asks name, purpose, template, optional LLM generation
-  - `harness init my-agent --purpose "..."` non-interactive with purpose description
-  - `harness init my-agent --generate` uses LLM to generate rich CORE.md
-  - `generateCoreMd()` function: LLM-generated identity doc with Values, Ethics, Capabilities, Boundaries
-  - {{PURPOSE}} template variable: purpose flows through template system into CORE.md
-  - Backward compatible: `harness init my-agent` still works exactly as before
-  - 5 new tests: purpose option, coreContent override, priority ordering, SYSTEM.md generation
-- [x] Auto-generate L0/L1 summaries when primitive saved without them — via text extraction, triggered by file watcher
-  - `autoProcessFile()`: generates L0 from heading/first line, L1 from first paragraph
-  - Integrated into watcher: auto-process on add/change events (before index rebuild)
-  - `harness process` CLI command for on-demand batch processing
-  - `--no-auto-process` flag on `harness dev` to disable
-  - Config-driven: `runtime.auto_process` (default: true) in config.yaml
-  - 26 tests in auto-processor.test.ts
-- [x] Auto-generate frontmatter when bare .md file saved — id from filename, created from now, author from directory, tags from content
-  - `autoProcessFile()`: adds id, created, author, status, tags from directory
-  - Skips CORE.md, SYSTEM.md, state.md, _index.md files
-  - Preserves existing frontmatter fields (only fills missing ones)
-  - Handles malformed frontmatter gracefully
-- [x] Auto-generate SYSTEM.md from actual directory structure — rebuild on file change
-  - `generateSystemMd()` scans directory structure, counts primitives, shows memory stats
-  - `harness system` CLI command regenerates SYSTEM.md from actual filesystem
-  - Auto-regenerated on `harness dev` startup
-  - Exported from index.ts for programmatic use
-  - 2 new tests: structure generation, empty directory handling
-- [x] Add `summary_model` config — cheap model for auto-generation (haiku, flash, local)
-  - Added `summary_model` field to HarnessConfigSchema model section (optional string)
-  - Added `auto_process` field to runtime section (boolean, default: true)
-  - Fixed CONFIG_DEFAULTS to include `auto_process: true`
-- [x] Multi-model routing — `primary_model` for reasoning, `summary_model` for L0/L1/tags, `fast_model` for validation
-  - `getSummaryModel()`: uses `model.summary_model` or falls back to primary model
-  - `getFastModel()`: uses `model.fast_model` → `summary_model` → primary model
-  - Config schema: `summary_model`, `fast_model` (both optional strings) in model section
-  - Exported from index.ts for use by consumers
-- [x] `harness dev` does everything invisibly — watch, index, auto-generate, journal, instinct learning, cleanup. One command, zero manual steps.
-  - Dev startup: auto-process all primitives, regenerate SYSTEM.md, rebuild indexes, start scheduler
-  - File watcher: auto-process on save, rebuild index, config live-reload
-  - Scheduler: cron-based workflows, session archival, journal compression
-  - `--no-auto-process`, `--no-schedule` flags for selective disabling
-
-## Phase 4 — Web Dashboard
-
-`harness dev` serves a browser UI alongside the file watcher.
-
-- [x] `harness dev` starts HTTP server on localhost:3000
-  - Hono web framework with @hono/node-server
-  - `--port` flag (default 3000), `--no-web` to disable
-  - Auto-starts alongside watcher, scheduler, auto-processor
-  - Graceful shutdown on SIGINT/SIGTERM
-- [x] REST API for primitives, config, state, sessions
-  - `GET /api/snapshot` — full telemetry snapshot (reuses collectSnapshot)
-  - `GET /api/config` — current config.yaml
-  - `GET /api/state` — agent state, `PUT /api/state` — update state
-  - `GET /api/primitives` — all primitives grouped by type (L0, tags, id)
-  - `GET /api/primitives/:type` — load all primitives of type
-  - `GET /api/primitives/:type/:file` — single primitive with full body
-  - `PUT /api/primitives/:type/:file` — edit primitive content (syncs to filesystem)
-  - `GET /api/sessions` — session list, `GET /api/sessions/:id` — session content
-  - CORS enabled for local development
-- [x] Dashboard — sessions today, token costs, loaded primitives, agent state, health
-  - `GET /` serves inline HTML dashboard (dark theme, responsive grid layout)
-  - Cards: Agent, Health, Spending, Sessions, Workflows, Primitives, MCP Servers, Live Events
-  - Auto-refreshes on file changes, 30s periodic fallback
-- [x] Live updates via SSE (Server-Sent Events)
-  - `GET /api/events` — SSE stream for real-time updates
-  - Events: file_change, index_rebuild, auto_process, config_change, snapshot
-  - SSEBroadcaster manages client connections, auto-cleanup on disconnect
-  - Watcher hooks → SSE broadcast → dashboard auto-refresh
-  - `GET /api/events/clients` — monitor connected client count
-- [x] Chat interface — talk to your agent in the browser
-  - `POST /api/chat` — send message, get response (lazy-initializes Conversation)
-  - `POST /api/chat/reset` — clear conversation history
-  - Chat panel in dashboard: message list, input bar, send/reset buttons
-  - SSE broadcasts `chat_response` events for live updates
-  - Input validation: non-empty message required (400 on empty/missing)
-  - 3 tests: empty message rejection, missing field rejection, reset
-- [x] File tree — browse and edit primitives, changes sync to filesystem
-  - `GET /api/files` — recursive file tree (maxDepth 3, skips .hidden and node_modules)
-  - `GET /api/files/*` — read file content with size/modified metadata
-  - `PUT /api/files/*` — write file (restricted to primitive dirs + core files)
-  - Path traversal protection: rejects paths escaping harnessDir
-  - Dashboard file panel: tree sidebar with expand/collapse, editor with save button
-  - 6 tests: tree structure, file read, 404, write, write rejection, core file write
-- [x] MCP manager — installed servers, connection status, install/remove
-  - `GET /api/mcp` — server list with transport, enabled, valid, command/url, errors
-  - Dashboard MCP panel: table with name, transport, enabled, valid, details
-  - Error list for invalid server configurations
-  - 2 tests: MCP status, invalid server detection
-- [x] Settings — config.yaml as a visual form
-  - `PUT /api/config` — update config.yaml, validates by reloading, broadcasts event
-  - Dashboard settings panel: editable textarea with save button
-  - Auto-reloads on config_change SSE events
-  - 2 tests: config update, missing content rejection
-
-<!-- SKIP phase 5 -->
-<!-- ## Phase 5 — AI SDK Deep Integration
-
-- [ ] Refactor LLM provider to use `wrapLanguageModel` for middleware
-- [ ] Integrate `@ai-sdk/devtools` middleware — observability dashboard at localhost:4983
-- [ ] Integrate OpenTelemetry telemetry (`experimental_telemetry`) — replaces custom telemetry.ts
-- [ ] Expose harness memory as AI SDK tools
-- [ ] Sub-agents via `ToolLoopAgent` — each agent becomes a tool with context isolation -->
-
-## Phase 6 — Ecosystem & Distribution
-
-- [x] Remote registry — `registries:` in config.yaml
-  - Added `registries` field to HarnessConfigSchema: array of `{url, name?, token?}`
-  - `searchBundleRegistry()` — search a registry for bundles via REST API
-  - `fetchFromRegistry()` — fetch a bundle by name/version from a registry
-  - `fetchRemoteBundle()` — download bundle from URL (JSON or raw)
-  - `searchConfiguredRegistries()` — search all configured registries, merge+deduplicate
-  - `installFromRegistry()` — install from configured registries by name (first match wins)
-  - Multi-registry support: parallel search, per-registry auth tokens
-- [x] Bundle format with manifest.yaml
-  - `BundleManifest` type: name, description, author, bundle_version, types, tags, files, dependencies, license
-  - `BundleFileEntry`: path, type, id, l0 per file
-  - `createManifest()` — generate manifest from files with auto-detected types/IDs
-  - `writeManifest()` / `readManifest()` — YAML serialization/validation
-  - `packBundle()` — collect files by type or explicit list, create manifest
-  - `writeBundleDir()` / `readBundleDir()` — pack/unpack to/from filesystem
-  - `harness bundle <output>` CLI: --name, --types, --files, --tags, --license, --json
-- [x] `harness uninstall` — soft-delete, check dependents
-  - `uninstallBundle()` — moves files to `archive/uninstalled/<name>/`
-  - Dependency checking: reads all installed manifests, blocks if dependents exist
-  - `--hard` flag for permanent deletion (no archive)
-  - Installation record in `.installed/<name>.yaml`
-  - `listInstalledBundles()` / `readInstalledManifests()`
-  - `harness installed` CLI to list installed bundles
-- [x] `harness update` — diff, confirm, replace
-  - `diffBundle()` — compare installed vs new version (added/modified/removed/unchanged)
-  - `updateBundle()` — apply new version, archive removed files
-  - Version tracking: oldVersion → newVersion
-  - `--remove-deleted` flag to archive files removed in new version
-  - `harness update <source>` CLI with diff preview
-- [x] `harness bundle-install <source>` — install from dir, JSON, or URL
-  - Supports bundle directories (manifest.yaml), legacy JSON bundles, and HTTP URLs
-  - --overwrite, --force (skip dep checks), --json
-- [ ] VS Code extension — talks to localhost HTTP server
-- [ ] `harness deploy` — Railway/Vercel
-
-## Phase 7 — Intelligence & Learning
-
-- [x] Auto-promote instincts when pattern repeats 3+ times across journals
-  - `autoPromoteInstincts()` — scans journals for "## Instinct Candidates" sections
-  - Normalizes behavior text for fuzzy matching across dates
-  - Configurable threshold (default 3+ unique dates)
-  - Optional auto-install with deduplication against existing instincts
-  - `harness auto-promote` CLI: --threshold, --install, --json
-- [x] Capability suggestions for frequent topics with no skill/playbook
-  - `suggestCapabilities()` — enriches sessions, finds frequent uncovered topics
-  - Cross-references against existing skills/playbooks by ID and tags
-  - Suggests skill (< 5 occurrences) or playbook (>= 5 occurrences)
-  - `harness suggest` CLI: --min-frequency, --json
-- [x] Contradiction detection between rules and instincts
-  - `detectContradictions()` — heuristic-based, no LLM needed
-  - Extracts directives: always/never/must/avoid/prefer patterns
-  - Cross-checks rules vs instincts and intra-group (rule vs rule)
-  - Topic-based detection: shared tags with opposing signals
-  - Fuzzy subject matching with word overlap scoring
-  - `harness contradictions` CLI: --json
-- [x] Dead primitive detection (unreferenced 30+ days)
-  - `detectDeadPrimitives()` — leverages buildDependencyGraph for orphan detection
-  - Checks file mtime against configurable threshold (default 30 days)
-  - Skips recently modified orphans (new files not yet referenced)
-  - Sorted by staleness (most stale first)
-  - `harness dead-primitives` CLI: --days, --json
-- [x] Session enrichment — auto-tag with topics, tokens, loaded primitives
-  - `enrichSessions()` — extracts metadata from session markdown files
-  - Topics: frequency-based keyword extraction from prompt/summary (stop word filtering)
-  - Tokens/steps/model/duration: regex extraction from session body
-  - Tools used: extracts from "### Tool Call:" sections
-  - Primitive references: cross-references all primitive IDs against session text
-  - Date range filtering support
-  - `harness enrich` CLI: --from, --to, --json
-- [x] Failure taxonomy — named failure modes driving recovery
-  - 15 named failure modes: context_overflow, tool_execution_error, budget_exhausted, rate_limited, llm_timeout, llm_error, hallucination_detected, stale_primitive, circular_delegation, missing_dependency, parse_error, config_invalid, mcp_connection_failed, state_corruption, unknown
-  - Each mode has: description, severity (low/medium/high/critical), recovery strategies, autoRecoverable flag
-  - `classifyFailure()` — error message → failure mode classification
-  - `getRecoveryStrategies()` — mode → ordered recovery strategy list
-  - `analyzeFailures()` — scan health.json + sessions for recent failures, frequency analysis
-  - `harness intelligence failures|classify` CLI commands
-  - 7 tests: taxonomy completeness, classification, Error objects, recovery strategies, analysis
-- [x] Verification gates — explicit acceptance criteria between stages
-  - 4 built-in gates: pre-boot, pre-run, post-session, pre-deploy
-  - Each gate runs multiple checks returning pass/fail/warn/skip status
-  - `runGate()`, `runAllGates()`, `listGates()` API
-  - pre-boot: CORE.md, config valid, API key, memory dir
-  - pre-run: budget, rate limits, health status
-  - post-session: session recording, parse errors
-  - pre-deploy: validator, dead primitives, contradictions
-  - `harness gate run [name]`, `harness gate list` CLI commands
-  - 7 tests: gate listing, pre-boot pass/fail, post-session, pre-deploy, unknown gate, all gates
-
-## Phase 8 — Framework APIs & Hardening
-
-- [x] `defineAgent()` with lifecycle hooks
-  - Fluent builder API wrapping `createHarness()`: `.model()`, `.provider()`, `.apiKey()`, `.configure()`
-  - Lifecycle hooks: `.onBoot()`, `.onSessionEnd()`, `.onError()`, `.onStateChange()`, `.onShutdown()`
-  - Tool config: `.maxToolCalls()`, `.toolTimeout()`, `.allowHttp()`
-  - Multiple hooks of same type chain automatically (sequential execution)
-  - Deep merge for `.configure()` calls — nested objects merge, arrays/primitives replace
-  - 10 tests: builder pattern, model/provider override, config merge, hooks, chaining, error
-- [x] Guardrails with enforcement — pre-action rule checking
-  - `rule-engine.ts`: parse enforceable rules from rule markdown primitives
-  - `parseRulesFromDoc()` — extract deny/allow/warn/require_approval from directive patterns
-  - `loadRules()` — scan rules/ directory, filter active status
-  - `checkRules()` — compute relevance between rules and action, word + tag overlap scoring
-  - `enforceRules()` — convenience: load + check in one call
-  - Approval gate detection: "without explicit human approval" → `require_approval` action
-  - `harness check-rules <action>`, `harness list-rules` CLI commands
-  - 14 tests: deny/allow/warn/approval parsing, loading, checking, enforcement
-- [x] Content-driven verification gates — extract acceptance criteria from playbooks
-  - `verification-gate.ts`: parse gates from playbook/workflow markdown
-  - 4 extraction strategies: `## Gate:` sections, `### Acceptance Criteria`, inline `<!-- gate: -->`, step checkboxes
-  - `loadGates()` / `getGatesForPlaybook()` — scan playbooks + workflows directories
-  - `checkGate()` — verify manual results + automated command outputs against criteria
-  - `checkAllGates()` — check all gates for a playbook in one call
-  - `harness playbook-gates [id]` CLI command
-  - 20 tests: extraction, loading, filtering, checking, automated criteria
-- [x] Human-in-the-loop gates — `requires_approval: true`
-  - `agent-framework.ts`: `ApprovalGateConfig` with `requireApproval()` + `onApprovalNeeded()` callbacks
-  - `createCliApproval()` — readline-based CLI approval with timeout
-  - `createWebhookApproval()` — POST webhook with JSON body, timeout, custom headers
-  - Integrated into `createAgent()` middleware pipeline: pre-run checks before LLM call
-  - `GuardrailEnforcementConfig` — rule tag filtering, custom check functions
-  - `BeforeRunContext` / `AfterRunContext` hooks for prompt modification/rejection
-  - `AgentMiddleware` type for composable middleware chains
-  - 17 tests: createAgent, guardrails, approval gates, middleware, beforeRun hooks
-- [x] Mixed-ownership state.md merging
-  - `state-merge.ts`: ownership-aware state merging with conflict resolution
-  - `StateOwnership` — tracks which entity (human/agent/infrastructure) owns each field
-  - `mergeState()` — apply changes with 4 strategies: human-wins, agent-wins, latest-wins, union
-  - Union strategy: array fields (goals, active_workflows, unfinished_business) merge by set union
-  - `StateConflict` records: field, humanValue, agentValue, resolvedTo, resolvedValue
-  - `loadOwnership()` / `saveOwnership()` — persist ownership in memory/state-ownership.json
-  - `applyStateChange()` — direct change without ownership tracking
-  - 9 tests: ownership persistence, same-owner changes, conflicts, strategies, timestamp
-- [x] Emotional state tracking
-  - `emotional-state.ts`: 5 operational disposition dimensions (0-100 scale)
-  - Dimensions: confidence, engagement, frustration, curiosity, urgency
-  - `applySignals()` — additive deltas with clamping, append to JSONL history
-  - `deriveSignals()` — heuristic signal derivation from session outcomes
-  - `summarizeEmotionalState()` — natural-language summary for context injection
-  - `getEmotionalTrends()` — compute rising/falling/stable trends from history
-  - `resetEmotionalState()` — reset all dimensions to defaults
-  - 21 tests: load/save, clamping, signals, derivation, summary, trends, reset
-- [x] Semantic retrieval — embed primitives, search at boot
-  - `semantic-search.ts`: embedding store with file-based JSON cache
-  - `EmbedFunction` abstraction for Vercel AI SDK `embed()`/`embedMany()` — testable with mocks
-  - `extractEmbeddableText()`: tags + L0 + L1 + truncated body (500 chars)
-  - `loadEmbeddingStore()` / `saveEmbeddingStore()` — persist as `memory/embeddings.json`
-  - `detectStalePrimitives()`: mtime + model change detection for incremental re-indexing
-  - `indexPrimitives()`: batch embed (chunk size 50), incremental updates, cleanup deleted docs
-  - `cosineSimilarity()`: vector similarity computation
-  - `semanticSearch()`: query embedding + ranked results with minScore/maxResults filtering
-  - `getEmbeddingStats()`: indexed count, model, dimensions, store size
-  - `harness semantic index|stats` CLI commands
-  - 22 tests with hash-based mock embed function
-- [x] Primitive versioning — git-backed, `harness rollback`
-  - `versioning.ts`: git-backed versioning with snapshot, rollback, diff, tags
-  - `initVersioning()`, `snapshot()`, `rollback()`, `getVersionLog()`, `getVersionDiff()`
-  - `tagVersion()`, `listTags()`, `getPendingChanges()`, `getFileHistory()`, `getFileAtVersion()`
-  - `harness version init|snapshot|log|diff|rollback|tag|tags|pending|show` CLI commands
-- [x] `harness serve` — HTTP API for webhooks/integrations
-  - `serve.ts`: HTTP API server wrapping web-server.ts + webhook management
-  - `startServe()`: creates Hono app with health, info, run, webhook CRUD endpoints
-  - Webhook registration API: POST/GET/DELETE/PATCH /api/webhooks + test endpoint
-  - HMAC-SHA256 webhook signing with per-webhook secrets
-  - Auth middleware: Bearer token for webhook management API
-  - `fireWebhookEvent()`: non-blocking delivery to all subscribers with wildcard support
-  - `WebhookStore` persisted in memory/webhooks.json with file locking
-  - Mounts all dashboard endpoints from web-server.ts
-  - `harness serve` CLI: --port, --api-key, --webhook-secret, --no-cors
-  - 12 tests: health, info, run validation, webhook CRUD, auth, persistence, dashboard passthrough
-
-## Phase 9 — Universal Discovery & Ecosystem Integration
-
-The harness should know where to find things — not just MCP servers but skills, agents, rules, playbooks, hooks, templates, everything. Ship a `sources.yaml` with known registries. `harness discover` searches all of them. `harness install <anything>` resolves from any source automatically.
-
-### Source Registry
-- [x] Ship `sources.yaml` in harness defaults listing known registries and repos:
-  - **MCP registries:** Official MCP registry, Smithery.ai, mcp.run, Glama
-  - **Skills & agents:** ClawHub, awesome-claude-code-toolkit, wshobson/agents (112 agents, 146 skills), faf-skills (31 skills), oh-my-claudecode (28 skills, 19 agents)
-  - **Hooks & rules:** claude-code-hooks (15 hooks), VibeGuard (88 rules, 13 hooks), obey (17 hooks)
-  - **Templates:** Claude Code Plugins (13 plugins)
-  - 13 sources across 3 types (github, registry, api) with content tags and stats
-- [x] `harness sources list` — show all configured sources with --type filter, --json
-- [x] `harness sources add <url>` — add a new source (--name, --type, --content, --description)
-- [x] `harness sources remove <name>` — remove a source (case-insensitive)
-- [x] Sources are updatable — user sources in memory/sources.yaml, shipped sources in package root
-  - User sources override shipped sources with same name (deduplicated by name)
-  - `harness sources summary` — show content available by type across all sources
-
-### Universal Discovery Agent
-- [x] `harness discover <query>` — searches ALL sources, returns unified results ranked by relevance
-  - Relevance scoring: exact name match > tag match > description match > word overlap
-  - `--type skill|agent|rule|playbook|mcp|hook|template` — filter by content type
-  - `--max <n>` — limit results
-  - `--remote` — also search GitHub API (code search)
-  - `--json` for programmatic consumption
-- [x] `discoverSources()` — local metadata search (fast, offline)
-- [x] `discoverRemote()` — parallel GitHub API code search + registry search
-- [x] `fetchGitHubSource()` — GitHub code search API with content type inference
-- [x] `getSourcesForType()`, `getSourcesSummary()` — type-filtered source lists
-- [x] 28 tests: shipped loading, user CRUD, dedup, discovery, filtering, ranking
-
-### Universal Installer (format normalization)
-- [x] `harness install <url-or-name>` resolves from any source — GitHub raw URL, registry name, local file
-  - `universal-installer.ts`: resolveSource → detectFormat → normalizeToHarness → fixCapability → installCapability
-  - CLI: `harness install <source>` with --type, --id, --force, --skip-fix, --tags, --json
-- [x] Installer auto-detects source format and normalizes to harness convention:
-  - Claude Code SKILL.md → harness skills/ with frontmatter + L0/L1 (pattern detection: filename + instructional tone)
-  - faf-skills .faf YAML → harness skills/ markdown (type + content YAML keys)
-  - Raw markdown agents → harness agents/ with frontmatter (type inference from content/filename)
-  - Bash hook scripts → harness workflows/ (shebang + .sh extension → wrapped in markdown code block)
-  - MCP configs → harness tools/*.md knowledge docs (mcpServers/servers JSON/YAML → tool documentation)
-  - 7 format types: harness, claude-skill, faf-yaml, raw-markdown, bash-hook, mcp-config, unknown
-- [x] Auto-fix fills in missing frontmatter, L0/L1, directory placement (existing fixCapability pipeline)
-- [x] Dependency resolution across sources — extracts `requires:`, `depends:`, `related:` from frontmatter, suggests installing them
-  - `extractDependencyHints()` scans normalized content for dependency references
-- [x] GitHub URL conversion: `convertToRawUrl()` converts blob URLs to raw.githubusercontent.com
-- [x] 36 tests: format detection (12), normalization (9), URL conversion (4), full install pipeline (11)
-
-### Community Content Seeding
-- [x] Curated starter packs installable via `harness install pack:code-reviewer`, `pack:personal-assistant`, `pack:devops`
-  - `pack:code-reviewer`: 5 files — 2 rules (code-quality, review-standards), 2 instincts (pattern-detection, refactor-opportunity), 1 skill (structured-review)
-  - `pack:personal-assistant`: 5 files — 2 workflows (daily-planner, inbox-triage), 2 instincts (clear-communication, context-awareness), 1 skill (task-prioritization)
-  - `pack:devops`: 5 files — 2 rules (deployment-safety, infrastructure-standards), 2 instincts (anomaly-detection, change-risk-assessment), 1 skill (incident-response)
-- [x] Each pack is a bundle (manifest.yaml) pulling from multiple sources
-  - Multi-type packs: each pack spans rules, instincts, skills, and/or workflows — manifest.types auto-detected from file paths
-  - `getStarterPack()` generates PackedBundle with BundleManifest and files array
-  - `installBundle()` installs to corresponding directories (rules/, instincts/, skills/, workflows/)
-- [x] `harness browse` — interactive TUI or web UI for browsing available community content
-  - `harness browse` — CLI content browser showing starter packs, community sources, and installed bundles
-  - `--type packs|sources|installed` filter, `--json` for programmatic consumption
-  - Shows install commands, file counts, tags, and quick-start tips
-
-## Phase 10 — Stabilization & Polish
-
-- [x] Fix all failing tests (currently 27 failing) — all 1027 tests passing as of loop 57
-- [x] Audit every module for consistency with code standards (no any, no silent catches, explicit return types)
-  - Zero `any` types across entire src/
-  - All 238 exported functions have explicit return types
-  - Fixed 12 silent catch blocks across cli/index.ts, validator.ts, intake.ts (DEBUG-gated logging)
-- [x] Fix CLI crash: duplicate `discover` command (Phase 2 + Phase 9 collision) — moved Phase 9 to `discover search`
-- [x] Fix CLI crash: duplicate `install` command (intake + universal installer collision) — removed old intake installer, kept universal installer
-- [x] Performance profiling — boot time, context assembly time, token estimation accuracy
-  - Module import: ~116ms, loadConfig: ~7ms, buildSystemPrompt: ~3.5ms
-  - boot() with 7 MCP servers: ~8s (dominated by MCP server connections — external process startup)
-  - Context assembly is sub-10ms — no optimization needed
-- [x] Run full e2e validation again with real LLM after all phases (Loop 59)
-  - init → run → chat → journal → learn → install → boot with new instincts — ALL WORK
-  - Real OpenRouter API (anthropic/claude-sonnet-4): correct responses, format compliance
-  - Chat memory persists: secret code "ALPHA-7" recalled across separate invocations (4 messages in history)
-  - Journal synthesized from 5 sessions with 3 instinct candidates
-  - Learn proposed 2 instincts (0.9 and 0.8 confidence), both installed successfully
-  - Instincts loaded on next boot (12 files vs 10 before), visible in system prompt
-  - All verification gates pass: pre-boot, pre-run, post-session, pre-deploy
-  - validate: 13 checks passed, 0 errors, 9 primitives
-  - status: 6 sessions, 1 journal, health OK
-- [x] Documentation: README, API docs, getting-started guide
-  - README expanded from 266 to 432 lines with full CLI reference (6 categorized sections, ~50 commands)
-  - Added MCP Integration, Dev Mode & Dashboard, Installing Content sections
-  - Updated Using as a Library with boot() and defineAgent() fluent builder
-  - Expanded Configuration with multi-provider, summary_model, rate_limits, budget
-  - Phase 10 is now COMPLETE — all items checked off
-
-
-<!-- DO NOT DO THESE TASKS -->
-<!-- ## Phase 11 — Always-On Infrastructure (opt-in, no daemon required)
-
-The harness is stateless-per-invocation. State persists on disk (state.md, sessions/, event store). No long-running daemon needed. Any invocation — webhook, cron, CLI — loads state, does work, saves state. Like a web app: the server handles requests, the database persists state.
-
-Developer enables always-on by setting `runtime.mode: "events"` in config.yaml. Default is `"session"` — everything works as before.
-
-### Event System
-- [ ] `AgentEvent` type: id, source, type (message | notification | alert | scheduled | system), timestamp, priority (0-100), payload (summary, details, action_required, expires_at), metadata (channel, thread_id, sender), outcome (action_taken, llm_invoked, tokens_used, follow_up)
-- [ ] `EventStore` — persists events to SQLite or JSONL. Schema: id, source, type, priority, timestamp, payload, outcome, thread_id. Queryable by date, source, thread.
-- [ ] Thread grouping — related events share a `thread_id` for continuity across hours/days
-- [ ] `harness events list|show|search` CLI commands
-- [ ] Journal synthesizer reads events grouped by thread when in events mode (falls back to sessions in session mode)
-
-### Webhook Endpoints on `harness serve`
-- [ ] `POST /webhook/:source` — generic webhook endpoint. Receives any payload, normalizes to `AgentEvent`, loads harness, processes, saves state, responds. This is the core of always-on: external services push events, harness handles them.
-- [ ] `POST /webhook/:source` with optional `X-Webhook-Secret` header for verification
-- [ ] Response includes: event_id, action_taken, llm_invoked (boolean)
-- [ ] `harness serve` already exists — just add webhook routes alongside the existing REST API
-
-### Triage (cheap checks before LLM)
-- [ ] `TriageEngine` — compiles rules from `rules/` and `instincts/` into fast pattern matchers at boot. Recompiles on file change.
-- [ ] `TriageRule` type: match pattern (source, type, sender, subject_contains, priority range) → action (drop, log, forward, escalate)
-- [ ] Before calling LLM, check in order: triage rules → instinct match → playbook match → rule engine → LLM (last resort)
-- [ ] `harness triage rules|test <event-json>` CLI
-
-## Phase 12 — Adapters & Channels (installable packages)
-
-Adapters are webhook parsers. Each one knows how to normalize a specific service's webhook payload into an `AgentEvent`. They're routes on `harness serve`, not long-running listeners.
-
-### Adapter Interface
-- [ ] `Adapter` interface: `parseWebhook(req) → AgentEvent`, `validateSignature(req, secret) → boolean`, `getInfo() → { name, source, description }`
-- [ ] Adapter config in config.yaml under `adapters:` section
-- [ ] `harness adapter list|enable|disable`
-- [ ] Adapters are installable: `harness install adapter:github` adds the webhook route + config stub
-
-### Built-in Adapters
-- [ ] **Generic webhook** — pass-through. Any POST payload becomes an AgentEvent with the raw body as payload.details. Source from URL param.
-- [ ] **Cron** — existing scheduler, already built. In events mode, cron results get logged as events.
-
-### Installable Adapters
-- [ ] **GitHub** — parses GitHub webhook payloads (PR, push, CI, issues). Verifies `X-Hub-Signature-256`.
-- [ ] **Telegram** — parses Telegram Bot API update payloads. Verifies secret_token.
-- [ ] **Slack** — parses Slack Events API payloads. Verifies signing secret.
-- [ ] **Stripe** — parses Stripe webhook events. Verifies signature.
-- [ ] Each adapter is an npm package implementing the `Adapter` interface: `harness install adapter:github`
-
-### Channel Interface (outgoing)
-- [ ] `Channel` interface: `send(message, opts) → boolean`
-- [ ] Channel config: `channels:` section in config.yaml with per-channel settings
-- [ ] Quiet hours enforcement built into channel layer — `quiet_hours.start/end`
-- [ ] Built-in channels: CLI (stdout), web dashboard (SSE broadcast)
-- [ ] Installable channels: Telegram, Slack, email, SMS — each is an npm package
-- [ ] `harness channel list|test <channel>`
-
-## Phase 13 — Workflow Enhancements & Continuous Learning
-
-### `context:` frontmatter field for workflows
-- [ ] Add `context:` array to workflow frontmatter — declares exactly which harness files/directories to load for this workflow. Controls token budget per workflow instead of loading the full harness.
-  ```yaml
-  context:
-    - state.md
-    - memory/sessions
-    - memory/journal
-    - tools/calendar
-    - instincts
-  ```
-- [ ] Runtime loads only what's listed in `context:` when executing the workflow. Falls back to full harness loading if `context:` is not specified. -->
-
-### Proactive config
-- [x] `proactive` config section: `enabled` (default false), `max_per_hour`, `cooldown_minutes`, `quiet_hours`
-- [x] Scheduler checks cooldown config before executing proactive workflows — skip if rate limit hit or quiet hours
-  - `checkProactiveCooldown()`: per-workflow rate limiting + cooldown enforcement
-  - Workflow frontmatter `proactive: true` triggers cooldown checks
-  - Proactive history cleared on scheduler stop/restart
-
-### Continuous learning (opt-in config flags)
-- [x] `intelligence.auto_journal: true` — journal synthesis runs automatically at configured time. Default: off.
-- [x] `intelligence.auto_learn: true` — instinct proposals run after journal synthesis. Default: off.
-- [x] These are config flags that enable existing journal + learn to run on the scheduler. No new systems.
-  - Scheduler `autoJournal` option: boolean or cron string (default "0 22 * * *" when true)
-  - Scheduler `autoLearn` option: runs `learnFromSessions(dir, true)` after journal synthesis
-  - `onJournal` and `onLearn` callbacks for reporting
-  - Wired into `harness dev` via `config.intelligence.auto_journal/auto_learn`
-
-### Starter workflow packs (installable bundles)
-- [x] Ship example workflow bundles: `pack:daily-briefs` (morning + evening workflows), `pack:weekly-review`, `pack:code-review`
-  - `src/runtime/starter-packs.ts`: 3 builtin packs, 5 workflow files total
-  - `pack:daily-briefs`: morning-brief (0 8 * * 1-5) + evening-review (0 18 * * 1-5)
-  - `pack:weekly-review`: weekly-review (0 17 * * 5)
-  - `pack:code-review`: code-review-workflow + pr-checklist (manual, no schedule)
-- [x] Each is just a bundle of workflow .md files with cron schedules. Developer installs, customizes, or writes their own.
-  - `harness install pack:<name>` — resolves from builtin packs, uses `installBundle()`
-  - `harness install pack:list` — shows all available packs with descriptions
-  - Exports: `getStarterPack()`, `listStarterPacks()`, `isPackReference()`, `parsePackName()`
+**Loop rule:** Ralph is fully autonomous. No human tasks. Exit when every task is `[x]` AND build/test/lint all pass.
 
 ---
 
-## Completed (Ralph loops 1-38)
+## Phase 12 — Ship v0.1.0 to npm
 
-### Loop 1-8 (Foundation)
-- Progressive disclosure budget algorithm
-- Conversation messages API (AI SDK messages format)
-- Validate command, provider reset, new provider APIs
-- Conversation windowing (token-budget-based)
-- Session cleanup/archival, scheduler auto-start, config validation
-- Agent delegation system (delegate.ts, CLI commands)
-- Journal date ranges, better error messages, session metadata
-- Conversation session recording, JSON-lines context format
-- Defaults/templates populated (6 templates)
-- Multi-provider support (openrouter, anthropic, openai)
-- Programmatic API tests, index L0 truncation
-- Test migration to `ai/test` (MockLanguageModelV3)
-- Extension directories (plugin system)
-- Template config refresh (retries, timeouts, extensions)
+**Thesis:** The learning loop works end-to-end (verified against real LLM: 7 prompts → journal → learn → behavior change on a novel prompt). What remains is content, polish, auto-discovery safety, and distribution hygiene. No new runtime features. No refactoring of `conversation.ts`, `tool-executor.ts`, `mcp.ts`, `journal.ts`, `instinct-learner.ts`, or `delegate.ts`.
 
-### Loop 9-12 (Infrastructure)
-- Quiet hours enforcement (timezone-aware)
-- Primitive parse error collection (no more silent swallowing)
-- Context budget warnings
-- Journal synthesis structured output
-- Comprehensive validator module with cross-reference checking
-- Evaluator auto-fix (fixCapability)
-- Intake test suite (23 tests)
-- Session archival to archive/YYYY-MM/
-- Status command, evaluator dependency resolution
-- Doctor command (validate + batch auto-fix)
-- Scheduled archival in dev mode
+**Audience for the ship:** coder OR non-coder, anyone who wants to build an agent in 2026.
 
-### Loop 13-24 (Features)
-- Instinct harvesting from journals, weekly journal compression
-- Workflow execution metrics, metrics CLI
-- Tool registry with structured parsing
-- Export/import for data portability
-- Dependency graph analysis, session analytics
-- Lifecycle hooks, assistant/code-reviewer templates
-- Sliding window rate limiter, cost tracker with budget alerts
-- File locking, health monitoring with CLI dashboard
-- Unified telemetry aggregator with dashboard
-- Config-driven guardrails (rate limiting + budget enforcement)
-- Tool execution runtime (markdown → AI SDK tools with HTTP)
+**Headline pitch:** "The first agent framework where the agent gets measurably better as you use it. You write markdown, not code. Tools come from MCP."
 
-### Loop 25-38 (MCP + Resilience)
-- MCP integration: stdio/http/sse transports, auto-discovery, merged into ToolSet
-- MCP ecosystem: validation, telemetry, dashboard, status, info all MCP-aware
-- Tool support in ALL execution paths: run, stream, send, sendStream
-- Tool call recording in session markdown
-- Delegation tool support and auto-harvest pipeline
-- Post-LLM recording resilience (failures never mask LLM results)
-- Conversation file locking (context.jsonl)
-- Watcher resilience, config live reload, delegation resilience
-- Stream error recovery, shutdown resilience, stream metadata API
-- Conversation stream metadata, template guardrail configs
-- Scheduler workflow delegation to sub-agents
-- Chat/conversation provider override
-- Conversation input validation, watcher callback resilience
-- CLI --api-key flag, --json on 12+ commands
-- MCP boot resilience, missing type exports
-- Conversation.send() metadata (ConversationSendResult)
+**Execution order is deliberate.** Do tasks in the order listed. Later tasks depend on earlier ones. One task per loop.
 
-### Loop 39 (Phase 1 E2E Validation)
-- Full lifecycle validated with REAL OpenRouter LLM calls (anthropic/claude-sonnet-4)
-- init → run → chat → journal → learn → install instinct → agent loads it on next boot — ALL WORK
-- Fixed: chat readline crash on stdin EOF (ERR_USE_AFTER_CLOSE) — added close guard and 'close' event handler
-- Conversation memory persists across chat restarts (context.jsonl)
-- Journal synthesizes from real sessions with L0/L1 summaries
-- Learn proposes and installs instincts with provenance tracking
-- Fixed flaky watcher test: replaced fixed 2s timeout with polling waitFor + graceful skip when fsevents don't fire
-- Dev mode validated: starts, watches, rebuilds indexes, runs scheduler, shuts down cleanly on SIGTERM
+---
 
-### Loop 40 (v0.1.0 Publish Readiness)
-- Full fresh e2e validation: init → run → chat → journal → learn → dev — all working
-- Conversation memory verified: secret word recalled across chat restarts
-- Dashboard command verified: health checks, spending, sessions, storage all reporting correctly
-- npm pack dry-run verified: 124 files, 332KB, correct file inclusion (dist, defaults, templates)
-- Package.json reviewed: bin, exports, files, engines, keywords, license all correct
-- CLI help and version output verified
-- Package is READY for `npm publish`
+### 12.1 — Fix `discover --remote` to use GitHub Contents API
 
-### Loop 41 (Phase 2 — Real MCP Testing)
-- Tested MCP integration with REAL @modelcontextprotocol/server-filesystem server
-- stdio transport: connect, discover 14 tools, use in multi-step conversations
-- LLM successfully: list_directory, read_text_file, write_file, read_multiple_files, directory_tree
-- Session recording captures all tool calls with args and results
-- Status/dashboard MCP reporting verified
-- Fixed: chat mode MCP race condition — readline EOF closed MCP client before tool calls completed
-- Fix: deferred MCP cleanup with `sending`/`pendingClose` flags in chat command handler
-- Verified: piped input and multi-turn chat both work with MCP tools after fix
+**Why:** Unblocks live testing of `sources.yaml` and enables 12.4 (which uses `discover --remote` as reference lookup). Smallest isolated change. Current impl hits `api.github.com/search/code` which requires auth — returns 401 for every unauthenticated request.
 
-### Loop 42 (Phase 2 — MCP Auto-Discovery)
-- Implemented MCP auto-discovery scanner (mcp-discovery.ts) with 9 tool sources
-- Fixed Roo Code config path: cline_mcp_settings.json → mcp_settings.json
-- Fixed VS Code config path: ~/.vscode/mcp.json → ~/Library/Application Support/Code/User/mcp.json (macOS)
-- Added Claude Code nested projects extraction: projects.<path>.mcpServers structure
-- Refactored to use DiscoveryOptions for testability (homeDir, isMac params)
-- Secret redaction for env vars and Bearer tokens in args
-- Integrated into `harness init` (auto-appends) and `harness mcp discover` CLI
-- Fixed test suite: replaced vi.mock('os') with DiscoveryOptions parameter injection
-- Added 22 new tests for discovery, dedup, redaction, JSONC, Claude Code projects
-- Verified with real configs: 7 servers discovered from 4 tools on this machine
+**Steps:**
+1. Read `src/runtime/sources.ts` end-to-end. Find the Code Search API call (search for `api.github.com/search/code`). Line 318 at last check.
+2. Read `src/runtime/universal-installer.ts` to understand how discovered URLs get consumed downstream.
+3. Rewrite the GitHub source scanner to use the Contents API:
+   - `GET https://api.github.com/repos/{owner}/{repo}/contents/{path}`
+   - No auth required. 60 req/hour unauthenticated limit.
+   - List the repo root, then recurse ONE level into conventional directories: `skills/`, `agents/`, `rules/`, `hooks/`, `playbooks/`, `plugins/`
+   - For `plugins/`, recurse one more level into each subdir to find `plugins/<topic>/agents/*.md` (wshobson-style layout)
+   - Filter filenames and L0 comments against the query string (case-insensitive substring match)
+   - Return each match as `{ name, path, download_url, source }` for the universal installer
+4. Keep Code Search API as a fallback path ONLY when `process.env.GITHUB_TOKEN` is set. Log which path was used explicitly (`[sources] using contents api` vs `[sources] using code search api (GITHUB_TOKEN detected)`).
+5. Update `tests/sources.test.ts` — mock the Contents API responses instead of Code Search responses. Use `MockAgent` from `undici` or vitest's `vi.mock('undici')` — do NOT make real network calls in tests.
+6. Add 3 new test cases:
+   - `discoverRemote returns results from unauthenticated Contents API`
+   - `discoverRemote recurses into plugins/* for nested layouts`
+   - `discoverRemote returns empty array (not throw) for 404 on dead repo`
 
-### Loop 43 (Phase 2 — MCP Installer)
-- Created `mcp-registry.ts`: registry API client with searchRegistry, getRegistryServer, resolveServerConfig
-- Created `mcp-installer.ts`: installMcpServer, updateConfigWithServer, generateToolDocs, formatRegistryServer
-- Resolution strategy: npm stdio → any stdio (pypi/docker) → remotes → http packages
-- Runtime hint mapping: npx (-y), uvx, docker (run -i --rm), dnx
-- Config.yaml YAML document manipulation preserves existing structure via yaml library parseDocument
-- CLI: `harness mcp search <query>` (--json, --limit) and `harness mcp install <query>` (--force, --name, --skip-test, --skip-docs, --json)
-- Connection testing via McpManager, auto-generates tools/*.md knowledge docs with frontmatter
-- End-to-end tested: `harness mcp search filesystem` returned 7 real results from registry
-- End-to-end tested: `harness mcp install @modelcontextprotocol/server-sequential-thinking` installed successfully
-- 55 tests across mcp-registry.test.ts (33) and mcp-installer.test.ts (22) — all passing
-- Registry types, installer types, and functions all exported from index.ts
+**Acceptance:**
+- `npm run build && npm test && npm run lint` — all green
+- `node dist/cli/index.js discover search "skill" --remote -d test-agent` — returns ≥1 result from a live source in `sources.yaml` (e.g. `anthropics/skills` or `wshobson/agents`). No `GITHUB_TOKEN` in env. Not zero results. Not 401.
+- Tests pass without hitting the real network.
 
-### Loop 44 (Phase 2 — Complete: Installer, Env Discovery, Project Discovery)
-- Refactored mcp-installer.ts: split registry types into mcp-registry.ts, clean import chain
-- `mcp-installer.ts` uses findServer → updateConfigWithServer flow, error-resilient registry lookup
-- `mcp-registry.ts` resolves npm/pypi/remote/http packages with runtime hints
-- Verified real registry: `harness mcp install repomemory`, `harness mcp install letta` → both work
-- Created `env-discovery.ts`: parseEnvFile, discoverEnvKeys with 25+ known API key patterns
-  - Matches: GITHUB_TOKEN, OPENAI_API_KEY, SLACK_TOKEN, NOTION_*, DATABASE_URL, AWS_*, STRIPE_*, etc.
-  - Generic catch-all for *_API_KEY, *_SECRET_KEY, *_AUTH_TOKEN patterns
-  - Generates MCP server suggestions for known services
-- Created `project-discovery.ts`: discoverProjectContext with signals + suggestion engine
-  - Detects: TypeScript, React, Next.js, Vue, Express, Docker, GitHub Actions, Vitest, Prisma, etc.
-  - Detects from both package.json deps and filesystem (Dockerfile, go.mod, Cargo.toml, etc.)
-  - Generates rule/skill/mcp-server suggestions based on detected signals
-- CLI commands: `harness discover env`, `harness discover project` (both with --json, --dir)
-- Integrated into `harness init`: --no-discover-env, --no-discover-project flags
-  - Init now shows detected stack + suggestions alongside MCP discovery
-- All new modules exported from index.ts with types
-- 22 tests (mcp-installer), 14 tests (env-discovery), 15 tests (project-discovery) — all new
-- 33 tests (mcp-registry) — deriveConfigName, resolveServerConfig, searchRegistry, findServer, searchServers
+**Commit:** `fix(sources): switch discover --remote to Contents API`
 
-### Loop 45 (Phase 3 — Interactive Init, CORE.md Generation, SYSTEM.md Generation)
-- Made `harness init` interactive: `harness init` (no args) → asks name, purpose, template, LLM generation
-- Added `--purpose` flag for non-interactive purpose description
-- Added `--generate` flag to generate CORE.md via LLM (uses existing provider infrastructure)
-- `generateCoreMd()`: sends purpose to LLM, returns rich identity doc with Values, Ethics, Capabilities, Boundaries
-- Added `{{PURPOSE}}` template variable to base CORE.md template
-- Refactored `applyTemplate()` to use `TemplateVars` object: `{agentName, purpose?}` — threads through all template handling
-- `generateSystemMd()`: scans harness directory, counts primitives per dir, shows memory stats
-- `harness generate system` CLI command: regenerates SYSTEM.md from actual filesystem
-- Added `summary_model` (optional string) to config schema for future cheap model routing
-- Added `auto_process` (boolean, default: true) to runtime config for file watcher auto-processing
-- Fixed CONFIG_DEFAULTS to include `auto_process: true` (DTS build error)
-- 7 new tests: purpose option, coreContent override, priority, SYSTEM.md generation, empty dirs
-- Total: 710 tests across 38 files
+- [ ] **12.1 COMPLETE**
 
-### Loop 46 (Phase 3 — Auto-Processor, SYSTEM.md Regen, CLI Commands)
-- Created `auto-processor.ts`: `autoProcessFile()` and `autoProcessAll()`
-  - Auto-generates frontmatter: id from filename, created date, author=human, status=active, tags from directory
-  - Auto-generates L0 from heading/first line (max 120 chars), L1 from first paragraph (max 300 chars)
-  - Skips CORE.md, SYSTEM.md, state.md, _index.md, empty files
-  - Preserves existing frontmatter/summaries (only fills missing fields)
-  - 26 tests in auto-processor.test.ts
-- Integrated auto-processor into watcher.ts: `autoProcess` option, `onAutoProcess` hook
-  - Runs before index rebuild so indexes see fixed content
-  - Only on add/change events (not unlink)
-- Integrated into `harness dev` startup:
-  - Auto-processes all primitives on boot (fills missing frontmatter, L0/L1)
-  - Regenerates SYSTEM.md from directory structure on every boot
-  - Config-driven: `runtime.auto_process` + `--no-auto-process` flag
-- New CLI commands:
-  - `harness process` — on-demand batch auto-processing with --no-frontmatter, --no-summaries
-  - `harness system` — regenerate SYSTEM.md from current directory structure
-- Fixed scaffold.ts type errors: `loadTemplate` and `copyDefaults` now pass `TemplateVars` correctly
-- Exported `autoProcessFile`, `autoProcessAll`, `AutoProcessResult`, `AutoProcessOptions` from index.ts
-- Phase 3 is now COMPLETE — all items checked off
-- Total: 715 tests across 38 files
+---
 
-### Loop 47 (Phase 4 — Web Dashboard: Server, REST API, SSE, Dashboard UI)
-- Created `web-server.ts`: Hono web app with REST API + SSE broadcaster + inline HTML dashboard
-  - Hono 4.12 + @hono/node-server for Node.js HTTP serving
-  - 12 API endpoints: snapshot, config, state (GET/PUT), primitives (list/type/file, GET/PUT), sessions (list/read), events (SSE), events/clients
-  - SSEBroadcaster class: manages connected clients, broadcasts events, auto-cleanup on disconnect
-  - Inline HTML dashboard: dark theme (GitHub-style), responsive grid, 8 cards (Agent, Health, Spending, Sessions, Workflows, Primitives, MCP, Live Events)
-  - Auto-refreshes via SSE events + 30s periodic fallback
-- Integrated into `harness dev`:
-  - `--port <number>` flag (default 3000)
-  - `--no-web` flag to disable dashboard server
-  - Web server starts after scheduler, before watcher
-  - Watcher hooks (onChange, onIndexRebuild, onAutoProcess, onConfigChange) → SSE broadcast → dashboard auto-refresh
-  - Graceful shutdown closes server + scheduler
-- Exported `createWebApp`, `startWebServer`, `WebServerOptions`, `ServerSentEvent` from index.ts
-- 19 tests in web-server.test.ts: snapshot API, config API, state read/write, primitives CRUD, sessions, SSE, CORS, dashboard HTML, 404 handling, validation
-- Total: 734 tests across 39 files
+### 12.2 — Suppress CLI startup noise (dotenvx banner, Node Fetch warning)
 
-### Loop 48 (Phase 4 — Complete: Chat, Files, MCP, Settings)
-- Phase 4 Web Dashboard is now COMPLETE — all items checked off
-- Added 14 new tests for chat API, MCP status, file tree, config update endpoints
-  - Chat: empty message rejection, missing field rejection, reset
-  - MCP: status API, invalid server detection
-  - File tree: tree structure, file read, 404, write, write rejection, core file write
-  - Config: update + validate, missing content rejection
-- Fixed failing dashboard test: title now uses `${agentName} Dashboard` instead of hardcoded "Agent Harness Dashboard"
-- Added dashboard navigation + panels test: verifies sidebar nav and all 5 panels (dashboard, chat, files, mcp, settings)
-- Dashboard HTML features: sidebar navigation, responsive grid, 8 dashboard cards, chat panel with input/send/reset, file tree with editor, MCP server table, settings textarea with save
-- Total: 748 tests across 39 files
+**Why:** Every command currently prints two dotenvx banners (`◇ injected env (0) from .env`) plus tip text (`tip: ⌘ suppress logs { quiet: true }`). `harness --version` prints them. Completely unprofessional and leaks an internal dependency into user output. Also `(node:XXXXX) ExperimentalWarning: The Fetch API is an experimental feature` fires on every run under Node 18.
 
-### Loop 49 (Phase 6 — Bundle Registry, Manifest, Install/Uninstall/Update)
-- Created `primitive-registry.ts`: full primitive bundle system (730+ lines)
-  - BundleManifest (manifest.yaml) with types, tags, dependencies, license
-  - Pack/unpack bundles from/to directories
-  - Install/uninstall with dependency checking and .installed/ records
-  - Diff and update with version tracking
-  - Remote registry client: search, fetch, multi-registry support
-  - Soft-delete to archive/uninstalled/, hard delete option
-- Added `registries` field to HarnessConfigSchema (array of {url, name?, token?})
-- Added CONFIG_DEFAULTS: `registries: []`
-- CLI commands: `harness bundle`, `harness bundle-install`, `harness uninstall`, `harness update`, `harness installed`
-- Exported 15 functions + 10 types from index.ts
-- 27 new tests in primitive-registry.test.ts (manifest, pack/unpack, install, uninstall, deps, diff, update)
-- Fixed naming conflicts: renamed RegistrySearchResult → BundleSearchResult, etc.
-- CLI `harness registry` subcommand: search, install, list (reads registries from config.yaml)
-- Added config registries parsing tests + readInstalledManifests edge case tests
-- Total: 775 tests across 40 files
+**Steps:**
+1. Search the codebase for where dotenvx is imported and invoked. `grep -rn "dotenvx\|injected env" src/`. It's probably `src/cli/index.ts` near the top.
+2. Replace the loud dotenvx init with a silent variant. The library supports `{ quiet: true }` (it literally says so in its own tip). If the current CLI calls `config()` without options, pass `{ quiet: true }`. Verify by running `node dist/cli/index.js --version` and checking stdout/stderr are clean.
+3. If dotenvx doesn't support silent mode cleanly, fall back to plain `dotenv` for `.env` + `.env.local` loading. It's a drop-in replacement, already in dependencies (check `package.json`).
+4. Suppress the Node `ExperimentalWarning: The Fetch API` warning at process start. Add to the CLI entry point:
+   ```ts
+   process.removeAllListeners('warning');
+   process.on('warning', (w) => {
+     if (w.name === 'ExperimentalWarning' && /fetch/i.test(w.message)) return;
+     console.warn(w);
+   });
+   ```
+   Place this BEFORE any imports that would trigger the warning. Test with Node 18 and Node 20.
+5. Expose `--verbose` as a top-level option. If set, the dotenvx banners come back (or log what was loaded via the harness logger at `info` level). Default remains silent.
 
-### Loop 50 (Phase 7 — Intelligence & Learning: 5 features)
-- Created `intelligence.ts`: auto-promote, dead detection, contradictions, enrichment, suggestions (828 lines)
-  - `autoPromoteInstincts()`: journal scanning, behavior normalization, threshold-based promotion
-  - `detectDeadPrimitives()`: dependency graph orphan detection + file mtime check
-  - `detectContradictions()`: directive extraction, negation detection, topic-based conflict analysis
-  - `enrichSessions()`: metadata extraction (tokens, steps, model, tools, topics, primitive refs)
-  - `suggestCapabilities()`: topic frequency analysis, skill/playbook gap detection
-- 25 new tests in intelligence.test.ts
-- 5 CLI subcommands: `harness intelligence promote|dead|contradictions|enrich|suggest`
-- Exported 5 functions + 10 types from index.ts
-- Total: 800 tests across 41 files
+**Acceptance:**
+- `node dist/cli/index.js --version` prints `0.1.0` and NOTHING else on stdout or stderr
+- `node dist/cli/index.js info -d test-agent` prints the info block and nothing else at startup (harness `[harness] ...` logs are fine — those are from the booted agent)
+- `node dist/cli/index.js --verbose --version` prints `0.1.0` plus whatever verbose init info
+- `npm run build && npm test && npm run lint` — all green
 
-### Loop 51 (Phase 7 Complete — Failure Taxonomy + Verification Gates)
-- Added failure taxonomy: 15 named failure modes with severity, recovery strategies, autoRecoverable
-  - `classifyFailure()`: error message → failure mode classification (pattern matching)
-  - `getRecoveryStrategies()`: mode → ordered recovery strategy list
-  - `analyzeFailures()`: scan health.json + sessions for recent failures, frequency + health analysis
-  - `FAILURE_TAXONOMY` constant: canonical reference for all failure modes
-- Added verification gates: 4 built-in gates (pre-boot, pre-run, post-session, pre-deploy)
-  - `runGate()`, `runAllGates()`, `listGates()` API
-  - Each gate returns pass/fail/warn/skip checks with messages
-  - pre-deploy gate integrates dead primitive detection + contradiction detection
-- CLI: `harness intelligence failures|classify`, `harness gate run|list`
-- 14 new tests (7 failure taxonomy + 7 verification gates)
-- Fixed: missing `loadConfig` import in intelligence.ts, TS undefined narrowing for config var
-- Exported 7 new functions + 7 new types from index.ts
-- **Phase 7 is now COMPLETE** — all 7 items checked off
-- Total: 814 tests across 41 files
+**Commit:** `fix(cli): suppress dotenvx banners and Node fetch experimental warning`
 
-### Loop 52 (Phase 8 — defineAgent, Rule Engine, Content Gates)
-- Created `define-agent.ts`: fluent builder API wrapping createHarness()
-  - `.model()`, `.provider()`, `.apiKey()`, `.configure()` for config
-  - `.onBoot()`, `.onSessionEnd()`, `.onError()`, `.onStateChange()`, `.onShutdown()` lifecycle hooks
-  - `.maxToolCalls()`, `.toolTimeout()`, `.allowHttp()` tool config
-  - Multiple hooks of same type chain automatically
-  - Deep merge for configure() calls
-- Created `rule-engine.ts`: enforceable rule extraction from rule primitives
-  - `parseRulesFromDoc()`: deny/allow/warn/require_approval from directive patterns
-  - `loadRules()`: scan rules/ directory, filter active
-  - `checkRules()`: relevance scoring (word + tag overlap)
-  - `enforceRules()`: convenience load + check
-  - Approval gate detection from "without approval" patterns
-- Created `verification-gate.ts`: content-driven gate extraction from playbooks
-  - 4 extraction strategies: ## Gate:, ### Acceptance Criteria, <!-- gate: -->, step checkboxes
-  - `loadGates()`, `getGatesForPlaybook()`, `checkGate()`, `checkAllGates()`
-  - Manual vs automated criteria with command + expected pattern matching
-- CLI: `harness check-rules`, `harness list-rules`, `harness playbook-gates`
-- Exported 11 functions + 10 types from index.ts
-- 44 new tests across 3 test files (10 define-agent + 14 rule-engine + 20 verification-gate)
-- Total: 875 tests across 45 files
+- [ ] **12.2 COMPLETE**
 
-### Loop 53 (Phase 8 — Agent Framework, State Merge, Emotional State)
-- Fixed `agent-framework.test.ts`: removed unused import, fixed `defineAgent` → `createAgent` references
-- Created `state-merge.ts`: mixed-ownership state merging with conflict resolution
-  - `StateOwnership` tracking per field (human/agent/infrastructure)
-  - 4 merge strategies: human-wins, agent-wins, latest-wins, union
-  - Union strategy: set union for array fields, latest-wins for scalars
-  - `StateConflict` records with field, humanValue, agentValue, resolvedTo
-  - `applyStateChange()` for direct ownership-free changes
-- Created `emotional-state.ts`: 5-dimension operational disposition tracking
-  - Dimensions: confidence, engagement, frustration, curiosity, urgency (0-100)
-  - `applySignals()`: additive deltas with clamping, JSONL history
-  - `deriveSignals()`: heuristic derivation from session outcomes
-  - `summarizeEmotionalState()`: natural-language summary for context injection
-  - `getEmotionalTrends()`: rising/falling/stable trend computation from history
-- Exported 11 functions + 9 types from index.ts
-- 30 new tests (9 state-merge + 21 emotional-state) + 17 agent-framework tests fixed
-- CLI commands: `harness state-merge apply|ownership`, `harness emotional status|signal|trends|reset`, `harness check-action`
-- Total: 905 tests across 47 files
+---
 
-### Loop 54 (Phase 8 — Semantic Search + Versioning Exports)
-- Created `semantic-search.ts`: embedding store with file-based JSON cache (418 lines)
-  - `EmbedFunction` type abstraction for pluggable embedding providers
-  - `extractEmbeddableText()`: tags + L0 + L1 + truncated body (500 chars)
-  - `loadEmbeddingStore()` / `saveEmbeddingStore()`: JSON persistence in memory/embeddings.json
-  - `detectStalePrimitives()`: mtime + model change detection for incremental re-indexing
-  - `indexPrimitives()`: batch embed (chunk 50), incremental updates, cleanup deleted docs
-  - `cosineSimilarity()`: vector similarity computation with zero/mismatch guards
-  - `semanticSearch()`: query embedding + ranked results with minScore/maxResults filtering
-  - `getEmbeddingStats()`: indexed count, model, dimensions, store size
-- Added `harness semantic index|stats` CLI commands
-- Exported 8 functions + 5 types from index.ts
-- 22 new tests in semantic-search.test.ts with hash-based mock embed function
-- Versioning module (created by external process) already exported and tested
-- Total: 951 tests across 49 files
+### 12.3 — Fix `operations.md` missing tag bug in scaffold
 
-### Loop 55 (Phase 8 Complete — Serve HTTP API)
-- Wired `serve.ts`: exported `startServe` + 5 types from index.ts
-- Added `harness serve` CLI command: --port, --api-key, --webhook-secret, --no-cors
-- Serve tests already created by external process (12 tests)
-- **Phase 8 is now COMPLETE** — all 9 items checked off
-- Total: 963 tests across 50 files
+**Why:** `defaults/rules/operations.md` ships with tags `[rules, operations, safety]` but is missing the singular `rule` tag that `harness doctor` auto-fixes on first run. The scaffold should be correct on first run — doctor auto-fixing defaults is a bug report, not a feature. Small fix, do it before 12.4 so the diversification work lands on a clean base.
 
-### Loop 56 (Phase 9 — Source Registry + Universal Discovery)
-- Created `sources.yaml`: 13 curated community sources (MCP, skills, agents, hooks, rules, templates)
-- Created `sources.ts`: source registry management with local + remote discovery (340 lines)
-  - `loadShippedSources()` / `loadUserSources()` / `loadAllSources()` — merge + dedup by name
-  - `addSource()` / `removeSource()` — user source CRUD with persistence
-  - `discoverSources()` — local relevance-scored search across all sources
-  - `discoverRemote()` — parallel GitHub API code search
-  - `fetchGitHubSource()` — GitHub search with content type inference
-  - `getSourcesForType()` / `getSourcesSummary()` — type-filtered source queries
-- CLI: `harness sources list|add|remove|summary`, `harness discover <query>` with --type, --remote, --json
-- Exported 11 functions + 6 types from index.ts
-- Added `sources.yaml` to package.json files array
-- 28 new tests in sources.test.ts
-- Total: 991 tests across 51 files
+**Steps:**
+1. Read `defaults/rules/operations.md`.
+2. Add `rule` to the tags array in frontmatter.
+3. Search `defaults/` for any other file whose tags don't include the singular form of its primitive type (e.g. a skill missing `skill`, a playbook missing `playbook`). Grep the directory.
+4. Fix any others found.
 
-### Loop 57 (Phase 10 — Stabilization & Polish)
-- Fixed CLI crash: duplicate `discover` command registration (Phase 2 `discover env|project` + Phase 9 `discover <query>`)
-  - Moved Phase 9 universal discover to `discover search <query>` sub-command
-- Fixed CLI crash: duplicate `install` command registration (intake installer + Phase 9 universal installer)
-  - Removed legacy intake `install` command, kept Phase 9 universal installer with format detection
-- Fixed 12 silent catch blocks: 9 in cli/index.ts, 2 in validator.ts, 1 in intake.ts
-  - CLI catches: added DEBUG-gated `console.error` for config load failures
-  - validator.ts: DEBUG-gated error logging, named `_readErr` for directory iteration
-  - intake.ts: named `_unlinkErr` with descriptive comment for best-effort cleanup
-- Full code quality audit: zero `any` types, zero missing return types on exports, zero empty catches
-- Performance profiling: module import ~116ms, loadConfig ~7ms, buildSystemPrompt ~3.5ms, boot with MCP ~8s
-- All 1027 tests passing, build clean, lint clean
-- Total: 1027 tests across 52 files
+**Acceptance:**
+- `rm -rf /tmp/ralph-scaffold-12-3 && node dist/cli/index.js init /tmp/ralph-scaffold-12-3 --no-discover-mcp --no-discover-env --no-discover-project`
+- `node dist/cli/index.js doctor -d /tmp/ralph-scaffold-12-3` prints "no fixes needed" (or equivalent). **Must NOT say "Auto-fixed N issues".**
+- `npm run build && npm test && npm run lint` — green
 
-### Loop 58 (Phase 10 — Gate Fixes, ESM Cleanup, CLI Validation)
-- Fixed pre-run gate: rate-limit check was using wrong API (require + wrong args + wrong field names)
-  - Replaced `require('../runtime/rate-limiter.js')` with proper ESM import of `checkRateLimit`
-  - Now uses `buildRateLimits(config)` to convert per_minute/hour/day to `RateLimit[]`
-  - Checks each limit individually with correct `retry_after_ms` field
-  - Shows "No rate limits configured" when none set (previously showed FAIL with `undefinedms`)
-- Fixed pre-run gate: budget check was using require() + wrong `checkBudget` signature
-  - Replaced `require('../runtime/cost-tracker.js')` with proper ESM import
-  - Now passes `config.budget` instead of `config` as second arg
-  - Checks `daily_remaining_usd` and `monthly_remaining_usd` properly
-- Fixed pre-deploy gate: replaced `require('../runtime/validator.js')` with ESM import
-- Zero `require()` calls remaining in src/ — fully ESM-clean codebase
-- Verified all CLI commands: --help, subcommands, discover, install, gate run, info, validate, dashboard all work
-- All 1027 tests passing, build clean, lint clean
+**Commit:** `fix(defaults): add missing primitive tags to scaffold files`
 
-### Loop 59 (Phase 10 — Full E2E Validation with Real LLM)
-- Complete lifecycle validated with REAL OpenRouter LLM calls (anthropic/claude-sonnet-4)
-  - init → run → chat → journal → learn → install → boot — ALL WORK
-  - `harness run`: correct math/factual responses, session recorded
-  - `harness chat`: multi-turn memory works, secret code "ALPHA-7" recalled across separate invocations
-  - `harness journal`: synthesized 5 sessions into structured journal with 3 instinct candidates
-  - `harness learn`: proposed 2 instincts (confidence 0.9 and 0.8), both installed
-  - `harness learn --install`: writes instinct .md files with frontmatter and provenance
-  - Next boot: 12 files loaded (was 10), new instincts visible in system prompt
-  - Instinct affects behavior: format constraint instinct → "Mercury, Venus, Earth, Mars, Jupiter" (no extras)
-  - validate: 13 checks, 0 errors, 9 primitives | gate run: all 4 gates pass
-  - status: 6 sessions, 1 journal, 5 instincts, health OK
-- Phase 10 "Run full e2e validation" is now COMPLETE
+- [ ] **12.3 COMPLETE**
 
-### Loop 60 (Phase 10 Complete — Documentation)
-- README expanded from 266 to 432 lines covering all Phases 1-10 features
-  - CLI commands organized into 6 categories: Core, Development, Learning, Intelligence, MCP, Installing/Sharing, Monitoring
-  - New sections: MCP Integration, Dev Mode & Dashboard, Installing Content
-  - Updated Using as a Library: `boot()` call, `defineAgent()` fluent builder
-  - Expanded Configuration: multi-provider, summary_model, fast_model, rate_limits, budget
-  - Environment Variables for 3 providers (OpenRouter, Anthropic, OpenAI)
-- **Phase 10 is now COMPLETE** — all items checked off
-- All 1027 tests passing, build clean, lint clean
+---
 
-### Loop 61 (Continuous Learning + Proactive Config)
-- Added `intelligence` config section: `auto_journal` (boolean | cron string), `auto_learn` (boolean)
-- Added `proactive` config section: `enabled`, `max_per_hour` (default 5), `cooldown_minutes` (default 30), `quiet_hours`
-- Scheduler enhanced:
-  - Auto-journal synthesis: cron-scheduled, calls `synthesizeJournal()` for unjournaled sessions
-  - Auto-learn: runs `learnFromSessions(dir, true)` after journal synthesis if enabled
-  - `runJournalSynthesis()` method with error handling and callbacks
-  - `checkProactiveCooldown()`: per-workflow hourly rate limit + cooldown enforcement
-  - Proactive workflows tagged with `proactive: true` in frontmatter are rate-limited
-- CLI `harness dev` wired to read `config.intelligence.auto_journal/auto_learn`
-  - Shows enabled features in startup message (auto-journal, auto-learn)
-  - `onJournal` and `onLearn` callbacks log to console
-- CONFIG_DEFAULTS updated with `intelligence` and `proactive` sections
-- 12 new tests: auto-journal scheduling (3), proactive cooldown (4), config schema validation (5)
-- All 1039 tests passing, build clean, lint clean
+### 12.4 — Pull battle-tested primitives from live sources into `defaults/`
 
-### Loop 62 (Starter Workflow Packs)
-- New module `src/runtime/starter-packs.ts` with 3 builtin packs:
-  - `pack:daily-briefs` (2 files): morning-brief + evening-review with weekday cron schedules
-  - `pack:weekly-review` (1 file): Friday afternoon retrospective
-  - `pack:code-review` (2 files): code review workflow + PR checklist (manual trigger)
-- CLI `harness install pack:<name>` — resolves pack → PackedBundle → installBundle()
-  - `harness install pack:list` shows available packs with descriptions, file counts, tags
-  - Skips existing files by default, --force to overwrite
-- Exported from library: `getStarterPack`, `listStarterPacks`, `isPackReference`, `parsePackName`
-- 14 new tests: pack references (3), listing (2), content validation (4), bundle install integration (4), unique IDs (1)
-- All 1053 tests passing, build clean, lint clean
+**Why:** Current defaults are 7 primitives, all coder-flavored. `harness graph` reports them all as orphans. A non-coder running `harness init` closes the folder. We do NOT write new primitives from scratch — that produces slop. Instead, we pull real content from the battle-tested sources already in `sources.yaml` using the `harness install` pipeline, which auto-normalizes format via the universal installer.
 
-### Loop 63 (Phase 9 Complete — Multi-Type Packs + Browse Command)
-- 3 new multi-type starter packs: `pack:code-reviewer`, `pack:personal-assistant`, `pack:devops`
-  - Each pack contains 5 files across multiple primitive types (rules, instincts, skills, workflows)
-  - `code-reviewer`: 2 rules + 2 instincts + 1 skill
-  - `personal-assistant`: 2 workflows + 2 instincts + 1 skill
-  - `devops`: 2 rules + 2 instincts + 1 skill
-- `harness browse` CLI command: content browser showing starter packs, community sources, installed bundles
-  - `--type packs|sources|installed` filter, `--json` for programmatic consumption
-  - Quick-start tips section for discoverability
-- 8 new tests: multi-type pack install (3), manifest type validation (3), file counts (1), type distribution (1)
-- **Phase 9 is now COMPLETE** — all items checked off
-- All 1061 tests passing, build clean, lint clean
+**Sources to pull from (all verified live in `sources.yaml`):**
+- `https://github.com/anthropics/skills` — 16+ official Anthropic skills (pdf, docx, pptx, xlsx, canvas-design, skill-creator, mcp-builder, etc.)
+- `https://github.com/wshobson/agents` — 112 agents + 146 skills organized as `plugins/<topic>/agents/*.md`
+- `https://github.com/hesreallyhim/awesome-claude-code` — canonical curated list; use to find additional repos
 
-### Loop 64 (Phase 11 Complete — Full CLI Validation)
-- **Phase 11 is now COMPLETE** — all items checked off
-- Verified all 4 bug fixes were already in place from previous loops:
-  - `harness bundle` defaults to all 7 primitive types (CORE_PRIMITIVE_DIRS fallback)
-  - `harness init` CORE.md generation logs actual error message (cleaned up redundant prefix)
-  - agent-framework.test.ts and define-agent.test.ts: all 27 tests pass (never called boot/getModel)
-  - MCP stderr suppressed via `stderr: 'pipe'` in StdioMCPTransport (shows with --verbose)
-- `generateCoreMd()` signature change: now returns `Promise<string>` (throws on error instead of returning null)
-- Ran all 40 CLI commands against test-agent directory — ALL PASS:
-  - Core: init, run, run --stream, info, prompt, validate, status, doctor, dashboard
-  - Learning: journal, learn, enrich, suggest, contradictions, dead-primitives, auto-promote
-  - Discovery: discover search, sources list, discover project, discover env
-  - Versioning: version init, version snapshot, version log, export
-  - Bundling: bundle (no --types), bundle (with --types), process, system, index
-  - Intelligence: list-rules, check-rules, intelligence failures, playbook-gates, semantic stats
-  - Ecosystem: installed, browse, mcp search, gate run, gate list
-- Real LLM calls: `run` and `run --stream` produce correct responses (2+2=4, 3+3=6)
-- MCP noise confirmed suppressed: no Python tracebacks or JSON-RPC debug in output
-- All 1061 tests passing, build clean, lint clean
+**This task takes multiple loops.** Split into sub-commits by primitive type. Each sub-commit must leave build+test+lint green.
 
-### Stats
-- 1061 tests across 53 files — ALL PASSING
-- 59+ source modules, 35,000+ lines
-- 89+ CLI commands, 40 individually verified
-- Build, lint, tests all green
-- Zero `any` types, zero empty catches, zero `require()` calls
+**Prerequisite:** 12.1 must be complete (`discover --remote` working against the unauthenticated Contents API). If 12.1 isn't done yet, go do it first.
+
+**Selection criteria (apply to every candidate before pulling):**
+- General-purpose, not narrowly domain-specific (good: "decision-making", "research"; bad: "react-hooks-refactor")
+- Both coder and non-coder use cases appropriate (this product ships for both)
+- Clean markdown — no truncation, no broken frontmatter, no obvious formatting rot
+- Distinct from existing defaults (don't pull 5 variants of "research")
+- Self-contained — doesn't reference 15 external tools that don't exist
+
+**Steps:**
+
+1. **Survey the sources.** Read the existing `defaults/` tree first to know what NOT to duplicate:
+   ```bash
+   ls defaults/skills/ defaults/playbooks/ defaults/rules/ defaults/agents/ defaults/tools/ defaults/workflows/
+   ```
+
+2. **Discover candidates via the live sources.** Use the now-working `discover --remote`:
+   ```bash
+   node dist/cli/index.js discover search "decision" --remote -d test-agent
+   node dist/cli/index.js discover search "planning" --remote -d test-agent
+   node dist/cli/index.js discover search "writing" --remote -d test-agent
+   node dist/cli/index.js discover search "research" --remote -d test-agent
+   node dist/cli/index.js discover search "communication" --remote -d test-agent
+   node dist/cli/index.js discover search "analysis" --remote -d test-agent
+   node dist/cli/index.js discover search "learning" --remote -d test-agent
+   ```
+   For each query, read the top 3-5 results' `download_url` content (fetch via curl or the GitHub Contents API). Apply the selection criteria. Keep a shortlist.
+
+3. **Pull candidates through `harness install` into a staging harness.** The universal installer at `src/runtime/universal-installer.ts` auto-detects format, fixes frontmatter, generates L0/L1 summaries, and classifies into the right primitive type:
+   ```bash
+   rm -rf /tmp/ralph-source-gather
+   node dist/cli/index.js init /tmp/ralph-source-gather --no-discover-mcp --no-discover-env --no-discover-project
+   node dist/cli/index.js install "<raw github url>" -d /tmp/ralph-source-gather
+   # repeat for every candidate
+   ```
+   The installer will classify each file into `/tmp/ralph-source-gather/skills/`, `.../playbooks/`, `.../rules/`, or `.../agents/` based on content detection.
+
+4. **Verify each pulled file loads cleanly.** After installing each one:
+   ```bash
+   node dist/cli/index.js validate -d /tmp/ralph-source-gather
+   ```
+   If validation fails on a pulled file, DROP it — do not fix it manually. Move on to the next candidate.
+
+5. **Target counts.** Aim for ~20 total new primitives loaded (was 7), distributed roughly:
+   - **Skills: 10-12** (this is the source repos' strength — pull heavily here)
+   - **Agents: 3-5** (stateless sub-agents for specific tasks, from wshobson/agents plugins)
+   - **Playbooks: 2-3** (harder to find in external sources — write minimal ones if needed, see step 8)
+   - **Rules: 1-2** (the external repos don't really have "rules" as a concept — write these)
+   - **Instincts: 1** (the `qualify-before-recommending` one from the learning loop test — write this; it's ~30 lines)
+
+6. **Copy verified files from the staging harness into `defaults/`.** Preserve directory structure. Rename if needed to avoid collisions with existing files:
+   ```bash
+   cp /tmp/ralph-source-gather/skills/*.md defaults/skills/
+   cp /tmp/ralph-source-gather/agents/*.md defaults/agents/
+   # etc.
+   ```
+
+7. **Add cross-references.** `harness graph` currently shows orphans. After pulling, edit each new default's L2 body to reference at least ONE sibling primitive by id, meaningfully in context. Example: in a "decision-making" skill, add a line near the bottom: `> For ambiguous recommendations, pair this with the [qualifying-questions] skill to identify missing context first.`
+   Only add references that make sense — do NOT fake edges.
+
+8. **Handwrite the gaps** — primitive types the external sources don't cover well:
+   - `defaults/rules/respect-the-user.md` — never patronize, never over-explain, ask before volunteering opinions
+   - `defaults/rules/ask-before-assuming.md` — one clarifying question on ambiguous asks
+   - `defaults/instincts/qualify-before-recommending.md` — the instinct the learning loop produces naturally; ship it as a default. `source: default` in frontmatter. Body references the `qualifying-questions` skill if you pulled one with that id, otherwise a semantically-similar pulled skill.
+   - `defaults/tools/example-web-search.md` — a markdown HTTP tool example. Include `## Authentication` (env var placeholder `WEB_SEARCH_API_KEY`), `## Operations` (one GET endpoint), an example call, `status: example` in frontmatter. This exists so users see the format.
+   - `defaults/workflows/daily-reflection.md` — scheduled workflow with cron `0 18 * * *`, body describes producing an end-of-day reflection in `memory/scratch.md`.
+
+9. **Do NOT rewrite existing defaults.** `defaults/skills/research.md`, `defaults/playbooks/ship-feature.md`, `defaults/agents/summarizer.md`, `defaults/instincts/{lead-with-answer,read-before-edit,search-before-create}.md`, `defaults/rules/operations.md` — leave them alone. Coder-flavored defaults still ship because the audience includes coders. We ADD general-purpose content, we don't REPLACE coder content.
+
+10. **Verify the final scaffold:**
+   ```bash
+   rm -rf /tmp/ralph-scaffold-12-4
+   node dist/cli/index.js init /tmp/ralph-scaffold-12-4 --no-discover-mcp --no-discover-env --no-discover-project
+   node dist/cli/index.js validate -d /tmp/ralph-scaffold-12-4
+   node dist/cli/index.js doctor -d /tmp/ralph-scaffold-12-4
+   node dist/cli/index.js graph -d /tmp/ralph-scaffold-12-4
+   node dist/cli/index.js info -d /tmp/ralph-scaffold-12-4
+   ```
+
+11. **Clean up staging:** `rm -rf /tmp/ralph-source-gather`
+
+**Acceptance:**
+- `harness info` on a fresh init reports ≥20 primitives loaded (was 7)
+- `harness validate` — zero errors, zero warnings (except "no API key")
+- `harness doctor` — "no fixes needed"
+- `harness graph` — ≥3 edges, <3 orphans
+- At least 10 of the new primitives came from live sources via `harness install` (check frontmatter for `source:` field pointing to a github URL or the installer's auto-generated provenance)
+- All handwritten gap-fill files (rules, instinct, tool example, workflow example) exist
+- `npm run build && npm test && npm run lint` — all green
+
+**Commit:** Multiple commits expected:
+- `feat(defaults): pull 10+ general-purpose skills from anthropics/skills and wshobson/agents`
+- `feat(defaults): pull 3-5 sub-agents from wshobson plugins`
+- `feat(defaults): add handwritten rules, instinct, tool example, workflow example`
+- `feat(defaults): cross-reference pulled primitives for graph edges`
+
+**Source attribution:** Each pulled file's frontmatter must preserve its `source:` field (the universal installer sets this). If it doesn't, add it manually pointing to the original `download_url`. This is the licensing trail — users can trace any default back to where it came from.
+
+- [ ] **12.4 COMPLETE**
+
+---
+
+### 12.5 — Fix `harness init` next-steps output + generate in-scaffold README
+
+**Why:** Current `init` next-steps says "edit CORE.md" which is a prerequisite, not a next step. A non-coder has no idea what to do. Also the scaffold has no `README.md` inside it explaining what to do with the folder they just created. Depends on 12.4 so the referenced prompts actually produce good output.
+
+**Steps:**
+1. Create `templates/base/README.md` (or the equivalent location — look for how existing templates work; check `src/cli/scaffold.ts` and `templates/`). Content: a walkthrough of the 5-command first-run demo.
+   ```markdown
+   # {agent-name}
+
+   You just created an agent. Try these in order:
+
+   1. `harness run "What can you do?"` — see what's loaded
+   2. `harness run "Help me decide between X and Y"` — see it work
+   3. `harness run "Plan a weekend project for me"` — see it qualify before answering
+   4. (do this for a few days with varied prompts)
+   5. `harness journal` — see what it learned
+   6. `harness learn --install` — teach it to remember
+
+   The agent gets better the more you use it. You're editing markdown, not writing code. Open any file in `skills/`, `rules/`, or `instincts/` to see how it works.
+
+   ## The 7 primitives
+   (brief explanation of each)
+
+   ## Going further
+   - `harness doctor` — check scaffold health
+   - `harness graph` — see how primitives reference each other
+   - `harness info` — see what's loaded in the context budget
+   - `harness mcp discover` — find MCP tools on your machine
+   - `harness mcp search <query>` — browse the MCP registry
+   ```
+
+2. Update `scaffoldHarness()` in `src/cli/scaffold.ts` to copy `templates/base/README.md` into the generated directory (with `{agent-name}` placeholder replaced with the actual name).
+
+3. Update the `init` command in `src/cli/index.ts` — the block that prints "Next steps:" — to:
+   - Print 5 concrete commands matching the README's demo path
+   - Print the actual agent directory path (not just the name)
+   - Print a note about `harness mcp test` if MCP servers were auto-discovered
+   - Remove the generic "edit CORE.md" and "edit rules/, instincts/, skills/" lines
+
+**Acceptance:**
+- `rm -rf /tmp/ralph-scaffold-12-5 && node dist/cli/index.js init /tmp/ralph-scaffold-12-5 --no-discover-mcp --no-discover-env --no-discover-project`
+- `cat /tmp/ralph-scaffold-12-5/README.md` — exists, contains the 5-command demo
+- Terminal output from `init` prints 5 specific commands, no generic advice
+- `npm run build && npm test && npm run lint` — all green
+
+**Commit:** `feat(scaffold): add in-scaffold README and improve init next-steps`
+
+- [ ] **12.5 COMPLETE**
+
+---
+
+### 12.6 — Fix MCP auto-discovery safety
+
+**Why:** Current `init` silently adds up to 7 MCP servers with absolute paths (`/Users/randywilson/.nvm/.../npx`), including HTTP servers that 401 without auth (`auggie`). On a different machine, all those paths are broken. On first run, `harness info` prints a wall of servers the user never asked for. For a shared or published scaffold, absolute paths leak user metadata.
+
+**Steps:**
+1. Read `src/cli/index.ts:206-225` (the MCP auto-discovery block in the init action).
+2. Read `src/runtime/mcp-discovery.ts` — the `discoverMcpServers()` and `discoveredServersToYaml()` functions.
+3. Changes to discovery:
+   - Normalize commands: if the command resolves to `npx`, `node`, or `python`, write just the tool name, not the absolute path. Use PATH at runtime.
+   - Skip HTTP/SSE servers that have no `Authorization` header or auth config — they're guaranteed to 401.
+   - Skip servers with `env` values that contain unresolved `${...}` references to env vars not set in the current environment.
+4. Change the default behavior of `init` to PREVIEW and CONFIRM:
+   - Print the list of discovered servers
+   - Prompt "Add these N servers to config.yaml? [Y/n]" — default yes, `--yes` to skip prompt, `--no-discover-mcp` still works to skip entirely
+   - Use a simple `readline` Y/n prompt — don't add a new dependency like `inquirer`
+5. After adding servers, print a single line: `  → Run 'harness mcp test' to verify connections`
+6. Update any existing tests for `discoverMcpServers` / scaffold to reflect the new behavior. Add 2 new tests: normalization (absolute path → tool name), unauth HTTP filter.
+
+**Acceptance:**
+- `rm -rf /tmp/ralph-scaffold-12-6 && echo "" | node dist/cli/index.js init /tmp/ralph-scaffold-12-6` (the echo simulates "accept default Y")
+- If MCP auto-discovery runs on your dev machine, `grep /Users/ /tmp/ralph-scaffold-12-6/config.yaml` — no matches. No absolute paths leaked.
+- If `auggie` exists on your machine, it's NOT in the generated config (filtered because no auth).
+- `rm -rf /tmp/ralph-scaffold-12-6-yes && node dist/cli/index.js init /tmp/ralph-scaffold-12-6-yes --yes` — skips prompt, still normalizes and filters.
+- `node dist/cli/index.js init /tmp/foo --no-discover-mcp` still works (existing behavior).
+- `npm run build && npm test && npm run lint` — all green.
+
+**Commit:** `fix(mcp): preview-and-confirm discovery, normalize paths, filter unauth HTTP`
+
+- [ ] **12.6 COMPLETE**
+
+---
+
+### 12.7 — Add LICENSE file at repo root
+
+**Why:** `package.json` declares `"license": "MIT"` but there's no `LICENSE` file at the repo root. npm publish will include the license from package.json, but the file is conventional and some linters/scanners complain. Takes 2 minutes.
+
+**Steps:**
+1. Create `LICENSE` at repo root with the standard MIT License text.
+2. Copyright holder: `Randy Wilson`
+3. Year: `2026`
+
+**Acceptance:**
+- `LICENSE` file exists at repo root, starts with `MIT License`, contains copyright year and holder
+- `npm run build && npm test && npm run lint` — all green (no code changes, but run anyway to confirm)
+
+**Commit:** `chore: add LICENSE file (MIT)`
+
+- [ ] **12.7 COMPLETE**
+
+---
+
+### 12.8 — Commit Phase 11 test fixes if still uncommitted
+
+**Why:** The last audit found `tests/agent-framework.test.ts` and `tests/define-agent.test.ts` had uncommitted fixes from a previous phase. CI is green on Node 20+ but the working tree is dirty. Clean it up.
+
+**Steps:**
+1. `git status` — check if those test files are modified and unstaged.
+2. If yes: `git diff tests/agent-framework.test.ts tests/define-agent.test.ts` — verify the changes are actual test fixes, not debugging leftovers.
+3. If the diff looks like real test fixes, commit them. If it looks like noise, revert instead.
+4. If the files are already clean (no unstaged changes), mark this task complete and move on.
+
+**Acceptance:**
+- `git status --short` shows the test files as clean
+- `npm test` still passes
+- `npm run build && npm run lint` — green
+
+**Commit:** `test: commit pending phase 11 test fixes` (only if there were actual changes to commit)
+
+- [ ] **12.8 COMPLETE**
+
+---
+
+### 12.9 — Verify `agent-harness` name on npm and run local install round-trip
+
+**Why:** Nobody has verified that `agent-harness` is available as a package name on npm, and nobody has tested `npm install -g` from the built tarball on a clean shell. If the name is taken, we need to scope it (e.g. `@randywilson/agent-harness`) BEFORE the release workflow exists. If the install round-trip is broken, the release workflow publishes something users can't actually use.
+
+**Steps:**
+1. Run `npm view agent-harness` — capture output.
+   - If it says `404 Not Found` → name is available. Continue.
+   - If it returns package metadata → name is taken. Edit `package.json` to set `"name": "@randywilson/agent-harness"` and adjust any downstream references. Document the rename in this task's notes.
+2. `npm run build`
+3. `npm pack` — produces `agent-harness-0.1.0.tgz` (or the scoped equivalent) at the repo root.
+4. Install that tarball in a throwaway directory as if it were a user:
+   ```bash
+   rm -rf /tmp/install-test && mkdir /tmp/install-test && cd /tmp/install-test
+   npm init -y
+   npm install /Users/randywilson/Desktop/agent-harness/agent-harness-0.1.0.tgz
+   ./node_modules/.bin/harness --version   # must print 0.1.0
+   ./node_modules/.bin/harness init smoke-test --no-discover-mcp --no-discover-env --no-discover-project
+   cd smoke-test
+   ../node_modules/.bin/harness validate
+   ../node_modules/.bin/harness doctor
+   ../node_modules/.bin/harness graph
+   ../node_modules/.bin/harness info
+   ```
+5. All commands must produce expected output. Clean up: `rm /Users/randywilson/Desktop/agent-harness/agent-harness-*.tgz` and `rm -rf /tmp/install-test`.
+
+**Acceptance:**
+- If name is taken, `package.json` is updated to a scoped name and this fact is recorded in Discoveries
+- `npm pack` produces a tarball
+- Install from tarball succeeds
+- `harness --version`, `harness init`, `harness validate`, `harness doctor`, `harness graph`, `harness info` all work from the tarball install
+- Tarball is cleaned up, no leftover `.tgz` committed
+
+**Commit:** `chore(release): verify npm name and local install round-trip` (no-op commit if nothing changed, or the package.json rename if name was taken)
+
+- [ ] **12.9 COMPLETE**
+
+---
+
+### 12.10 — Add `.github/workflows/release.yml` for tag-triggered publish
+
+**Why:** Currently publishing means running `npm publish` by hand. That's fine for v0.0.x experimentation but not for v0.1.0. A basic tag-triggered workflow is 25 lines of YAML and makes `git tag v0.1.1 && git push --tags` the entire release process going forward.
+
+**Steps:**
+1. Check if `.github/workflows/ci.yml` exists and read it to match style and Node version matrix.
+2. Create `.github/workflows/release.yml`:
+   ```yaml
+   name: Release
+   on:
+     push:
+       tags: ['v*']
+   jobs:
+     publish:
+       runs-on: ubuntu-latest
+       permissions:
+         contents: read
+         id-token: write
+       steps:
+         - uses: actions/checkout@v4
+         - uses: actions/setup-node@v4
+           with:
+             node-version: '20'
+             registry-url: 'https://registry.npmjs.org'
+         - run: npm ci
+         - run: npm run build
+         - run: npm test
+         - run: npm run lint
+         - run: npm publish --access public --provenance
+           env:
+             NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+   ```
+3. The `--provenance` flag requires `id-token: write` permission and npm >= 9.5. Use it — it's a free security win.
+4. Do NOT commit any `NPM_TOKEN` value. The workflow references the secret by name; the user sets it in GitHub repo settings.
+5. Note in this task's discoveries: "User must set `NPM_TOKEN` secret in GitHub repo settings before tagging v0.1.0."
+
+**Acceptance:**
+- `.github/workflows/release.yml` exists and is valid YAML (test: `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/release.yml'))"`)
+- File references `${{ secrets.NPM_TOKEN }}` (not a hardcoded token)
+- Discoveries section notes the NPM_TOKEN setup step
+- `npm run build && npm test && npm run lint` — green
+
+**Commit:** `ci: add release workflow for tag-triggered npm publish`
+
+- [ ] **12.10 COMPLETE**
+
+---
+
+### 12.11 — Update main README with v0.1.0 pitch and structure
+
+**Why:** The current README buries the learning loop in section 12 of 13. The learning loop is the headline feature. Also the README doesn't clearly state the audience, the MCP-as-tool-layer architectural decision, or the fact that it works for both coders and non-coders.
+
+**Steps:**
+1. Read the current `README.md` end-to-end.
+2. Rewrite the top ~40 lines with:
+   - **New title block**: Same project name, but replace the subtitle with: `"The first agent framework where the agent gets measurably better as you use it. You write markdown, not code. Tools come from MCP."`
+   - **New intro paragraph (2-3 sentences)**: explain that agent-harness is a file-first framework for building agents through markdown editing. Mention the audience: anyone who can write a document — coder or non-coder. Mention the learning loop as the differentiator.
+   - **A new "Why this is different" section** with 3 bullets:
+     - Self-learning by default: every interaction is journaled; patterns become instincts; agents get better with use
+     - File-first authoring: edit markdown, not code
+     - MCP-native tools: the entire MCP ecosystem is your toolbox, no custom adapter layer
+3. Move the existing "The Learning Loop" section from the bottom to immediately after the Quick Start. Make it the second thing users read.
+4. Add a new "Tools" section between "Customizing Your Agent" and "MCP Integration" stating plainly: MCP is the primary tool layer. Markdown HTTP tools for trivial REST APIs. Programmatic tools only as an escape hatch.
+5. Update the Quick Start to include a first prompt that's NOT "Who are you?" — something that actually shows what the agent does. Suggest: `harness run "Help me decide between two options: A and B"`
+6. Leave everything else alone. Do not rewrite the 7 Primitives table, the CLI commands table, the configuration section, or the MCP Integration section.
+7. Do NOT embed a screencast/asciicast — marketing artifacts are post-ship, not ship-blockers.
+
+**Acceptance:**
+- README.md subtitle matches the new pitch line
+- "Why this is different" section exists with 3 bullets
+- Learning Loop section appears within the first ~100 lines (not at the bottom)
+- "Tools" section explicitly names MCP as primary, HTTP markdown as secondary, programmatic as escape hatch
+- Quick Start first command is NOT "Who are you?"
+- No asciicast embedded (deferred post-ship)
+- Spell-check pass (no obvious typos)
+- `npm run build && npm test && npm run lint` — green (no code changes, but verify)
+
+**Commit:** `docs(readme): rewrite for v0.1.0 with learning loop and MCP pitch`
+
+- [ ] **12.11 COMPLETE**
+
+---
+
+### 12.12 — Run end-to-end smoke test and record results
+
+**Why:** Before tagging a release, run every acceptance check from every prior task in one clean pass against a fresh scaffold. If anything fails, do NOT tag — add a new fix task and loop again. If everything passes, write a record file and proceed to 12.13.
+
+**Steps:**
+
+1. **Build + verify:**
+   ```bash
+   npm run build
+   npm test
+   npm run lint
+   ```
+   All must pass. If any fail, add a new task `12.N — Fix <thing>` and do NOT mark 12.12 complete.
+
+2. **Offline scaffold smoke test:**
+   ```bash
+   rm -rf /tmp/ralph-final-smoke
+   node dist/cli/index.js init /tmp/ralph-final-smoke --no-discover-mcp --no-discover-env --no-discover-project > /tmp/ralph-init.log 2>&1
+   cat /tmp/ralph-init.log
+   ```
+   Assert:
+   - Exit code 0
+   - `/tmp/ralph-final-smoke/README.md` exists and contains the 5-command demo
+   - Init log prints 5 concrete demo commands in its "Next steps" section (no generic "edit CORE.md")
+   - `/tmp/ralph-final-smoke/config.yaml` has NO absolute paths (`grep /Users/ /tmp/ralph-final-smoke/config.yaml` → empty)
+
+3. **Validator/doctor/graph/info:**
+   ```bash
+   node dist/cli/index.js validate -d /tmp/ralph-final-smoke
+   node dist/cli/index.js doctor -d /tmp/ralph-final-smoke
+   node dist/cli/index.js graph -d /tmp/ralph-final-smoke
+   node dist/cli/index.js info -d /tmp/ralph-final-smoke
+   ```
+   Assert:
+   - `validate`: zero errors, zero warnings (except "no API key")
+   - `doctor`: reports "no fixes needed" (does NOT auto-fix anything)
+   - `graph`: ≥3 edges, <3 orphans
+   - `info`: lists ≥20 primitives loaded
+
+4. **CLI noise:**
+   ```bash
+   node dist/cli/index.js --version > /tmp/ralph-version.log 2>&1
+   cat /tmp/ralph-version.log
+   wc -l /tmp/ralph-version.log
+   ```
+   Assert: `wc -l` returns exactly 1 line; content is exactly `0.1.0`.
+
+5. **Discover --remote works unauthenticated:**
+   ```bash
+   unset GITHUB_TOKEN
+   node dist/cli/index.js discover search "writing" --remote -d /tmp/ralph-final-smoke 2>&1 | tee /tmp/ralph-discover.log
+   grep -c "^  " /tmp/ralph-discover.log
+   ```
+   Assert: result count ≥ 1. No `401` in the output.
+
+6. **Distribution checks:**
+   ```bash
+   test -f LICENSE && grep -q "MIT License" LICENSE && echo "LICENSE ok"
+   test -f .github/workflows/release.yml && grep -q "NPM_TOKEN" .github/workflows/release.yml && echo "release workflow ok"
+   npm pack --dry-run 2>&1 | tail -5
+   ```
+   Assert: all three print their "ok" messages.
+
+7. **README checks:**
+   ```bash
+   grep -q "measurably better" README.md && echo "pitch ok"
+   grep -q "Why this is different" README.md && echo "section ok"
+   awk '/^## The Learning Loop|^## Learning Loop/ {print NR; exit}' README.md
+   ```
+   Assert: "pitch ok" and "section ok" print. Learning Loop line number ≤ half the total line count of README.md.
+
+8. **Online smoke test** — ONLY if `OPENROUTER_API_KEY` is set in env. Otherwise skip and log "ONLINE CHECK SKIPPED: no API key".
+   ```bash
+   if [ -n "$OPENROUTER_API_KEY" ]; then
+     node dist/cli/index.js run "Recommend a book for me" -m gemma -d /tmp/ralph-final-smoke > /tmp/ralph-online.log 2>&1
+     grep -i "recommend\|tell me\|which\|what" /tmp/ralph-online.log && echo "qualifying behavior ok"
+   fi
+   ```
+   If the agent produced qualifying questions (instead of blindly recommending), pass. If the online check runs and fails, do NOT proceed — add a fix task.
+
+9. **Record results:** Write `.ralph/smoke-test.md` with:
+   ```markdown
+   # v0.1.0 Smoke Test Results
+
+   Ran: <actual ISO timestamp, not a placeholder>
+   By: Ralph, task 12.12
+
+   ## Results
+   - [x] Build + test + lint passing
+   - [x] Scaffold round-trip clean
+   - [x] Validator/doctor/graph/info green
+   - [x] CLI noise suppressed (`--version` is single line)
+   - [x] `discover --remote` unauthenticated returns results
+   - [x] LICENSE + release workflow + npm pack ok
+   - [x] README pitch + structure ok
+   - [<x | skipped>] Online qualifying-behavior check
+
+   ## Build info
+   - Node: <output of `node --version`>
+   - Package version: 0.1.0
+   - Primitive count on fresh init: <actual number>
+   - Graph edges: <actual number>
+   - Graph orphans: <actual number>
+   ```
+   Fill in real numbers from the command outputs. Do not leave placeholders.
+
+10. **Clean up:** `rm -rf /tmp/ralph-final-smoke /tmp/ralph-*.log`
+
+**Acceptance:**
+- Every assertion in steps 1-8 passed (or step 8 was skipped because no API key)
+- `.ralph/smoke-test.md` exists with real values
+- Build + test + lint green
+
+**Commit:** `docs(release): record v0.1.0 smoke test results`
+
+- [ ] **12.12 COMPLETE**
+
+---
+
+### 12.13 — Tag v0.1.0 and push
+
+**Why:** Final ship step. `.github/workflows/release.yml` (from 12.10) triggers on tag push. Pushing the tag hands the release off to CI. Ralph does this autonomously — the smoke test in 12.12 is the gate.
+
+**Prerequisite:** 12.12 `[x]` with every assertion green. If 12.12 is not `[x]`, do NOT proceed.
+
+**Steps:**
+1. Re-verify the working tree is clean: `git status --short` — must be empty. If not empty, there's uncommitted work from an earlier task; go back and commit it before this task.
+2. Re-verify we're on the main branch (or whatever the default branch is): `git branch --show-current`. If not on main, do NOT tag.
+3. Verify there's no existing `v0.1.0` tag: `git tag -l v0.1.0`. If it already exists, the release is in progress or already shipped — mark 12.13 complete and move on.
+4. Create the tag: `git tag -a v0.1.0 -m "v0.1.0 — initial release"`
+5. Push the tag: `git push origin v0.1.0`
+6. Log the tag push in `.ralph/smoke-test.md` as an appended line: `Tagged and pushed: <ISO timestamp>`
+7. Do NOT `git push` the branch itself in this task — commits should already have been pushed by earlier loops (if the user has configured branch autopush) or will be pushed by the user. This task only handles the tag.
+
+**Acceptance:**
+- `git tag -l v0.1.0` prints `v0.1.0`
+- `git ls-remote --tags origin v0.1.0` (if network permits) shows the tag on remote — if this check fails due to network, log it but don't fail the task
+- `.ralph/smoke-test.md` has the appended "Tagged and pushed" line
+
+**Commit:** no commit needed — the tag is the output. If `.ralph/smoke-test.md` was edited to append the log line, commit that: `chore(release): log v0.1.0 tag push`
+
+- [ ] **12.13 COMPLETE**
+
+---
+
+## Discoveries
+
+_(Ralph: add discoveries, surprises, and notes here as you work. One bullet per discovery. Include the task number that produced it.)_
+
+- **12.0** (pre-loop audit by Claude): Learning loop verified working end-to-end with 7 real prompts → journal → learn → instinct installed → behavior change on novel prompt. Cost ~$0.06 on gemma. The headline feature IS the product.
+- **12.0**: `sources.yaml` had 8 dead GitHub URLs; fixed. Now contains 4 MCP registries + 6 live GitHub sources (anthropics/skills, hesreallyhim/awesome-claude-code, wshobson/agents, karanb192/claude-code-hooks, anthropics/claude-plugins-official, anthropics/claude-plugins-community).
+- **12.0**: `anthropics/skills` has no top-level LICENSE file. License verification for pre-bundled content is DEFERRED. v0.1.0 does not pre-bundle from external sources; all default content is written in-repo.
+- **12.0**: `discover --remote` fails on all sources because it uses GitHub Code Search API which requires auth. Fix is task 12.1.
+- **12.0**: `bench/terminal-bench/` scaffold is parked (correct code against correct Harbor contract, but waiting for out-of-scope runtime features). Do not touch.
