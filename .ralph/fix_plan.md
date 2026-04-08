@@ -425,7 +425,7 @@
 
 **Commit:** `ci: add release workflow for tag-triggered npm publish`
 
-- [ ] **12.10 COMPLETE**
+- [x] **12.10 COMPLETE**
 
 ---
 
@@ -624,3 +624,4 @@ _(Ralph: add discoveries, surprises, and notes here as you work. One bullet per 
 - **12.2**: The CLI uses plain `dotenv@17.4.1`, NOT dotenvx. The banners we saw (`◇ injected env (N) from .env // tip: ⌘ ...`) are from dotenv 17.x's own behavior — the package was rebranded by the dotenvx team and the modern version always logs by default. Fixed by passing `{ quiet: true }` to both `loadDotenv()` calls. Banners come back via `HARNESS_VERBOSE=1`.
 - **12.2**: The Node 18 `ExperimentalWarning: The Fetch API is an experimental feature` warning is suppressed by removing all default `warning` listeners and re-installing a filtered handler that drops only the fetch-related ExperimentalWarnings. All other warnings (e.g. deprecation, unhandled promise rejection) still print as before. Verified clean on both Node 18.12.1 and Node 22.22.1.
 - **12.2**: Discovered a small unrelated bug in `harness init`: when given a full path like `/tmp/v122-test`, it sets `agent.name` in `config.yaml` to the full path string instead of the basename `v122-test`. Not in 12.2's scope. Fix in 12.5 (which is doing the init UX cleanup anyway).
+- **12.10**: ⚠️ ACTION REQUIRED before tagging v0.1.0 — User must add `NPM_TOKEN` secret in GitHub repo settings (Settings → Secrets and variables → Actions → New repository secret). Token is generated at https://www.npmjs.com/settings/{username}/tokens with "Automation" type. Without it, the release workflow will fail at the publish step.
