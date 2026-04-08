@@ -150,7 +150,8 @@ program
   .option('--no-discover-mcp', 'Skip MCP server auto-discovery')
   .option('--no-discover-env', 'Skip environment variable scanning')
   .option('--no-discover-project', 'Skip project context detection')
-  .action(async (name: string | undefined, opts: { dir: string; template: string; purpose?: string; interactive: boolean; generate: boolean; discoverMcp: boolean; discoverEnv: boolean; discoverProject: boolean }) => {
+  .option('-y, --yes', 'Accept defaults for all prompts (skip MCP confirmation)', false)
+  .action(async (name: string | undefined, opts: { dir: string; template: string; purpose?: string; interactive: boolean; generate: boolean; discoverMcp: boolean; discoverEnv: boolean; discoverProject: boolean; yes: boolean }) => {
     const { scaffoldHarness, generateCoreMd, listTemplates } = await import('./scaffold.js');
 
     // Interactive mode: no name provided or --interactive flag
@@ -231,23 +232,45 @@ program
 
       // Auto-discover MCP servers from other tools
       if (opts.discoverMcp !== false) {
-        const { discoverMcpServers, discoveredServersToYaml } = await import('../runtime/mcp-discovery.js');
+        const { discoverMcpServers, discoveredServersToYaml, filterUnsafeServers } = await import('../runtime/mcp-discovery.js');
         const discovery = discoverMcpServers();
+        const safeServers = filterUnsafeServers(discovery.servers);
 
-        if (discovery.totalServers > 0) {
-          // Write discovered servers into config.yaml
-          const { appendFileSync } = await import('fs');
-          const configPath = resolve(targetDir, 'config.yaml');
-          const yaml = discoveredServersToYaml(discovery.servers);
-          appendFileSync(configPath, '\n' + yaml + '\n');
-
-          console.log(`\n✓ Discovered ${discovery.totalServers} MCP server(s) from existing tools:`);
+        if (safeServers.length > 0) {
+          console.log(`\n✓ Discovered ${safeServers.length} MCP server(s) from existing tools:`);
+          const safeNames = new Set(safeServers.map((s) => s.name));
           for (const source of discovery.sources) {
-            if (source.servers.length > 0) {
-              console.log(`  ${source.tool}: ${source.servers.map((s) => s.name).join(', ')}`);
+            const kept = source.servers.filter((s) => safeNames.has(s.name));
+            if (kept.length > 0) {
+              console.log(`  ${source.tool}: ${kept.map((s) => s.name).join(', ')}`);
             }
           }
-          console.log(`  → Added to config.yaml (edit to enable/disable)`);
+
+          // Prompt for confirmation unless --yes or stdin is not a TTY
+          let shouldAdd = true;
+          if (!opts.yes && process.stdin.isTTY) {
+            const readline = await import('readline');
+            const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+            try {
+              const answer = await new Promise<string>((res) => {
+                rl.question(`\nAdd these ${safeServers.length} server(s) to config.yaml? [Y/n] `, (a) => res(a.trim()));
+              });
+              shouldAdd = answer === '' || answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes';
+            } finally {
+              rl.close();
+            }
+          }
+
+          if (shouldAdd) {
+            const { appendFileSync } = await import('fs');
+            const configPath = resolve(targetDir, 'config.yaml');
+            const yaml = discoveredServersToYaml(safeServers);
+            appendFileSync(configPath, '\n' + yaml + '\n');
+            console.log(`  → Added to config.yaml`);
+            console.log(`  → Run 'harness mcp test' to verify connections`);
+          } else {
+            console.log(`  → Skipped MCP discovery. Add servers manually with 'harness mcp install <name>'.`);
+          }
         }
       }
 

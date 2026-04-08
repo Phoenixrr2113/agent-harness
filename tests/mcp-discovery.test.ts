@@ -5,6 +5,7 @@ import { tmpdir } from 'os';
 import {
   discoverMcpServers,
   discoveredServersToYaml,
+  filterUnsafeServers,
   getScannedTools,
 } from '../src/runtime/mcp-discovery.js';
 import type { DiscoveredMcpServer, DiscoveryOptions } from '../src/runtime/mcp-discovery.js';
@@ -472,6 +473,79 @@ describe('MCP auto-discovery', () => {
       expect(yaml).toContain('      env:');
       expect(yaml).toContain('        MY_VAR: "value"');
       expect(yaml).toContain('        SECRET: "${SECRET}"');
+    });
+  });
+
+  describe('discoveredServersToYaml normalization', () => {
+    it('normalizes absolute npx paths to bare "npx"', () => {
+      const servers: DiscoveredMcpServer[] = [{
+        name: 'test',
+        transport: 'stdio',
+        command: '/Users/foo/.nvm/versions/node/v22.22.1/bin/npx',
+        args: ['-y', '@my/server'],
+        env: { PATH: '/Users/foo/.nvm/versions/node/v22.22.1/bin:/usr/bin', OTHER: 'keep' },
+      }];
+
+      const yaml = discoveredServersToYaml(servers);
+      expect(yaml).toContain('      command: npx');
+      expect(yaml).not.toContain('/Users/foo');
+      expect(yaml).not.toContain('/.nvm/');
+      // PATH should be dropped when command was normalized
+      expect(yaml).not.toMatch(/PATH:/);
+      // Other env vars should be preserved
+      expect(yaml).toContain('OTHER: "keep"');
+    });
+
+    it('also normalizes absolute node and python3 paths', () => {
+      const servers: DiscoveredMcpServer[] = [
+        { name: 'a', transport: 'stdio', command: '/opt/homebrew/bin/node', args: ['s.js'] },
+        { name: 'b', transport: 'stdio', command: '/usr/local/bin/python3', args: ['s.py'] },
+      ];
+      const yaml = discoveredServersToYaml(servers);
+      expect(yaml).toContain('      command: node');
+      expect(yaml).toContain('      command: python3');
+      expect(yaml).not.toContain('/opt/homebrew');
+      expect(yaml).not.toContain('/usr/local');
+    });
+
+    it('leaves non-interpreter absolute paths alone', () => {
+      const servers: DiscoveredMcpServer[] = [{
+        name: 'custom',
+        transport: 'stdio',
+        command: '/opt/anaconda3/bin/supabase-mcp-server',
+      }];
+      const yaml = discoveredServersToYaml(servers);
+      expect(yaml).toContain('      command: /opt/anaconda3/bin/supabase-mcp-server');
+    });
+  });
+
+  describe('filterUnsafeServers', () => {
+    it('drops unauth http/sse servers', () => {
+      const servers: DiscoveredMcpServer[] = [
+        { name: 'good-stdio', transport: 'stdio', command: 'npx' },
+        { name: 'bad-http', transport: 'http', url: 'https://api.example.com/mcp' },
+        { name: 'bad-sse', transport: 'sse', url: 'https://api.example.com/sse' },
+        { name: 'good-http', transport: 'http', url: 'https://api.example.com/mcp', headers: { Authorization: 'Bearer xyz' } },
+      ];
+      const filtered = filterUnsafeServers(servers);
+      const names = filtered.map((s) => s.name);
+      expect(names).toContain('good-stdio');
+      expect(names).toContain('good-http');
+      expect(names).not.toContain('bad-http');
+      expect(names).not.toContain('bad-sse');
+    });
+
+    it('drops servers with unresolved env var references', () => {
+      const missing = '__MCP_DISCOVERY_TEST_VAR_DEFINITELY_UNSET__';
+      delete process.env[missing];
+      const servers: DiscoveredMcpServer[] = [
+        { name: 'has-missing', transport: 'stdio', command: 'npx', env: { TOKEN: `\${${missing}}` } },
+        { name: 'has-set', transport: 'stdio', command: 'npx', env: { HOME: '/tmp' } },
+      ];
+      const filtered = filterUnsafeServers(servers);
+      const names = filtered.map((s) => s.name);
+      expect(names).not.toContain('has-missing');
+      expect(names).toContain('has-set');
     });
   });
 

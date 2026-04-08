@@ -452,9 +452,99 @@ export function discoverMcpServers(options?: DiscoveryOptions): DiscoveryResult 
   };
 }
 
+/** Binary basenames that are safe to strip from absolute paths — PATH will resolve them */
+const NORMALIZABLE_BINARIES = new Set(['npx', 'node', 'python', 'python3']);
+
+/**
+ * If `command` is an absolute path whose basename is a well-known interpreter
+ * (npx/node/python/python3), return just the basename. Otherwise return as-is.
+ *
+ * This prevents leaking user-specific paths like
+ * `/Users/foo/.nvm/versions/node/v22/bin/npx` into scaffolds.
+ */
+function normalizeCommand(command: string): string {
+  if (!command.startsWith('/')) return command;
+  const base = command.substring(command.lastIndexOf('/') + 1);
+  if (NORMALIZABLE_BINARIES.has(base)) return base;
+  return command;
+}
+
+/** Check if an http/sse server has any form of Authorization configured */
+function hasAuthConfigured(server: DiscoveredMcpServer): boolean {
+  if (server.headers) {
+    for (const k of Object.keys(server.headers)) {
+      if (k.toLowerCase() === 'authorization') return true;
+    }
+  }
+  return false;
+}
+
+/** Find ${VAR} placeholders in a string. Returns var names. */
+function findEnvPlaceholders(value: string): string[] {
+  const matches = value.matchAll(/\$\{([A-Z_][A-Z0-9_]*)\}/gi);
+  return Array.from(matches, (m) => m[1]);
+}
+
+/**
+ * Filter out servers that won't work on this machine:
+ * - http/sse servers with no Authorization header (will 401 silently)
+ * - servers referencing env vars that aren't set in the current process
+ *
+ * Logs a warning to stderr for each skipped server explaining why.
+ */
+export function filterUnsafeServers(servers: DiscoveredMcpServer[]): DiscoveredMcpServer[] {
+  const result: DiscoveredMcpServer[] = [];
+  for (const server of servers) {
+    // Drop unauth http/sse
+    if (server.transport === 'http' || server.transport === 'sse') {
+      if (!hasAuthConfigured(server)) {
+        console.warn(`[mcp-discovery] skipping ${server.name}: ${server.transport} transport with no Authorization header`);
+        continue;
+      }
+    }
+
+    // Drop servers with unresolved env var references
+    let missingVar: string | undefined;
+    if (server.env) {
+      for (const v of Object.values(server.env)) {
+        for (const varName of findEnvPlaceholders(v)) {
+          if (!(varName in process.env) || !process.env[varName]) {
+            missingVar = varName;
+            break;
+          }
+        }
+        if (missingVar) break;
+      }
+    }
+    if (!missingVar && server.headers) {
+      for (const v of Object.values(server.headers)) {
+        for (const varName of findEnvPlaceholders(v)) {
+          if (!(varName in process.env) || !process.env[varName]) {
+            missingVar = varName;
+            break;
+          }
+        }
+        if (missingVar) break;
+      }
+    }
+    if (missingVar) {
+      console.warn(`[mcp-discovery] skipping ${server.name}: required env var ${missingVar} not set`);
+      continue;
+    }
+
+    result.push(server);
+  }
+  return result;
+}
+
 /**
  * Convert discovered servers to the harness config YAML format.
  * Returns a string that can be appended to config.yaml.
+ *
+ * Normalizes absolute paths to well-known binaries (npx/node/python) to bare
+ * names so the YAML is portable across machines. When the command is normalized,
+ * any PATH env var entry is dropped — it was only needed to find the absolute
+ * binary location.
  */
 export function discoveredServersToYaml(servers: DiscoveredMcpServer[]): string {
   if (servers.length === 0) return '';
@@ -466,13 +556,23 @@ export function discoveredServersToYaml(servers: DiscoveredMcpServer[]): string 
     lines.push(`      transport: ${server.transport}`);
 
     if (server.transport === 'stdio') {
-      if (server.command) lines.push(`      command: ${server.command}`);
+      let normalizedCommand: string | undefined;
+      if (server.command) {
+        normalizedCommand = normalizeCommand(server.command);
+        lines.push(`      command: ${normalizedCommand}`);
+      }
+      const wasNormalized = !!server.command && normalizedCommand !== server.command;
       if (server.args && server.args.length > 0) {
         lines.push(`      args: [${server.args.map((a) => `"${a}"`).join(', ')}]`);
       }
-      if (server.env && Object.keys(server.env).length > 0) {
+      // When the command was normalized to a bare binary name, drop PATH —
+      // the system PATH will resolve it. Custom env vars are still kept.
+      const filteredEnv = server.env
+        ? Object.fromEntries(Object.entries(server.env).filter(([k]) => !(wasNormalized && k === 'PATH')))
+        : undefined;
+      if (filteredEnv && Object.keys(filteredEnv).length > 0) {
         lines.push('      env:');
-        for (const [k, v] of Object.entries(server.env)) {
+        for (const [k, v] of Object.entries(filteredEnv)) {
           lines.push(`        ${k}: "${v}"`);
         }
       }
