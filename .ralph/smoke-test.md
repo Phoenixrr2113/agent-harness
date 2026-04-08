@@ -6,13 +6,22 @@
 >
 > - **v0.1.1** (2026-04-08) — Published as `@agntk/agent-harness@0.1.1` via run `24137271301`, commit `210126c`. License cleanup ship: all 10 proprietary files removed, 2 retained wshobson/agents files got MIT attribution + NOTICE file at repo root, package renamed from `@randywilson` to `@agntk`. **Superseded by v0.1.2** within minutes — `harness --version` was printing `0.1.0` because the version string was hardcoded in `src/cli/index.ts` and I forgot to bump it when I bumped `package.json`.
 >
-> - **v0.1.2** (2026-04-08) — ✅ **CURRENT.** Published as `@agntk/agent-harness@0.1.2` via run `24137570409`, commit `1547986`. Fixes the CLI version-string bug by reading `package.json.version` at runtime via `createRequire`. Future version bumps flow through automatically. All content unchanged from v0.1.1.
+> - **v0.1.2** (2026-04-08) — Published as `@agntk/agent-harness@0.1.2` via run `24137570409`, commit `1547986`. Fixes the CLI version-string bug by reading `package.json.version` at runtime via `createRequire`. Future version bumps flow through automatically.
+>
+> - **v0.1.3** (2026-04-08) — Published as `@agntk/agent-harness@0.1.3` via run `24138493557`, commit `0525d52`. **Task 12.14 Level 1: provenance recording.** Every `harness install <url>` now writes `source:`, `source_commit:`, `installed_at:`, `installed_by:` to the installed file's frontmatter. Every future installed file is traceable back to its source URL — the v0.1.0 license review would have been trivial.
+>
+> - **v0.1.4** (2026-04-08) — Published as `@agntk/agent-harness@0.1.4` via run `24139003822`, commit `10fd002`. **Task 12.14 Level 2: license detection.** New `detectLicense()` function checks per-file LICENSE siblings → GitHub License API → source frontmatter (strictest finding wins). Writes `license:`, `copyright:`, `license_source:` fields. Detection only — does NOT enforce.
+>
+> - **v0.1.5** (2026-04-08) — ✅ **CURRENT.** Published as `@agntk/agent-harness@0.1.5` via run `24139333465`, commit `b982cb9`. **Task 12.14 Level 3: license policy enforcement.** Adds `install:` config schema with `allowed_licenses`, `on_unknown_license`, `on_proprietary` settings (defaults: warn on unknown, block on proprietary). Adds `--force-license <SPDX>` CLI flag for explicit overrides. **The v0.1.0 yank scenario is now mechanically prevented**: `harness install` against any anthropics/skills URL is blocked with a clear error message naming the proprietary LICENSE.txt and offering the override flag.
 >
 > **Live package:** https://www.npmjs.com/package/@agntk/agent-harness
 >
 > **Release URLs:**
 > - v0.1.0 (yanked): https://github.com/Phoenixrr2113/agent-harness/releases/tag/v0.1.0
-> - v0.1.2 (latest): https://github.com/Phoenixrr2113/agent-harness/releases/tag/v0.1.2
+> - v0.1.2: https://github.com/Phoenixrr2113/agent-harness/releases/tag/v0.1.2
+> - v0.1.3: https://github.com/Phoenixrr2113/agent-harness/releases/tag/v0.1.3
+> - v0.1.4: https://github.com/Phoenixrr2113/agent-harness/releases/tag/v0.1.4
+> - v0.1.5 (latest): https://github.com/Phoenixrr2113/agent-harness/releases/tag/v0.1.5
 > - v0.1.1 tag exists on origin but has no GitHub release entry (transitional, superseded quickly)
 
 Ran: 2026-04-08T06:52:00Z
