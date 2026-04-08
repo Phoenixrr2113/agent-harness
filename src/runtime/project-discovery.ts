@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from 'fs';
-import { join, basename } from 'path';
+import { join } from 'path';
 
 // --- Types ---
 
@@ -38,11 +38,6 @@ export interface ProjectDiscoveryResult {
 }
 
 // --- Detection Functions ---
-
-interface DetectionRule {
-  file: string;
-  detect: (content: string, dir: string) => ProjectSignal[];
-}
 
 function detectPackageJson(content: string): ProjectSignal[] {
   const signals: ProjectSignal[] = [];

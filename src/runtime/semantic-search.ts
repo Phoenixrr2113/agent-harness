@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'fs';
 import { join } from 'path';
-import { loadAllPrimitives, estimateTokens, getAtLevel } from '../primitives/loader.js';
+import { loadAllPrimitives } from '../primitives/loader.js';
 import type { HarnessDocument, HarnessConfig } from '../core/types.js';
 import { withFileLockSync } from './file-lock.js';
 

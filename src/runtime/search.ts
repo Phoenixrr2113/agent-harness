@@ -1,5 +1,5 @@
 import { existsSync } from 'fs';
-import { join, basename, relative } from 'path';
+import { join } from 'path';
 import { loadDirectory } from '../primitives/loader.js';
 import { getPrimitiveDirs } from '../core/types.js';
 import type { HarnessConfig, HarnessDocument } from '../core/types.js';

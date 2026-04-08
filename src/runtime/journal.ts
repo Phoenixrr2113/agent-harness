@@ -3,7 +3,7 @@ import { join } from 'path';
 import { parseHarnessDocument } from '../primitives/loader.js';
 import { getModel, generate } from '../llm/provider.js';
 import { loadConfig } from '../core/config.js';
-import type { HarnessConfig, HarnessDocument } from '../core/types.js';
+import type { HarnessDocument } from '../core/types.js';
 
 export interface JournalSynthesis {
   summary: string;

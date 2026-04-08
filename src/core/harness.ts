@@ -4,7 +4,6 @@ import { loadConfig } from './config.js';
 import { log } from './logger.js';
 import type {
   CreateHarnessOptions,
-  HarnessConfig,
   HarnessAgent,
   HarnessHooks,
   AgentRunResult,

@@ -4,8 +4,6 @@ import type {
   HarnessConfig,
   HarnessAgent,
   HarnessHooks,
-  AgentRunResult,
-  AgentState,
   DeepPartial,
   ToolExecutorOptions,
 } from '../core/types.js';

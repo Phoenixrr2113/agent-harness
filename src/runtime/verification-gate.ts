@@ -1,7 +1,7 @@
-import { existsSync, readFileSync } from 'fs';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { loadDirectory } from '../primitives/loader.js';
-import type { HarnessDocument, HarnessConfig } from '../core/types.js';
+import type { HarnessDocument } from '../core/types.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

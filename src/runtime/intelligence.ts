@@ -202,7 +202,6 @@ export function detectDeadPrimitives(
 ): DeadPrimitiveResult {
   const thresholdDays = options?.thresholdDays ?? 30;
   const now = Date.now();
-  const thresholdMs = thresholdDays * 24 * 60 * 60 * 1000;
 
   // Build dependency graph to find orphans
   const graph = buildDependencyGraph(harnessDir, config);
@@ -1449,7 +1448,6 @@ export function runGate(
 
   const checks = gate.check(harnessDir, config);
   const hasFails = checks.some((c) => c.status === 'fail');
-  const hasWarns = checks.some((c) => c.status === 'warn');
 
   const passed = !hasFails;
   const passCount = checks.filter((c) => c.status === 'pass').length;

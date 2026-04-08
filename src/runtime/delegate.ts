@@ -4,7 +4,7 @@ import { loadDirectory, estimateTokens, getAtLevel } from '../primitives/loader.
 import { loadConfig } from '../core/config.js';
 import { log } from '../core/logger.js';
 import { getModel, generate, streamGenerateWithDetails } from '../llm/provider.js';
-import { buildToolSet, type AIToolSet } from './tool-executor.js';
+import { buildToolSet } from './tool-executor.js';
 import { createSessionId, writeSession, type SessionRecord } from './sessions.js';
 import type { HarnessDocument, HarnessConfig } from '../core/types.js';
 

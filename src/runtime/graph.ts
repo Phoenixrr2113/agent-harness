@@ -1,8 +1,8 @@
 import { existsSync } from 'fs';
-import { join, relative, dirname, basename } from 'path';
+import { join, relative } from 'path';
 import { loadDirectoryWithErrors } from '../primitives/loader.js';
 import { getPrimitiveDirs } from '../core/types.js';
-import type { HarnessConfig, HarnessDocument } from '../core/types.js';
+import type { HarnessConfig } from '../core/types.js';
 
 export interface GraphNode {
   id: string;

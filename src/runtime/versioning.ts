@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, writeFileSync } from 'fs';
 import { join, relative } from 'path';
 import { execSync } from 'child_process';
 import { log } from '../core/logger.js';

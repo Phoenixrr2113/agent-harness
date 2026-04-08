@@ -7,9 +7,7 @@ import type { Server } from 'http';
 import { createWebApp } from './web-server.js';
 import { log } from '../core/logger.js';
 import { loadConfig } from '../core/config.js';
-import { Conversation } from './conversation.js';
 import { withFileLockSync } from './file-lock.js';
-import type { HarnessConfig } from '../core/types.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -184,7 +182,7 @@ export function startServe(options: ServeOptions): ServeResult {
   } = options;
 
   // Build the base web app (dashboard + primitives + sessions + chat + SSE)
-  const { app: baseApp, broadcaster } = createWebApp(harnessDir, { apiKey });
+  const { app: baseApp } = createWebApp(harnessDir, { apiKey });
 
   // Create a new Hono app that wraps the base with additional endpoints
   const app = new Hono();

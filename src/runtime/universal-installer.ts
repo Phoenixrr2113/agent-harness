@@ -5,9 +5,7 @@ import { createRequire } from 'module';
 import matter from 'gray-matter';
 import { parse as parseYaml } from 'yaml';
 import { fixCapability, installCapability, downloadCapability } from './intake.js';
-import { autoProcessFile } from './auto-processor.js';
-import { discoverSources, loadAllSources } from './sources.js';
-import type { Source, SourceDiscoveryResult } from './sources.js';
+import { discoverSources } from './sources.js';
 import { log } from '../core/logger.js';
 
 // ─── Provenance ──────────────────────────────────────────────────────────────

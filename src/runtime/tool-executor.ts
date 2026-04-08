@@ -1,7 +1,6 @@
 import { tool as aiTool, jsonSchema, type ToolSet } from 'ai';
 import { z } from 'zod';
 import { loadTools, type ToolDefinition, type ToolOperation } from './tools.js';
-import type { HarnessConfig } from '../core/types.js';
 import { log } from '../core/logger.js';
 
 // --- Types ---
