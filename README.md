@@ -16,7 +16,7 @@ The code layer exists as an escape hatch, not the entry point. The folder IS the
 
 ```bash
 # Install globally
-npm install -g agent-harness
+npm install -g @agntk/agent-harness
 
 # Create a new agent
 harness init my-agent
@@ -328,7 +328,7 @@ The dashboard includes: agent status, health checks, spending, sessions, workflo
 ## Using as a Library
 
 ```typescript
-import { createHarness } from 'agent-harness';
+import { createHarness } from '@agntk/agent-harness';
 
 const agent = createHarness({
   dir: './my-agent',
@@ -352,7 +352,7 @@ await agent.shutdown();
 ### Fluent Builder API
 
 ```typescript
-import { defineAgent } from 'agent-harness';
+import { defineAgent } from '@agntk/agent-harness';
 
 const agent = defineAgent('./my-agent')
   .model('anthropic/claude-sonnet-4')

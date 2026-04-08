@@ -12,6 +12,8 @@ status: active
 created: '2026-04-08'
 author: human
 source: https://github.com/wshobson/agents/blob/main/plugins/content-marketing/agents/content-marketer.md
+license: MIT
+copyright: Copyright (c) 2024 Seth Hobson (wshobson/agents) — see NOTICE
 tags:
   - skill
 related:

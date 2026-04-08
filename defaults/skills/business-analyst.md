@@ -11,6 +11,8 @@ status: active
 created: '2026-04-08'
 author: human
 source: https://github.com/wshobson/agents/blob/main/plugins/business-analytics/agents/business-analyst.md
+license: MIT
+copyright: Copyright (c) 2024 Seth Hobson (wshobson/agents) — see NOTICE
 tags:
   - skill
 related:
