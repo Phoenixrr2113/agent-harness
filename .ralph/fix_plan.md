@@ -579,7 +579,7 @@
 
 **Commit:** `docs(release): record v0.1.0 smoke test results`
 
-- [ ] **12.12 COMPLETE**
+- [x] **12.12 COMPLETE**
 
 ---
 
