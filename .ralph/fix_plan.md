@@ -267,7 +267,7 @@
 
 **Commit:** `feat(scaffold): add in-scaffold README and improve init next-steps`
 
-- [ ] **12.5 COMPLETE**
+- [x] **12.5 COMPLETE**
 
 ---
 

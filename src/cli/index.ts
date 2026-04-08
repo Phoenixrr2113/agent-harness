@@ -201,8 +201,15 @@ program
       process.exit(1);
     }
 
-    const targetDir = resolve(opts.dir, agentName);
-    const parentDir = resolve(opts.dir);
+    // If the user passed a path (e.g. /tmp/my-agent or ./projects/foo), use the
+    // basename as the agent name and resolve the parent dir from the path.
+    // Otherwise treat agentName as a bare name relative to opts.dir as before.
+    const looksLikePath = agentName.includes('/') || agentName.startsWith('.');
+    const targetDir = looksLikePath ? resolve(agentName) : resolve(opts.dir, agentName);
+    const parentDir = looksLikePath ? resolve(targetDir, '..') : resolve(opts.dir);
+    if (looksLikePath) {
+      agentName = basename(targetDir);
+    }
 
     try {
       // Generate CORE.md via LLM if requested
@@ -280,11 +287,15 @@ program
         }
       }
 
-      console.log(`\nNext steps:`);
-      console.log(`  cd ${agentName}`);
-      console.log(`  # Edit CORE.md to define your agent's identity`);
-      console.log(`  # Edit rules/, instincts/, skills/ to customize behavior`);
-      console.log(`  harness run "Hello, who are you?"`);
+      console.log(`\nNext steps — try these in order:`);
+      console.log(`  cd ${targetDir}`);
+      console.log(`  harness run "What can you do?"           # see what's loaded`);
+      console.log(`  harness run "Help me decide between two options: A or B"`);
+      console.log(`  harness run "Plan a weekend project for me"  # see it qualify`);
+      console.log(`  harness journal                            # see what it learned`);
+      console.log(`  harness learn --install                    # teach it to remember`);
+      console.log(`\nThe agent gets better the more you use it. See README.md inside`);
+      console.log(`the harness directory for the full walkthrough.`);
       console.log();
     } catch (err: unknown) {
       console.error(`Error: ${formatError(err)}`);

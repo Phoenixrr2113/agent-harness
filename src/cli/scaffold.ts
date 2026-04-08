@@ -188,6 +188,81 @@ ${new Date().toISOString()}
   // --- Copy default primitives from defaults/ directory ---
   copyDefaults(targetDir, vars);
 
+  // --- README.md (the in-scaffold quickstart, the FIRST thing a non-coder reads) ---
+  writeFileSync(
+    join(targetDir, 'README.md'),
+    `# ${agentName}
+
+You just created an agent. The agent IS this folder — every file is part
+of its identity, behavior, knowledge, and memory.
+
+## Try these in order
+
+\`\`\`bash
+harness run "What can you do?"            # see what's loaded
+harness run "Help me decide between two options: A or B"
+harness run "Plan a weekend project for me"   # watch it qualify before answering
+\`\`\`
+
+Use it for a few days with varied prompts. Then:
+
+\`\`\`bash
+harness journal              # synthesize today's sessions and find patterns
+harness learn --install      # promote learned patterns into instincts
+\`\`\`
+
+The agent gets measurably better the more you use it. Every interaction
+is journaled, patterns become instincts, and instincts change behavior
+on the next run. **No retraining, no fine-tuning, no code.** You're
+editing markdown.
+
+## What's in this folder
+
+| File / dir | Owner | What it is |
+|---|---|---|
+| \`CORE.md\`        | human | Identity. Who is this agent? Frozen. |
+| \`SYSTEM.md\`      | human | Boot instructions. How does it operate? |
+| \`config.yaml\`    | human | Model, runtime, MCP servers, budgets |
+| \`state.md\`       | mixed | Live state: mode, goals, last interaction |
+| \`rules/\`         | human | Hard boundaries the agent must respect |
+| \`skills/\`        | mixed | Capabilities + how to think about using them |
+| \`playbooks/\`     | mixed | Adaptive guidance for outcomes |
+| \`instincts/\`     | agent | Reflexive behaviors learned from sessions |
+| \`workflows/\`     | infra | Cron-driven automations |
+| \`tools/\`         | extern | HTTP/API tool definitions |
+| \`agents/\`        | extern | Sub-agent roster |
+| \`memory/sessions/\` | agent | Auto-captured interaction records |
+| \`memory/journal/\`  | infra | Daily synthesized reflections |
+
+Open any file and edit it. Save. Run \`harness run "..."\` again and the
+agent reads your change. That's the loop.
+
+## Going further
+
+\`\`\`bash
+harness doctor          # check scaffold health
+harness graph           # see how primitives reference each other
+harness info            # what's loaded in the context budget right now
+harness mcp discover    # find MCP tools already installed on your machine
+harness mcp search <q>  # browse the MCP registry for new tools
+harness install <url>   # install a skill, agent, or rule from a URL
+\`\`\`
+
+Tools come from MCP servers — install one with \`harness mcp install\`.
+
+## When something feels off
+
+- \`harness validate\` — check the harness structure for errors
+- \`harness doctor\` — same, but auto-fix what it can
+- \`harness contradictions\` — check rules and instincts for conflicts
+- \`harness dead-primitives\` — find files you haven't used in a while
+
+The agent journal in \`memory/journal/\` is the most interesting place
+to look — it's where the agent reflects on what you've been doing
+together. Read it once a week.
+`,
+  );
+
   // --- .gitignore ---
   writeFileSync(
     join(targetDir, '.gitignore'),
