@@ -1,0 +1,18 @@
+[project]
+name = "agent-harness-adapter"
+version = "0.1.0"
+description = "Harbor adapter that runs agent-harness against Terminal-Bench 2.0"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # Harbor provides the BaseInstalledAgent class we subclass. Pin to the
+    # same major version the terminal-bench-2 leaderboard uses.
+    "harbor>=0.3.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agent_harness_adapter"]
