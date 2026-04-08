@@ -20,7 +20,7 @@ describe('defineAgent', () => {
   });
 
   it('should create an agent via builder pattern', () => {
-    const agent = defineAgent(testDir).build();
+    const agent = defineAgent(testDir).apiKey('test-key').build();
     expect(agent).toBeDefined();
     expect(agent.name).toBe('test-agent');
     expect(typeof agent.boot).toBe('function');
@@ -32,6 +32,7 @@ describe('defineAgent', () => {
   it('should apply model override', () => {
     const agent = defineAgent(testDir)
       .model('openai/gpt-4o')
+      .apiKey('test-key')
       .build();
     expect(agent.config.model.id).toBe('openai/gpt-4o');
   });
@@ -59,6 +60,7 @@ describe('defineAgent', () => {
 
   it('should apply config overrides', () => {
     const agent = defineAgent(testDir)
+      .apiKey('test-key')
       .configure({
         runtime: { scratchpad_budget: 5000 },
       })
@@ -69,6 +71,7 @@ describe('defineAgent', () => {
 
   it('should merge multiple configure calls', () => {
     const agent = defineAgent(testDir)
+      .apiKey('test-key')
       .configure({ runtime: { scratchpad_budget: 5000 } })
       .configure({ memory: { session_retention_days: 14 } })
       .build();
@@ -80,6 +83,7 @@ describe('defineAgent', () => {
   it('should register lifecycle hooks', () => {
     const calls: string[] = [];
     const agent = defineAgent(testDir)
+      .apiKey('test-key')
       .onBoot(async () => { calls.push('boot'); })
       .onSessionEnd(async () => { calls.push('session'); })
       .onError(async () => { calls.push('error'); })
@@ -95,6 +99,7 @@ describe('defineAgent', () => {
   it('should chain multiple hooks of same type', () => {
     const calls: string[] = [];
     const agent = defineAgent(testDir)
+      .apiKey('test-key')
       .onBoot(async () => { calls.push('boot1'); })
       .onBoot(async () => { calls.push('boot2'); })
       .build();

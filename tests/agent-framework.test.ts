@@ -37,6 +37,7 @@ describe('agent-framework', () => {
       const agent = createAgent({
         name: 'test',
         dir: harnessDir,
+        apiKey: 'test-key',
       });
 
       expect(agent.name).toBe('test');
@@ -58,6 +59,7 @@ describe('agent-framework', () => {
       const agent = createAgent({
         name: 'test',
         dir: harnessDir,
+        apiKey: 'test-key',
         hooks: {
           onBoot: async () => { bootCalled = true; },
         },
@@ -71,6 +73,7 @@ describe('agent-framework', () => {
       const agent = createAgent({
         name: 'test',
         dir: harnessDir,
+        apiKey: 'test-key',
         guardrails: {
           enforceRules: true,
           ruleTags: ['security'],
@@ -84,6 +87,7 @@ describe('agent-framework', () => {
       const agent = createAgent({
         name: 'test',
         dir: harnessDir,
+        apiKey: 'test-key',
         approval: {
           requireApproval: (prompt) => prompt.includes('deploy'),
           onApprovalNeeded: async () => true,
@@ -99,6 +103,7 @@ describe('agent-framework', () => {
       const agent = createAgent({
         name: 'test',
         dir: harnessDir,
+        apiKey: 'test-key',
         middleware: [
           async (_ctx, next) => {
             return next();
@@ -197,6 +202,7 @@ describe('agent-framework', () => {
       const agent = createAgent({
         name: 'test',
         dir: harnessDir,
+        apiKey: 'test-key',
         approval: {
           requireApproval: (prompt) => prompt.includes('deploy'),
           onApprovalNeeded: async () => {
@@ -216,6 +222,7 @@ describe('agent-framework', () => {
       const agent = createAgent({
         name: 'test',
         dir: harnessDir,
+        apiKey: 'test-key',
         middleware: [
           async (_ctx, next) => {
             return next();
@@ -237,6 +244,7 @@ describe('agent-framework', () => {
       const agent = createAgent({
         name: 'test',
         dir: harnessDir,
+        apiKey: 'test-key',
         hooks: {
           beforeRun: async () => {
             hookCalled = true;
@@ -252,6 +260,7 @@ describe('agent-framework', () => {
       const agent = createAgent({
         name: 'test',
         dir: harnessDir,
+        apiKey: 'test-key',
         hooks: {
           beforeRun: async ({ prompt }) => {
             return { prompt: prompt + ' (modified)' };
