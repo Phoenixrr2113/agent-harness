@@ -299,7 +299,7 @@
 
 **Commit:** `fix(mcp): preview-and-confirm discovery, normalize paths, filter unauth HTTP`
 
-- [ ] **12.6 COMPLETE**
+- [x] **12.6 COMPLETE**
 
 ---
 
