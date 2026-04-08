@@ -15,6 +15,7 @@ process.on('warning', (warning: NodeJS.ErrnoException) => {
 });
 
 import { Command } from 'commander';
+import { createRequire } from 'module';
 import { resolve, join, basename } from 'path';
 import { existsSync } from 'fs';
 import { config as loadDotenv } from 'dotenv';
@@ -113,10 +114,19 @@ function requireHarness(dir: string): void {
   }
 }
 
+// Read version from package.json at runtime so `harness --version` always
+// matches the installed package. Hardcoding the version string caused 0.1.1
+// to print "0.1.0" when shipped (caught in post-ship verification).
+// package.json is always in the tarball (npm includes it automatically),
+// and dist/cli/index.js lives at <pkg>/dist/cli/index.js, so the relative
+// path to package.json is ../../package.json from the built file.
+const __pkgRequire = createRequire(import.meta.url);
+const __pkg = __pkgRequire('../../package.json') as { version: string };
+
 program
   .name('harness')
   .description('Agent Harness — build AI agents by editing files, not writing code.')
-  .version('0.1.0')
+  .version(__pkg.version)
   .option('-q, --quiet', 'Suppress non-error output')
   .option('-v, --verbose', 'Enable debug output')
   .option('--log-level <level>', 'Set log level (debug, info, warn, error, silent)')
