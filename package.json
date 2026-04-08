@@ -2,6 +2,14 @@
   "name": "@randywilson/agent-harness",
   "version": "0.1.0",
   "description": "A file-first agent operating system. Build AI agents by editing markdown files, not writing code.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Phoenixrr2113/agent-harness.git"
+  },
+  "homepage": "https://github.com/Phoenixrr2113/agent-harness#readme",
+  "bugs": {
+    "url": "https://github.com/Phoenixrr2113/agent-harness/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
