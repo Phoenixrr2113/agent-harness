@@ -605,7 +605,7 @@
 
 **Commit:** no commit needed — the tag is the output. If `.ralph/smoke-test.md` was edited to append the log line, commit that: `chore(release): log v0.1.0 tag push`
 
-- [x] **12.13 COMPLETE** — `@randywilson/agent-harness@0.1.0` published to npm on 2026-04-08 via release workflow run `24135947274`. Tag `v0.1.0` → commit `896157d`. Provenance signed via sigstore.
+- [x] **12.13 COMPLETE** — `@agntk/agent-harness@0.1.1` published to npm on 2026-04-08 via release workflow run `24137271301`. Tag `v0.1.1` → commit `210126c`. The original v0.1.0 (published as `@randywilson/agent-harness@0.1.0`) was YANKED ~2 hours after release due to a license issue; see post-ship discoveries below.
 
 ---
 
@@ -630,3 +630,93 @@ _(Ralph: add discoveries, surprises, and notes here as you work. One bullet per 
 - **12.13 (post-ship 2)**: First publish attempt (tag `fe6ff07`) failed because `tests/versioning.test.ts` fails on a CI runner with no global git `user.email`/`user.name`. Real bug, not just a test issue — harness users on fresh machines would hit the same wall when `initVersioning()` runs `git commit`. Fixed in `84c08f6` by injecting synthetic `agent-harness / versioning@agent-harness.local` identity into `gitExec` via `-c user.name -c user.email` flags. Verified with `HOME=/tmp/empty-home GIT_CONFIG_GLOBAL=/tmp/empty-gitconfig GIT_CONFIG_NOSYSTEM=1 npm test`.
 - **12.13 (post-ship 3)**: Second publish attempt failed with `ENEEDAUTH` — the `NPM_TOKEN` secret had been added to GitHub repo **Variables**, not **Secrets**. `gh api /repos/.../actions/secrets` returned `total_count: 0` which surfaced the misconfiguration. Variables are visible to workflows but not treated as secrets for the `secrets.*` namespace.
 - **12.13 (post-ship 4)**: Third publish attempt failed with `E422 Error verifying sigstore provenance bundle: Failed to validate repository information: package.json: "repository.url" is "", expected to match "https://github.com/Phoenixrr2113/agent-harness" from provenance`. npm's `--provenance` flag requires `package.json` to declare a `repository.url` matching the GitHub repo where the workflow ran. Fixed in `896157d` by adding `repository`, `homepage`, and `bugs` fields.
+- **POST-MORTEM (v0.1.0 yank)**: Within 2 hours of the v0.1.0 ship, a license review sub-agent checking the 12 files pulled from external sources discovered that 9 of 10 files from `anthropics/skills` carried per-file proprietary `LICENSE.txt` files reading "© 2025 Anthropic, PBC. All rights reserved" with explicit prohibitions on extraction, reproduction, derivative works, and redistribution. The 10th file (`doc-coauthoring.md`) had no license at all (defaults to all-rights-reserved under US copyright). The repo root has no LICENSE file and GitHub API reports `license: None` — the proprietary terms are nested inside each skill directory, easy to miss during a URL-based pull. See `.ralph/source-licenses.md` for the full review.
+- **POST-MORTEM (v0.1.0 yank, recovery)**: Unpublished `@randywilson/agent-harness@0.1.0` from npm (interactive TOTP prompt — within 72-hour unpublish window). Renamed package to `@agntk/agent-harness` (existing personal scope), bumped to 0.1.1, stripped all 10 proprietary files from `defaults/skills/`, added MIT attribution to the 2 retained `wshobson/agents` files (the only CLEAR-licensed external source), added a NOTICE file at repo root per MIT's terms, updated README install commands + library import examples. Fresh init primitive count dropped from 24 to 14 (still passes acceptance thresholds: 17 edges, 2 clusters, 1 orphan, 0 validate warnings). One commit (`210126c`), one tag (`v0.1.1`), one workflow run (`24137271301`), clean publish on first attempt.
+- **POST-MORTEM (v0.1.0 yank, root cause)**: The bug was in task 12.4's source-selection step. Raw markdown files were pulled via URL (`harness install <raw_github_url>`) without checking for per-file LICENSE siblings in the same source directory. The installer does not currently record provenance, detect licenses, or enforce any install policy — it just fetches, normalizes, and writes. Future content-bundling must check repo root LICENSE AND per-item LICENSE before copying. Followup spec added as task 12.14.
+
+---
+
+## Phase 13 — Post-ship hardening
+
+### 12.14 — Installer provenance recording and license detection
+
+**Why:** v0.1.0 shipped proprietary content because the universal installer doesn't record source URLs, doesn't check licenses, and doesn't preserve copyright. Three levels of fix, roughly in priority order.
+
+**Prerequisites:** v0.1.1 is shipped and stable. This is a v0.1.2 feature, strictly additive — no breaking changes.
+
+**Level 1 — Provenance recording (always do this, ~30 min):**
+
+Every file installed via `harness install <url>` must get these frontmatter fields set automatically by the installer:
+
+```yaml
+source: <the exact URL the user passed>
+source_commit: <git commit SHA if resolvable from the URL>
+installed_at: <ISO 8601 timestamp>
+installed_by: agent-harness@<version>
+```
+
+Implementation lives in `src/runtime/universal-installer.ts`. Find the frontmatter-fix pass and add the provenance fields after the existing fields. Use the raw URL the user passed verbatim for `source`. For `source_commit`, parse `raw.githubusercontent.com/OWNER/REPO/BRANCH_OR_SHA/PATH` and resolve the branch/sha via the GitHub Contents API (`/repos/{owner}/{repo}/contents/{path}` returns `sha`). For non-github URLs, leave `source_commit` unset.
+
+**Level 2 — License detection (v0.1.2 feature, ~2 hours):**
+
+When installing from a URL, the installer should look up the license in three places, in order:
+
+1. **Per-file LICENSE sibling** — in the same directory as the file being installed. Check for `LICENSE`, `LICENSE.txt`, `LICENSE.md`, `COPYING`. If found, parse the SPDX identifier or match against known license text. This is what caught the anthropics/skills proprietary terms — they were nested per-skill.
+2. **Repository root LICENSE** — via GitHub API `/repos/{owner}/{repo}/license`. Returns SPDX id.
+3. **Source file's own frontmatter** — parse any existing `license:` or `copyright:` field in the file being installed (some SKILL.md files declare their license in frontmatter).
+
+Merge findings into the installed file's frontmatter:
+
+```yaml
+license: <SPDX id | "PROPRIETARY" | "UNKNOWN">
+copyright: <preserved from source or per-file LICENSE>
+license_source: <URL to the license file the installer actually found>
+```
+
+Use the strictest finding. If the per-file LICENSE says "All rights reserved" and the repo root says MIT, the file is proprietary.
+
+**Level 3 — Policy enforcement (v0.1.2 or v0.2.0, ~1 hour + config schema):**
+
+New config schema section:
+
+```yaml
+install:
+  allowed_licenses:
+    - MIT
+    - Apache-2.0
+    - BSD-2-Clause
+    - BSD-3-Clause
+    - ISC
+    - CC-BY-4.0
+    - CC0-1.0
+  on_unknown_license: warn      # allow | warn | prompt | block
+  on_proprietary: block         # never install without explicit override
+```
+
+And a `--force-license <SPDX>` flag on `harness install` for explicit overrides.
+
+Default policy when license is unknown or restrictive:
+- `block` — refuse, print a clear error showing the license source URL and the override flag
+- `prompt` (if stdin is TTY) — show license + ask Y/n
+- `warn` — install but log a warning, mark the file with a warning comment in frontmatter
+- `allow` — current behavior (legacy-compat only)
+
+Recommended default: `warn` (so existing workflows don't break), `prompt` if TTY, `block` if set in config by teams wanting strict enforcement.
+
+**Level 4 — Doctor audit (v0.2.0, builds on Level 2):**
+
+New flag: `harness doctor --audit-licenses` re-fetches license metadata from each primitive's `source:` URL (if present) and flags drift. Useful for catching upstream re-licensing or source removal (404 → orphan warning).
+
+**Acceptance criteria (for v0.1.2 minimum):**
+
+- Level 1 is complete and shipped
+- Every new `harness install <url>` writes `source:`, `installed_at:`, `installed_by:` into the installed file's frontmatter
+- Tests cover: github raw URL, non-github URL, frontmatter merge (don't overwrite existing source:), timestamp format
+- `harness install` on the anthropics/skills/pdf/SKILL.md URL would now at minimum record its source, so a future license audit can find the file by URL
+
+**Commit plan:**
+
+- `feat(installer): record source/installed_at/installed_by frontmatter on install` (Level 1 only)
+- Follow-up commits for Levels 2-4 as separate features.
+
+- [ ] **12.14 COMPLETE** (Level 1 only for v0.1.2; Levels 2-4 deferred)

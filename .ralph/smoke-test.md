@@ -1,30 +1,16 @@
 # v0.1.0 Smoke Test Results
 
-> **Tag status (task 12.13): ✅ SHIPPED.** Published as
-> `@randywilson/agent-harness@0.1.0` to npm on 2026-04-08 via GitHub
-> Actions release workflow (run `24135947274`). Provenance signed via
-> sigstore (transparency log `logIndex=1253805158`). Tag `v0.1.0` points
-> at commit `896157d` on `Phoenixrr2113/agent-harness`.
+> **Ship history:**
 >
-> **Ship sequence — three attempts, three lessons learned:**
+> - **v0.1.0** (2026-04-08) — Published as `@randywilson/agent-harness@0.1.0`, **YANKED ~2 hours later**. A license review sub-agent discovered 10 of the bundled default skills (from `anthropics/skills`) carried per-file proprietary LICENSE.txt files reading "© 2025 Anthropic, PBC. All rights reserved". Unpublished within the 72-hour window. See `.ralph/source-licenses.md` for the full review.
 >
-> 1. First tag `fe6ff07` → tests/versioning.test.ts failed on CI because
->    fresh CI runners have no global git `user.email` / `user.name`.
->    Fixed by injecting a synthetic identity into the `gitExec` helper
->    (commit `84c08f6`).
+> - **v0.1.1** (2026-04-08) — ✅ **CURRENT.** Published as `@agntk/agent-harness@0.1.1` to npm via GitHub Actions release workflow (run `24137271301`). Commit `210126c`. Clean release: all 10 proprietary files removed, 2 retained wshobson/agents files got MIT attribution + NOTICE file at repo root, package renamed from `@randywilson` to `@agntk`.
 >
-> 2. Second tag `84c08f6` → `npm publish` returned `ENEEDAUTH`. Root
->    cause: `NPM_TOKEN` had been added as a GitHub **Variable** instead
->    of a **Secret**. Moved to Secrets and re-ran the workflow.
+> **Live package:** https://www.npmjs.com/package/@agntk/agent-harness
 >
-> 3. Third attempt → `npm publish` returned `E422` from sigstore
->    provenance verification: `package.json` had no `repository.url`,
->    so npm couldn't verify the provenance statement's GitHub source
->    claim. Fixed by adding `repository`, `homepage`, `bugs` fields
->    (commit `896157d`). Re-tagged, re-pushed, green.
->
-> **Live package:** https://www.npmjs.com/package/@randywilson/agent-harness
-> **Release URL:** see `gh release view v0.1.0 --repo Phoenixrr2113/agent-harness`
+> **Release URLs:**
+> - v0.1.0 (yanked): https://github.com/Phoenixrr2113/agent-harness/releases/tag/v0.1.0
+> - v0.1.1: https://github.com/Phoenixrr2113/agent-harness/releases/tag/v0.1.1
 
 Ran: 2026-04-08T06:52:00Z
 By: Ralph task 12.12 (executed manually via Claude sub-agent)
