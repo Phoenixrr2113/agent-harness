@@ -73,9 +73,15 @@ function getOrCreateFactory(providerName: ProviderName, apiKey?: string): Provid
       // baseURL override and a dummy apiKey (Ollama doesn't authenticate but
       // the OpenAI SDK requires the field to be set to something).
       // Override the host with OLLAMA_BASE_URL env var when needed.
+      //
+      // Must call provider.chat() explicitly: the default callable
+      // `provider(modelId)` resolves to the Responses API, which Ollama does
+      // not implement — it only speaks Chat Completions at
+      // /v1/chat/completions. Responses API surfaces as:
+      //   Error: input[2]: unknown input item type: "item_reference"
       const baseURL = process.env.OLLAMA_BASE_URL ?? OLLAMA_DEFAULT_BASE_URL;
       const provider = createOpenAI({ baseURL, apiKey: 'ollama' });
-      factory = (modelId) => provider(modelId);
+      factory = (modelId) => provider.chat(modelId);
       break;
     }
     default:
