@@ -1,6 +1,6 @@
 {
   "name": "@agntk/agent-harness",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "A file-first agent operating system. Build AI agents by editing markdown files, not writing code.",
   "repository": {
     "type": "git",
