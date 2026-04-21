@@ -147,6 +147,43 @@ export const HarnessConfigSchema = z.object({
     /** Block runs when budget exceeded (default: true) */
     enforce: z.boolean().default(true),
   }).passthrough().default({ enforce: true }),
+  approval: z.object({
+    /**
+     * Whether tool approval is active. When true, tools listed in `tools`
+     * pause for user confirmation before executing. Default true so new
+     * scaffolds get safety out of the box; existing configs without an
+     * `approval` section remain unchanged (zod defaults apply only when
+     * the object is present).
+     */
+    enabled: z.boolean().default(true),
+    /**
+     * How to handle an approval request.
+     *
+     * - auto (default): prompt interactively if stdout is a TTY, else deny.
+     * - interactive: always prompt (errors on non-TTY).
+     * - deny: auto-deny every listed tool (useful for dry-run).
+     * - allow: auto-approve every listed tool (bypasses the prompt,
+     *   effectively disables approval — prefer `enabled: false`).
+     */
+    mode: z.enum(['auto', 'interactive', 'deny', 'allow']).default('auto'),
+    /**
+     * Tool names that require approval. Exact match against the tool's
+     * registered name (MCP tools use their server-provided name, e.g.
+     * `execute`, `write_file`, `edit_file`). Empty list = no tools
+     * require approval even with enabled=true.
+     */
+    tools: z.array(z.string()).default([
+      'execute',
+      'write_file',
+      'edit_file',
+      'create_directory',
+      'move_file',
+    ]),
+  }).passthrough().default({
+    enabled: true,
+    mode: 'auto',
+    tools: ['execute', 'write_file', 'edit_file', 'create_directory', 'move_file'],
+  }),
   mcp: z.object({
     /** MCP server definitions keyed by server name */
     servers: z.record(z.string(), z.object({
@@ -291,6 +328,11 @@ export const CONFIG_DEFAULTS: HarnessConfig = {
   extensions: { directories: [] },
   rate_limits: {},
   budget: { enforce: true },
+  approval: {
+    enabled: true,
+    mode: 'auto',
+    tools: ['execute', 'write_file', 'edit_file', 'create_directory', 'move_file'],
+  },
   intelligence: { auto_journal: false, auto_learn: false },
   proactive: { enabled: false, max_per_hour: 5, cooldown_minutes: 30 },
   mcp: { servers: {} },
@@ -391,6 +433,12 @@ export interface CreateHarnessOptions {
    * `stream()`; ignored when no tools are configured.
    */
   activeTools?: string[];
+  /**
+   * When true, disables the per-tool approval wrapper for this harness even
+   * if config.approval.enabled is true. Used by CLI `--approve-all` and by
+   * non-interactive contexts (e.g. scripted pipelines). Default false.
+   */
+  bypassApproval?: boolean;
 }
 
 /** Record of a single tool call made during a run */
