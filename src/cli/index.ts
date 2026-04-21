@@ -153,7 +153,7 @@ program
   .command('init [name]')
   .description('Scaffold a new agent harness directory (interactive if no name given)')
   .option('-d, --dir <path>', 'Parent directory', '.')
-  .option('-t, --template <name>', 'Config template (base, claude-opus, gpt4, local)', 'base')
+  .option('-t, --template <name>', 'Config template (base, claude-opus, gpt4, local, dev)', 'base')
   .option('-p, --purpose <description>', 'Agent purpose description')
   .option('-i, --interactive', 'Force interactive mode', false)
   .option('--generate', 'Generate CORE.md using LLM (requires API key)', false)

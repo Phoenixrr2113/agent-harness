@@ -51,15 +51,14 @@ function applyTemplate(content: string, vars: TemplateVars): string {
 }
 
 /**
- * Copy default primitives from defaults/ directory into the target harness.
+ * Copy markdown primitives from a source directory into a target harness.
+ * Existing files at the destination are overwritten.
  */
-function copyDefaults(targetDir: string, vars: TemplateVars): void {
-  const defaultsDir = join(getPackageRoot(), 'defaults');
-  if (!existsSync(defaultsDir)) return;
-
+function copyPrimitivesFrom(srcRoot: string, targetDir: string, vars: TemplateVars): void {
+  if (!existsSync(srcRoot)) return;
   const primitiveDirs = ['rules', 'instincts', 'skills', 'playbooks', 'agents', 'tools', 'workflows'];
   for (const dir of primitiveDirs) {
-    const srcDir = join(defaultsDir, dir);
+    const srcDir = join(srcRoot, dir);
     if (!existsSync(srcDir)) continue;
     const files = readdirSync(srcDir).filter((f) => f.endsWith('.md'));
     for (const file of files) {
@@ -67,6 +66,17 @@ function copyDefaults(targetDir: string, vars: TemplateVars): void {
       writeFileSync(join(targetDir, dir, file), applyTemplate(content, vars), 'utf-8');
     }
   }
+}
+
+/**
+ * Copy default primitives into the target harness from defaults/ and then from
+ * templates/<name>/defaults/, with template-level files overriding defaults
+ * of the same name.
+ */
+function copyDefaults(targetDir: string, templateName: string, vars: TemplateVars): void {
+  const root = getPackageRoot();
+  copyPrimitivesFrom(join(root, 'defaults'), targetDir, vars);
+  copyPrimitivesFrom(join(root, 'templates', templateName, 'defaults'), targetDir, vars);
 }
 
 /**
@@ -185,8 +195,7 @@ ${new Date().toISOString()}
   // --- memory/scratch.md ---
   writeFileSync(join(targetDir, 'memory', 'scratch.md'), '');
 
-  // --- Copy default primitives from defaults/ directory ---
-  copyDefaults(targetDir, vars);
+  copyDefaults(targetDir, template, vars);
 
   // --- README.md (the in-scaffold quickstart, the FIRST thing a non-coder reads) ---
   writeFileSync(
