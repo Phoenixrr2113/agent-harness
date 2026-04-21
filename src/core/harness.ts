@@ -17,6 +17,7 @@ import { createSessionId, writeSession, type SessionRecord } from '../runtime/se
 import { recordCost } from '../runtime/cost-tracker.js';
 import { recordSuccess, recordFailure, recordBoot } from '../runtime/health.js';
 import { checkGuardrails } from '../runtime/guardrails.js';
+import { applyContentFilters } from '../runtime/content-filters.js';
 import { buildToolSet, type AIToolSet } from '../runtime/tool-executor.js';
 import { createMcpManager, type McpManager } from '../runtime/mcp.js';
 
@@ -156,13 +157,28 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
 
       const ended = new Date().toISOString();
 
+      let finalText = result.text;
+      try {
+        const filtered = await applyContentFilters(config, result.text);
+        finalText = filtered.text;
+        if (filtered.blocked) {
+          log.info(`Content filter redacted/blocked output for session ${sessionId}: ${filtered.results.filter((r) => !r.passed).map((r) => r.name).join(', ')}`);
+        }
+      } catch (err) {
+        try { recordFailure(dir, err instanceof Error ? err.message : String(err)); } catch { /* best-effort */ }
+        if (hooks.onError) {
+          try { await hooks.onError({ agent, error: err instanceof Error ? err : new Error(String(err)), prompt }); } catch { /* best-effort */ }
+        }
+        throw err;
+      }
+
       // Write session record
       const session: SessionRecord = {
         id: sessionId,
         started,
         ended,
         prompt,
-        summary: result.text.slice(0, 200),
+        summary: finalText.slice(0, 200),
         tokens_used: result.usage.totalTokens,
         steps: result.steps,
         model_id: config.model.id,
@@ -203,7 +219,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
       }
 
       const runResult: AgentRunResult = {
-        text: result.text,
+        text: finalText,
         usage: result.usage,
         session_id: sessionId,
         steps: result.steps,
@@ -312,12 +328,29 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
 
         const ended = new Date().toISOString();
 
+        let finalText = fullText;
+        try {
+          const filtered = await applyContentFilters(config, fullText);
+          finalText = filtered.text;
+          if (filtered.blocked) {
+            log.info(`Content filter redacted/blocked output for session ${sessionId}: ${filtered.results.filter((r) => !r.passed).map((r) => r.name).join(', ')}`);
+          }
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          try { recordFailure(dir, error.message); } catch { /* best-effort */ }
+          if (hooks.onError) {
+            try { await hooks.onError({ agent, error, prompt }); } catch { /* best-effort */ }
+          }
+          rejectResult(error);
+          throw error;
+        }
+
         const session: SessionRecord = {
           id: sessionId,
           started,
           ended,
           prompt,
-          summary: fullText.slice(0, 200),
+          summary: finalText.slice(0, 200),
           tokens_used: usage.totalTokens,
           steps,
           model_id: config.model.id,
@@ -357,7 +390,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
         }
 
         const runResult: AgentRunResult = {
-          text: fullText,
+          text: finalText,
           usage,
           session_id: sessionId,
           steps,

@@ -203,6 +203,53 @@ export const HarnessConfigSchema = z.object({
     /** Custom reflection directive — overrides the built-in template for the active strategy. */
     prompt_template: z.string().optional(),
   }).passthrough().default({ strategy: 'none' }),
+  content_filters: z.object({
+    /**
+     * Apply output content filters to model text before returning to the caller.
+     * Off by default — opt-in because filters cost a pass over the output and
+     * can alter text in surprising ways if misconfigured.
+     */
+    enabled: z.boolean().default(false),
+    /**
+     * What to do when any filter fails.
+     *
+     * - filter (default): return the chained `filtered` text; continue silently.
+     * - throw: raise ContentFilterBlockedError carrying the failure details.
+     */
+    on_block: z.enum(['filter', 'throw']).default('filter'),
+    /**
+     * Ordered list of filters to run. Each filter's `type` picks a built-in:
+     *
+     * - pii:    redacts SSN / credit card / email / phone (optional extra
+     *           regex patterns via `patterns`). `redact: false` for detect-only.
+     * - topic:  blocks text containing any supplied topic string (no redaction).
+     * - length: caps `max_chars` (truncates) or `max_words` (fails without trunc).
+     *
+     * Filters run in order and later filters see earlier `filtered` output,
+     * so PII redaction can feed a length cap.
+     */
+    filters: z.array(z.union([
+      z.object({
+        type: z.literal('pii'),
+        redact: z.boolean().optional(),
+        patterns: z.array(z.object({
+          name: z.string(),
+          pattern: z.string(),
+          flags: z.string().optional(),
+          replacement: z.string(),
+        })).optional(),
+      }).passthrough(),
+      z.object({
+        type: z.literal('topic'),
+        blocked: z.array(z.string()).default([]),
+      }).passthrough(),
+      z.object({
+        type: z.literal('length'),
+        max_chars: z.number().int().positive().optional(),
+        max_words: z.number().int().positive().optional(),
+      }).passthrough(),
+    ])).default([]),
+  }).passthrough().default({ enabled: false, on_block: 'filter', filters: [] }),
   mcp: z.object({
     /** MCP server definitions keyed by server name */
     servers: z.record(z.string(), z.object({
@@ -353,6 +400,7 @@ export const CONFIG_DEFAULTS: HarnessConfig = {
     tools: ['execute', 'write_file', 'edit_file', 'create_directory', 'move_file'],
   },
   reflection: { strategy: 'none' },
+  content_filters: { enabled: false, on_block: 'filter', filters: [] },
   intelligence: { auto_journal: false, auto_learn: false },
   proactive: { enabled: false, max_per_hour: 5, cooldown_minutes: 30 },
   mcp: { servers: {} },
