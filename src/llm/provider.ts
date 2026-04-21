@@ -279,6 +279,12 @@ export interface GenerateOptions extends CallOptions {
    * Narrows without unloading. Unknown names are silently ignored by the AI SDK.
    */
   activeTools?: string[];
+  /**
+   * AI SDK prepareStep hook — called before each step in the tool-use loop
+   * and may return a partial settings override (e.g., an augmented system
+   * prompt for reflection). Usually supplied by `createReflectionPrepareStep`.
+   */
+  prepareStep?: (args: { stepNumber: number; steps: unknown[] }) => { system?: string } | undefined;
 }
 
 export interface GenerateWithMessagesOptions extends CallOptions {
@@ -295,6 +301,10 @@ export interface GenerateWithMessagesOptions extends CallOptions {
    * Narrows without unloading. Unknown names are silently ignored by the AI SDK.
    */
   activeTools?: string[];
+  /**
+   * AI SDK prepareStep hook — see GenerateOptions.prepareStep.
+   */
+  prepareStep?: (args: { stepNumber: number; steps: unknown[] }) => { system?: string } | undefined;
 }
 
 export interface GenerateResult {
@@ -314,7 +324,14 @@ function extractUsage(usage: { inputTokens?: number; outputTokens?: number } | u
   };
 }
 
-function buildCallSettings(opts: CallOptions & { tools?: AIToolSet; maxToolSteps?: number; activeTools?: string[] }) {
+function buildCallSettings(
+  opts: CallOptions & {
+    tools?: AIToolSet;
+    maxToolSteps?: number;
+    activeTools?: string[];
+    prepareStep?: (args: { stepNumber: number; steps: unknown[] }) => { system?: string } | undefined;
+  },
+) {
   const hasTools = opts.tools && Object.keys(opts.tools).length > 0;
   const hasActive = hasTools && opts.activeTools && opts.activeTools.length > 0;
   return {
@@ -324,6 +341,7 @@ function buildCallSettings(opts: CallOptions & { tools?: AIToolSet; maxToolSteps
     ...(hasTools ? { tools: opts.tools } : {}),
     ...(hasActive ? { activeTools: opts.activeTools } : {}),
     ...(hasTools ? { stopWhen: stepCountIs(opts.maxToolSteps ?? 25) } : {}),
+    ...(opts.prepareStep ? { prepareStep: opts.prepareStep } : {}),
   };
 }
 

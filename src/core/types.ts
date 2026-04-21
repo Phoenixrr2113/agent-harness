@@ -184,6 +184,25 @@ export const HarnessConfigSchema = z.object({
     mode: 'auto',
     tools: ['execute', 'write_file', 'edit_file', 'create_directory', 'move_file'],
   }),
+  reflection: z.object({
+    /**
+     * Reflection strategy — injects a self-critique directive into the
+     * system prompt between steps.
+     *
+     * - none (default): no reflection injected; AI SDK behavior unchanged.
+     * - every-step: every step AFTER the first gets the reflection directive.
+     * - periodic: every `frequency` steps (default 3) get the directive,
+     *   skipping step 0.
+     *
+     * Reflection costs tokens per step it fires on. On long runs, `periodic`
+     * with frequency=3-5 is usually the right tradeoff.
+     */
+    strategy: z.enum(['none', 'every-step', 'periodic']).default('none'),
+    /** How often to reflect in `periodic` strategy (default: 3). Ignored otherwise. */
+    frequency: z.number().int().positive().optional(),
+    /** Custom reflection directive — overrides the built-in template for the active strategy. */
+    prompt_template: z.string().optional(),
+  }).passthrough().default({ strategy: 'none' }),
   mcp: z.object({
     /** MCP server definitions keyed by server name */
     servers: z.record(z.string(), z.object({
@@ -333,6 +352,7 @@ export const CONFIG_DEFAULTS: HarnessConfig = {
     mode: 'auto',
     tools: ['execute', 'write_file', 'edit_file', 'create_directory', 'move_file'],
   },
+  reflection: { strategy: 'none' },
   intelligence: { auto_journal: false, auto_learn: false },
   proactive: { enabled: false, max_per_hour: 5, cooldown_minutes: 30 },
   mcp: { servers: {} },

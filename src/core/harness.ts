@@ -130,6 +130,10 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
       const started = new Date().toISOString();
 
       const hasTools = Object.keys(toolSet).length > 0;
+      const reflectionCfg = config.reflection;
+      const prepareStep = reflectionCfg && reflectionCfg.strategy !== 'none'
+        ? (await import('../runtime/reflection.js')).createReflectionPrepareStep(systemPrompt, reflectionCfg)
+        : undefined;
       let result;
       try {
         result = await generate({
@@ -139,6 +143,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
           maxRetries: config.model.max_retries,
           timeoutMs: config.model.timeout_ms,
           ...(hasTools ? { tools: toolSet, maxToolSteps: options.toolExecutor?.maxToolCalls ?? 25, ...(options.activeTools ? { activeTools: options.activeTools } : {}) } : {}),
+          ...(prepareStep ? { prepareStep } : {}),
         });
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
@@ -250,6 +255,10 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
         let fullText = '';
 
         const hasTools = Object.keys(toolSet).length > 0;
+        const reflectionCfg = config.reflection;
+        const prepareStep = reflectionCfg && reflectionCfg.strategy !== 'none'
+          ? (await import('../runtime/reflection.js')).createReflectionPrepareStep(systemPrompt, reflectionCfg)
+          : undefined;
 
         let streamResult;
         try {
@@ -260,6 +269,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
             maxRetries: config.model.max_retries,
             timeoutMs: config.model.timeout_ms,
             ...(hasTools ? { tools: toolSet, maxToolSteps: options.toolExecutor?.maxToolCalls ?? 25, ...(options.activeTools ? { activeTools: options.activeTools } : {}) } : {}),
+            ...(prepareStep ? { prepareStep } : {}),
           });
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));
