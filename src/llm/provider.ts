@@ -39,7 +39,7 @@ const ollamaReasoningEffortMiddleware: LanguageModelMiddleware = {
 };
 
 /** Supported provider names for config.model.provider */
-export type ProviderName = 'openrouter' | 'anthropic' | 'openai' | 'ollama';
+export type ProviderName = 'openrouter' | 'anthropic' | 'openai' | 'ollama' | 'cerebras' | 'agntk-free';
 
 /** Provider factory — maps provider names to (apiKey) => LanguageModel functions */
 type ProviderFactory = (modelId: string, apiKey?: string) => LanguageModel;
@@ -64,6 +64,7 @@ const ENV_KEYS: Partial<Record<ProviderName, string>> = {
   openrouter: 'OPENROUTER_API_KEY',
   anthropic: 'ANTHROPIC_API_KEY',
   openai: 'OPENAI_API_KEY',
+  cerebras: 'CEREBRAS_API_KEY',
 };
 
 /**
@@ -73,6 +74,23 @@ const ENV_KEYS: Partial<Record<ProviderName, string>> = {
  * host or port (e.g. in Docker, on a remote box, behind a proxy).
  */
 const OLLAMA_DEFAULT_BASE_URL = 'http://localhost:11434/v1';
+
+/**
+ * Cerebras Inference API endpoint. Used by the `cerebras` provider when the
+ * user supplies their own CEREBRAS_API_KEY. Currently serves llama3.1-8b,
+ * gpt-oss-120b, qwen-3-235b-a22b-instruct-2507, zai-glm-4.7. Free developer
+ * tier is available at cerebras.ai.
+ */
+const CEREBRAS_BASE_URL = 'https://api.cerebras.ai/v1';
+
+/**
+ * agntK-hosted free-tier proxy. Forwards OpenAI-compatible requests to
+ * Cerebras using a server-held API key. Rate-limited (10 req/60s per IP)
+ * and daily-budgeted by the maintainer. Accepts a static bearer token —
+ * users of the `agntk-free` provider don't need their own API key.
+ */
+const AGNTK_FREE_BASE_URL = 'https://api.agntk.dev/api/v1';
+const AGNTK_FREE_STATIC_TOKEN = 'agntk-free-v1';
 
 /** Cached provider instances keyed by provider name */
 const _providers: Map<string, ProviderFactory> = new Map();
@@ -153,10 +171,26 @@ function getOrCreateFactory(providerName: ProviderName, apiKey?: string, options
       });
       break;
     }
+    case 'cerebras': {
+      if (!key) {
+        throw new Error(
+          `No API key found for provider "${providerName}". ` +
+          `Set CEREBRAS_API_KEY environment variable (free developer tier at cerebras.ai).`
+        );
+      }
+      const provider = createOpenAI({ baseURL: CEREBRAS_BASE_URL, apiKey: key });
+      factory = (modelId) => provider.chat(modelId);
+      break;
+    }
+    case 'agntk-free': {
+      const provider = createOpenAI({ baseURL: AGNTK_FREE_BASE_URL, apiKey: AGNTK_FREE_STATIC_TOKEN });
+      factory = (modelId) => provider.chat(modelId);
+      break;
+    }
     default:
       throw new Error(
         `Unknown provider "${providerName}". ` +
-        `Supported providers: openrouter, anthropic, openai, ollama`
+        `Supported providers: openrouter, anthropic, openai, ollama, cerebras, agntk-free`
       );
   }
 
