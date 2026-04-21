@@ -248,7 +248,7 @@ export async function delegateTo(opts: DelegateOptions): Promise<DelegationResul
     prompt,
     maxRetries: config.model.max_retries,
     timeoutMs: config.model.timeout_ms,
-    ...(hasTools ? { tools: toolSet, maxToolSteps: 5 } : {}),
+    ...(hasTools ? { tools: toolSet, maxToolSteps: 25 } : {}),
   });
 
   const ended = new Date().toISOString();
@@ -307,7 +307,7 @@ export function delegateStream(opts: DelegateOptions): DelegateStreamResult {
     prompt,
     maxRetries: config.model.max_retries,
     timeoutMs: config.model.timeout_ms,
-    ...(hasTools ? { tools: toolSet, maxToolSteps: 5 } : {}),
+    ...(hasTools ? { tools: toolSet, maxToolSteps: 25 } : {}),
   });
 
   async function* wrappedStream(): AsyncIterable<string> {
