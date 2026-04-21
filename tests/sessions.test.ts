@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import {
@@ -147,6 +147,14 @@ describe('listSessions', () => {
 });
 
 describe('archiveOldFiles', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-07'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('should move expired sessions to archive/YYYY-MM/', () => {
     // Create a session 30 days old
     writeSessionFile(TEST_DIR, '2026-03-01-old.md', '2026-03-01');
@@ -219,6 +227,14 @@ describe('cleanupOldFiles (legacy delete)', () => {
 });
 
 describe('listExpiredFiles', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-07'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('should list files that would be cleaned up', () => {
     writeSessionFile(TEST_DIR, '2026-03-01-old.md', '2026-03-01');
     writeSessionFile(TEST_DIR, '2026-04-06-new.md', '2026-04-06');
