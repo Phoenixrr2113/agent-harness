@@ -6,6 +6,23 @@ import { log, getGlobalLogLevel } from '../core/logger.js';
 
 // --- Types ---
 
+/**
+ * Tool name filter — applied to the tool map loaded from an MCP server.
+ *
+ * `include` is allow-list (only named tools kept). `exclude` is block-list
+ * (named tools removed). Both work on exact tool names. If both are set,
+ * include is applied first then exclude.
+ *
+ * Motivation: model tool-selection accuracy degrades noticeably past ~20
+ * tools. Filesystem servers alone expose 14 tools; adding shell, github,
+ * and a browser MCP easily clears 50. Filtering keeps the per-agent
+ * interface small without giving up the broad MCP ecosystem.
+ */
+export interface McpToolFilter {
+  include?: string[];
+  exclude?: string[];
+}
+
 /** Single MCP server configuration (mirrors config schema) */
 export interface McpServerConfig {
   transport: 'stdio' | 'http' | 'sse';
@@ -16,6 +33,90 @@ export interface McpServerConfig {
   url?: string;
   headers?: Record<string, string>;
   enabled?: boolean;
+  /** Optional tool-name filter. See McpToolFilter. */
+  tools?: McpToolFilter;
+}
+
+/**
+ * npm package identifier for the official filesystem MCP server. When this
+ * appears in a stdio server's args and `cwd` is not set, we auto-default
+ * cwd to the first path argument so relative paths like '.' and 'tests/'
+ * resolve against the allowed directory instead of the process's cwd
+ * (which is typically wherever `harness` was invoked from).
+ */
+const FILESYSTEM_SERVER_PKG = '@modelcontextprotocol/server-filesystem';
+
+/**
+ * If a stdio MCP server is the filesystem server and no cwd is set, return
+ * the first path argument (if it looks like an absolute path). This matches
+ * the pattern `npx -y @modelcontextprotocol/server-filesystem /path/to/dir`.
+ *
+ * Without this default, calls like `read_text_file({ path: "tests/foo.ts" })`
+ * resolve against wherever `harness` was invoked, and the server rejects
+ * with "Access denied — path outside allowed directories".
+ */
+function autoDetectFilesystemCwd(serverConfig: McpServerConfig): string | undefined {
+  if (serverConfig.transport !== 'stdio') return undefined;
+  if (serverConfig.cwd) return undefined;
+  if (!serverConfig.args || serverConfig.args.length === 0) return undefined;
+
+  const fsIdx = serverConfig.args.findIndex((a) => a === FILESYSTEM_SERVER_PKG);
+  if (fsIdx < 0) return undefined;
+
+  const pathArg = serverConfig.args[fsIdx + 1];
+  if (!pathArg || pathArg.startsWith('-')) return undefined;
+  if (!pathArg.startsWith('/') && !pathArg.startsWith('~')) return undefined;
+
+  return pathArg;
+}
+
+/**
+ * Apply the include/exclude filter to a loaded tool set. Returns a new
+ * object with only the allowed tools. Warns (via log) about filter names
+ * that don't match any actual tool, which usually means a typo.
+ */
+function applyToolFilter(
+  serverName: string,
+  tools: ToolSet,
+  filter: McpToolFilter | undefined,
+): ToolSet {
+  if (!filter) return tools;
+  const hasInclude = filter.include && filter.include.length > 0;
+  const hasExclude = filter.exclude && filter.exclude.length > 0;
+  if (!hasInclude && !hasExclude) return tools;
+
+  const allToolNames = new Set(Object.keys(tools));
+
+  // Surface typos — names in the filter that don't match any loaded tool.
+  if (filter.include) {
+    for (const name of filter.include) {
+      if (!allToolNames.has(name)) {
+        log.warn(`MCP "${serverName}": tools.include lists "${name}" but no such tool exists on this server`);
+      }
+    }
+  }
+  if (filter.exclude) {
+    for (const name of filter.exclude) {
+      if (!allToolNames.has(name)) {
+        log.warn(`MCP "${serverName}": tools.exclude lists "${name}" but no such tool exists on this server`);
+      }
+    }
+  }
+
+  let result: ToolSet = tools;
+  if (hasInclude) {
+    const includeSet = new Set(filter.include);
+    result = Object.fromEntries(
+      Object.entries(result).filter(([name]) => includeSet.has(name)),
+    ) as ToolSet;
+  }
+  if (hasExclude) {
+    const excludeSet = new Set(filter.exclude);
+    result = Object.fromEntries(
+      Object.entries(result).filter(([name]) => !excludeSet.has(name)),
+    ) as ToolSet;
+  }
+  return result;
 }
 
 /** Result of connecting to an MCP server */
@@ -65,12 +166,27 @@ function buildClientConfig(name: string, serverConfig: McpServerConfig): MCPClie
       }
       // Suppress MCP server stderr noise unless --verbose (log level debug)
       const stderr = getGlobalLogLevel() === 'debug' ? 'inherit' as const : 'pipe' as const;
+
+      // Auto-default cwd to the allowed-directory arg when using the
+      // filesystem MCP server without an explicit cwd set. This matches
+      // the intuitive expectation that bare paths like '.' and 'tests/'
+      // resolve to what the server considers its root. See
+      // autoDetectFilesystemCwd for the pattern.
+      let cwd = serverConfig.cwd;
+      if (!cwd) {
+        const autoCwd = autoDetectFilesystemCwd(serverConfig);
+        if (autoCwd) {
+          cwd = autoCwd;
+          log.info(`MCP "${name}": auto-defaulted cwd to ${autoCwd} (from filesystem server path arg)`);
+        }
+      }
+
       return {
         transport: new Experimental_StdioMCPTransport({
           command: serverConfig.command,
           args: serverConfig.args,
           env: serverConfig.env ? { ...process.env, ...serverConfig.env } as Record<string, string> : undefined,
-          cwd: serverConfig.cwd,
+          cwd,
           stderr,
         }),
         name: `harness-mcp-${name}`,
@@ -118,8 +234,17 @@ async function connectToServer(name: string, serverConfig: McpServerConfig): Pro
   const client = await createMCPClient(clientConfig);
 
   // Load tools with auto-discovery (no schema pre-definition needed)
-  const tools = await client.tools();
+  const allTools = await client.tools();
+  const originalCount = Object.keys(allTools).length;
+
+  // Apply optional include/exclude filter. Unknown names in the filter
+  // produce warnings so typos don't silently drop the wrong tools.
+  const tools = applyToolFilter(name, allTools, serverConfig.tools);
   const toolCount = Object.keys(tools).length;
+
+  if (toolCount < originalCount) {
+    log.info(`MCP "${name}": tool filter applied, ${toolCount}/${originalCount} tool(s) active`);
+  }
 
   return { name, client, toolCount, tools };
 }

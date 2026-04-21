@@ -155,6 +155,26 @@ export const HarnessConfigSchema = z.object({
       headers: z.record(z.string(), z.string()).optional(),
       /** Whether this server is enabled (default: true) */
       enabled: z.boolean().default(true),
+      /**
+       * Filter which tools from this server the agent sees. Useful for
+       * keeping the total tool count small on agents that connect to many
+       * MCP servers — model tool-selection accuracy degrades past ~20 tools.
+       *
+       * - `include`: allow-list. Only tools matching these names are kept.
+       * - `exclude`: block-list. Named tools are removed (applied after include).
+       *
+       * Both fields match by exact tool name. Unknown names produce a warn-level
+       * log so typos surface. When both fields are unset or empty, no filtering
+       * is applied (current behavior).
+       *
+       * Example:
+       *   tools:
+       *     include: [read_text_file, write_file, edit_file, search_files]
+       */
+      tools: z.object({
+        include: z.array(z.string()).optional(),
+        exclude: z.array(z.string()).optional(),
+      }).optional(),
     }).passthrough()).default({}),
   }).passthrough().default({ servers: {} }),
   /** Intelligence & continuous learning config */
