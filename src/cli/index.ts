@@ -346,7 +346,8 @@ program
   .option('-p, --provider <provider>', 'Provider override (openrouter, anthropic, openai)')
   .option('-k, --api-key <key>', 'API key override (default: from environment)')
   .option('-t, --tools <names>', 'Comma-separated allow-list of tool names (narrows MCP + programmatic tools for this run)')
-  .action(async (prompt: string, opts: { dir: string; stream: boolean; model?: string; provider?: string; apiKey?: string; tools?: string }) => {
+  .option('--approve-all', 'Bypass the per-tool approval prompt for this run (for scripts, CI, and non-interactive contexts)', false)
+  .action(async (prompt: string, opts: { dir: string; stream: boolean; model?: string; provider?: string; apiKey?: string; tools?: string; approveAll?: boolean }) => {
     const { createHarness } = await import('../core/harness.js');
     const dir = resolve(opts.dir);
     loadEnvFromDir(dir);
@@ -362,6 +363,7 @@ program
         provider: opts.provider,
         apiKey: opts.apiKey,
         ...(activeTools && activeTools.length > 0 ? { activeTools } : {}),
+        ...(opts.approveAll ? { bypassApproval: true } : {}),
       });
 
       if (opts.stream) {

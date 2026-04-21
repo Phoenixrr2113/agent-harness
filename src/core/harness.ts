@@ -73,8 +73,15 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
         }
       }
 
-      // Load tools and convert to AI SDK format (includes markdown + programmatic + MCP)
       toolSet = buildToolSet(dir, options.toolExecutor, mcpTools);
+      if (config.approval?.enabled && config.approval.tools.length > 0 && !options.bypassApproval) {
+        const { wrapToolSetWithApproval } = await import('../runtime/approval.js');
+        toolSet = wrapToolSetWithApproval(toolSet, {
+          enabled: config.approval.enabled,
+          mode: config.approval.mode,
+          tools: config.approval.tools,
+        });
+      }
       const toolCount = Object.keys(toolSet).length;
 
       booted = true;
