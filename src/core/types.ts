@@ -79,6 +79,22 @@ export const HarnessConfigSchema = z.object({
     summary_model: z.string().optional(),
     /** Fast model for validation, checks, and quick decisions (e.g. 'google/gemini-flash-1.5') */
     fast_model: z.string().optional(),
+    /**
+     * Base URL override for the `openai` provider. Lets you point agent-harness
+     * at any OpenAI-compatible endpoint: Cerebras Cloud, Groq, Together AI,
+     * Fireworks, DeepInfra, a local vLLM, etc. Must include the API version
+     * path segment (typically /v1).
+     *
+     * Examples:
+     *   base_url: https://api.cerebras.ai/v1     (Cerebras, free dev tier)
+     *   base_url: https://api.groq.com/openai/v1 (Groq)
+     *   base_url: https://api.together.xyz/v1    (Together AI)
+     *
+     * The OpenAI provider uses this via createOpenAI({ baseURL }) and forces
+     * the .chat() code path since not all OpenAI-compat providers implement
+     * the Responses API. Ignored by other providers.
+     */
+    base_url: z.string().url().optional(),
   }).passthrough(),
   runtime: z.object({
     scratchpad_budget: z.number().int().nonnegative().default(10000),

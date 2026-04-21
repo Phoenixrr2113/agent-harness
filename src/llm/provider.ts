@@ -1,7 +1,7 @@
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
-import { generateText, streamText, stepCountIs, wrapLanguageModel, type LanguageModel } from 'ai';
+import { generateText, streamText, stepCountIs, wrapLanguageModel, type LanguageModel, type LanguageModelMiddleware } from 'ai';
 import type { ModelMessage } from '@ai-sdk/provider-utils';
 import type { HarnessConfig, ToolCallInfo } from '../core/types.js';
 import type { AIToolSet } from '../runtime/tool-executor.js';
@@ -24,22 +24,18 @@ import type { AIToolSet } from '../runtime/tool-executor.js';
  * This middleware runs before each generate/stream call, merging its
  * defaults under any user-set providerOptions so explicit overrides win.
  */
-const ollamaReasoningEffortMiddleware = {
-  specificationVersion: 'v3' as const,
-  transformParams: async ({ params }: { params: Record<string, unknown> }) => {
-    const existing = (params.providerOptions ?? {}) as Record<string, Record<string, unknown>>;
-    const existingOpenai = (existing.openai ?? {}) as Record<string, unknown>;
-    return {
-      ...params,
-      providerOptions: {
-        ...existing,
-        openai: {
-          reasoningEffort: 'none',
-          ...existingOpenai,
-        },
+const ollamaReasoningEffortMiddleware: LanguageModelMiddleware = {
+  specificationVersion: 'v3',
+  transformParams: async ({ params }) => ({
+    ...params,
+    providerOptions: {
+      ...params.providerOptions,
+      openai: {
+        reasoningEffort: 'none',
+        ...params.providerOptions?.openai,
       },
-    } as typeof params;
-  },
+    },
+  }),
 };
 
 /** Supported provider names for config.model.provider */
@@ -47,6 +43,18 @@ export type ProviderName = 'openrouter' | 'anthropic' | 'openai' | 'ollama';
 
 /** Provider factory — maps provider names to (apiKey) => LanguageModel functions */
 type ProviderFactory = (modelId: string, apiKey?: string) => LanguageModel;
+
+/** Optional per-provider settings from config.yaml */
+interface FactoryOptions {
+  /**
+   * Custom base URL for the `openai` provider. Lets users point at any
+   * OpenAI-compatible endpoint (Cerebras Cloud, Groq, Together AI,
+   * Fireworks, a local vLLM, etc.). When set, forces provider.chat() since
+   * most OpenAI-compat providers implement Chat Completions but not
+   * Responses API.
+   */
+  baseURL?: string;
+}
 
 /**
  * Environment variable each provider reads its API key from.
@@ -69,8 +77,8 @@ const OLLAMA_DEFAULT_BASE_URL = 'http://localhost:11434/v1';
 /** Cached provider instances keyed by provider name */
 const _providers: Map<string, ProviderFactory> = new Map();
 
-function getOrCreateFactory(providerName: ProviderName, apiKey?: string): ProviderFactory {
-  const cacheKey = `${providerName}:${apiKey ?? 'env'}`;
+function getOrCreateFactory(providerName: ProviderName, apiKey?: string, options?: FactoryOptions): ProviderFactory {
+  const cacheKey = `${providerName}:${apiKey ?? 'env'}:${options?.baseURL ?? ''}`;
   const cached = _providers.get(cacheKey);
   if (cached) return cached;
 
@@ -98,9 +106,25 @@ function getOrCreateFactory(providerName: ProviderName, apiKey?: string): Provid
       break;
     }
     case 'openai': {
-      // createOpenAI reads OPENAI_API_KEY from env by default
-      const provider = createOpenAI(key ? { apiKey: key } : undefined);
-      factory = (modelId) => provider(modelId);
+      // createOpenAI reads OPENAI_API_KEY from env by default.
+      //
+      // If `options.baseURL` is set, we're pointing at an OpenAI-compatible
+      // endpoint that isn't api.openai.com (Cerebras, Groq, Together AI,
+      // Fireworks, DeepInfra, a local vLLM, etc.). Force the .chat() code
+      // path in that case — most OpenAI-compat providers implement Chat
+      // Completions at /v1/chat/completions but NOT the Responses API. The
+      // default callable resolves to Responses and would surface as:
+      //   Error: input[2]: unknown input item type: "item_reference"
+      //
+      // For canonical OpenAI (no baseURL override), keep the default callable
+      // so advanced users can rely on Responses API features.
+      const createOptions: Parameters<typeof createOpenAI>[0] = {};
+      if (key) createOptions.apiKey = key;
+      if (options?.baseURL) createOptions.baseURL = options.baseURL;
+      const provider = createOpenAI(Object.keys(createOptions).length > 0 ? createOptions : undefined);
+      factory = options?.baseURL
+        ? (modelId) => provider.chat(modelId)
+        : (modelId) => provider(modelId);
       break;
     }
     case 'ollama': {
@@ -169,7 +193,7 @@ export function resetProvider(): void {
  */
 export function getModel(config: HarnessConfig, apiKey?: string): LanguageModel {
   const providerName = (config.model.provider ?? 'openrouter') as ProviderName;
-  const factory = getOrCreateFactory(providerName, apiKey);
+  const factory = getOrCreateFactory(providerName, apiKey, { baseURL: config.model.base_url });
   return factory(config.model.id);
 }
 
@@ -183,7 +207,7 @@ export function getModel(config: HarnessConfig, apiKey?: string): LanguageModel 
 export function getSummaryModel(config: HarnessConfig, apiKey?: string): LanguageModel {
   const modelId = config.model.summary_model ?? config.model.id;
   const providerName = (config.model.provider ?? 'openrouter') as ProviderName;
-  const factory = getOrCreateFactory(providerName, apiKey);
+  const factory = getOrCreateFactory(providerName, apiKey, { baseURL: config.model.base_url });
   return factory(modelId);
 }
 
@@ -197,7 +221,7 @@ export function getSummaryModel(config: HarnessConfig, apiKey?: string): Languag
 export function getFastModel(config: HarnessConfig, apiKey?: string): LanguageModel {
   const modelId = config.model.fast_model ?? config.model.summary_model ?? config.model.id;
   const providerName = (config.model.provider ?? 'openrouter') as ProviderName;
-  const factory = getOrCreateFactory(providerName, apiKey);
+  const factory = getOrCreateFactory(providerName, apiKey, { baseURL: config.model.base_url });
   return factory(modelId);
 }
 
