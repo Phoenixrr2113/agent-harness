@@ -1,10 +1,46 @@
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
-import { generateText, streamText, stepCountIs, type LanguageModel } from 'ai';
+import { generateText, streamText, stepCountIs, wrapLanguageModel, type LanguageModel } from 'ai';
 import type { ModelMessage } from '@ai-sdk/provider-utils';
 import type { HarnessConfig, ToolCallInfo } from '../core/types.js';
 import type { AIToolSet } from '../runtime/tool-executor.js';
+
+/**
+ * Middleware that injects `providerOptions.openai.reasoningEffort = 'none'`
+ * by default on every Ollama call.
+ *
+ * Why: models tagged "thinking" on Ollama (gemma4, qwen3.5, qwen3.6, the
+ * NVFP4 coding variants, and others) default to generating a reasoning
+ * trace in `message.reasoning` before producing `message.content`. The AI
+ * SDK reads `content` as the response text, so when `content` is empty
+ * (truncated by output-token budget consumed by reasoning) the caller sees
+ * silence. In tool-use loops this wastes tool steps too.
+ *
+ * Setting `reasoning_effort: none` via Ollama's OpenAI-compat endpoint
+ * disables the thinking channel: models return `content` directly. Users
+ * who want thinking on can override via per-call providerOptions.
+ *
+ * This middleware runs before each generate/stream call, merging its
+ * defaults under any user-set providerOptions so explicit overrides win.
+ */
+const ollamaReasoningEffortMiddleware = {
+  specificationVersion: 'v3' as const,
+  transformParams: async ({ params }: { params: Record<string, unknown> }) => {
+    const existing = (params.providerOptions ?? {}) as Record<string, Record<string, unknown>>;
+    const existingOpenai = (existing.openai ?? {}) as Record<string, unknown>;
+    return {
+      ...params,
+      providerOptions: {
+        ...existing,
+        openai: {
+          reasoningEffort: 'none',
+          ...existingOpenai,
+        },
+      },
+    } as typeof params;
+  },
+};
 
 /** Supported provider names for config.model.provider */
 export type ProviderName = 'openrouter' | 'anthropic' | 'openai' | 'ollama';
@@ -79,9 +115,18 @@ function getOrCreateFactory(providerName: ProviderName, apiKey?: string): Provid
       // not implement — it only speaks Chat Completions at
       // /v1/chat/completions. Responses API surfaces as:
       //   Error: input[2]: unknown input item type: "item_reference"
+      //
+      // wrapLanguageModel with ollamaReasoningEffortMiddleware injects
+      // `reasoning_effort: none` by default, making models with a thinking
+      // channel (gemma4, qwen3.5, qwen3.6, NVFP4 coding variants) return
+      // content directly instead of silently emitting their reasoning trace
+      // into `message.reasoning` (which the AI SDK drops).
       const baseURL = process.env.OLLAMA_BASE_URL ?? OLLAMA_DEFAULT_BASE_URL;
       const provider = createOpenAI({ baseURL, apiKey: 'ollama' });
-      factory = (modelId) => provider.chat(modelId);
+      factory = (modelId) => wrapLanguageModel({
+        model: provider.chat(modelId),
+        middleware: ollamaReasoningEffortMiddleware,
+      });
       break;
     }
     default:
