@@ -528,6 +528,45 @@ program
 
 // --- INFO ---
 program
+  .command('hardware')
+  .description('Detect hardware and suggest Ollama model tiers')
+  .option('--json', 'Output as JSON')
+  .action(async (opts: { json: boolean }) => {
+    const { detectSystem, recommendOllamaModels, getOllamaModels } = await import('../runtime/system-detect.js');
+    const profile = detectSystem();
+    const installed = await getOllamaModels();
+    const rec = recommendOllamaModels(profile, installed.length > 0 ? installed : undefined);
+
+    if (opts.json) {
+      console.log(JSON.stringify({ profile, installed, recommendation: rec }, null, 2));
+      return;
+    }
+
+    console.log(`\nHardware profile:`);
+    console.log(`  Platform:         ${profile.platform}${profile.isAppleSilicon ? ' (Apple Silicon)' : ''}`);
+    console.log(`  Total RAM:        ${profile.totalRAMGb} GB`);
+    console.log(`  Usable for models: ${profile.usableForModelsGb.toFixed(1)} GB`);
+    if (profile.nvidiaVRAMGb !== null) {
+      console.log(`  NVIDIA VRAM:      ${profile.nvidiaVRAMGb} GB`);
+    }
+    console.log(`\nOllama ${installed.length > 0 ? `(${installed.length} models installed)` : '(not detected / no models)'}`);
+    if (installed.length > 0) {
+      for (const m of installed.slice(0, 10)) console.log(`  - ${m}`);
+      if (installed.length > 10) console.log(`  ... and ${installed.length - 10} more`);
+    }
+    console.log(`\nRecommendation (tier: ${rec.tier}):`);
+    console.log(`  primary:       ${rec.primary}`);
+    console.log(`  summary_model: ${rec.summary}`);
+    console.log(`  fast_model:    ${rec.fast}`);
+    if (rec.noUsableModels) {
+      console.log(`\n  ⚠ No usable models installed. Pull one to start:`);
+      console.log(`      ollama pull ${rec.primary}`);
+    }
+    console.log(`\n  ${rec.reason}\n`);
+    console.log(`Put these in your config.yaml under model:, or use "provider: agntk-free" + "id: llama3.1-8b" for the zero-config free tier.\n`);
+  });
+
+program
   .command('info')
   .description('Show harness info and loaded context')
   .option('-d, --dir <path>', 'Harness directory', '.')
