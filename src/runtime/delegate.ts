@@ -218,8 +218,7 @@ function prepareDelegation(opts: DelegateOptions) {
       );
   }
 
-  // Load tools from the harness so sub-agents can use them
-  const toolSet = buildToolSet(harnessDir);
+  const toolSet = buildToolSet(harnessDir, { includeAgentTools: false });
   const hasTools = Object.keys(toolSet).length > 0;
 
   return { agentDoc, config, systemPrompt, model, toolSet, hasTools };

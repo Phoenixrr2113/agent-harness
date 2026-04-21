@@ -38,6 +38,11 @@ export const FrontmatterSchema = z.object({
    * ignored by the AI SDK. See activeTools on generateText/streamText.
    */
   active_tools: z.array(z.string()).optional(),
+  /**
+   * Sub-agent only: explicit description used when this agent is exposed as
+   * a tool on the primary. Falls back to the doc's L1 summary, then L0.
+   */
+  description: z.string().optional(),
 });
 
 export type Frontmatter = z.infer<typeof FrontmatterSchema>;

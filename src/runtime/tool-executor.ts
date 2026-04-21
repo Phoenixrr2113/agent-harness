@@ -1,6 +1,7 @@
 import { tool as aiTool, jsonSchema, type ToolSet } from 'ai';
 import { z } from 'zod';
 import { loadTools, type ToolDefinition, type ToolOperation } from './tools.js';
+import { buildAgentTools } from './agent-tools.js';
 import { log } from '../core/logger.js';
 
 // --- Types ---
@@ -38,6 +39,12 @@ export interface ToolExecutorConfig {
   allowHttpExecution?: boolean;
   /** Additional programmatic tools */
   tools?: ProgrammaticTool[];
+  /**
+   * Whether to auto-expose each `agents/*.md` primitive as a delegation tool
+   * on the returned ToolSet. Defaults to true. Set to false when building
+   * the tool set inside `delegateTo` to prevent nested delegation.
+   */
+  includeAgentTools?: boolean;
 }
 
 /** AI SDK ToolSet — record of named tool definitions */
@@ -344,6 +351,16 @@ export function buildToolSet(
   // Merge MCP tools (from connected MCP servers)
   if (mcpTools) {
     Object.assign(tools, mcpTools);
+  }
+
+  if (executorConfig.includeAgentTools !== false) {
+    const agentTools = buildAgentTools(harnessDir);
+    for (const [name, agentTool] of Object.entries(agentTools)) {
+      if (tools[name]) {
+        log.warn(`tool name collision: agent "${name}" shadows an existing tool; agent wins`);
+      }
+      tools[name] = agentTool;
+    }
   }
 
   return tools;
