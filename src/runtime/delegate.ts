@@ -242,13 +242,14 @@ export async function delegateTo(opts: DelegateOptions): Promise<DelegationResul
   const sessionId = createSessionId();
   const started = new Date().toISOString();
 
+  const activeTools = (agentDoc.frontmatter as { active_tools?: string[] }).active_tools;
   const result = await generate({
     model,
     system: systemPrompt,
     prompt,
     maxRetries: config.model.max_retries,
     timeoutMs: config.model.timeout_ms,
-    ...(hasTools ? { tools: toolSet, maxToolSteps: 25 } : {}),
+    ...(hasTools ? { tools: toolSet, maxToolSteps: 25, ...(activeTools ? { activeTools } : {}) } : {}),
   });
 
   const ended = new Date().toISOString();
@@ -301,13 +302,14 @@ export function delegateStream(opts: DelegateOptions): DelegateStreamResult {
   const sessionId = createSessionId();
   const started = new Date().toISOString();
 
+  const activeTools = (agentDoc.frontmatter as { active_tools?: string[] }).active_tools;
   const result = streamGenerateWithDetails({
     model,
     system: systemPrompt,
     prompt,
     maxRetries: config.model.max_retries,
     timeoutMs: config.model.timeout_ms,
-    ...(hasTools ? { tools: toolSet, maxToolSteps: 25 } : {}),
+    ...(hasTools ? { tools: toolSet, maxToolSteps: 25, ...(activeTools ? { activeTools } : {}) } : {}),
   });
 
   async function* wrappedStream(): AsyncIterable<string> {

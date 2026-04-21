@@ -345,7 +345,8 @@ program
   .option('-m, --model <model>', 'Model override (or alias: gemma, qwen, glm, claude)')
   .option('-p, --provider <provider>', 'Provider override (openrouter, anthropic, openai)')
   .option('-k, --api-key <key>', 'API key override (default: from environment)')
-  .action(async (prompt: string, opts: { dir: string; stream: boolean; model?: string; provider?: string; apiKey?: string }) => {
+  .option('-t, --tools <names>', 'Comma-separated allow-list of tool names (narrows MCP + programmatic tools for this run)')
+  .action(async (prompt: string, opts: { dir: string; stream: boolean; model?: string; provider?: string; apiKey?: string; tools?: string }) => {
     const { createHarness } = await import('../core/harness.js');
     const dir = resolve(opts.dir);
     loadEnvFromDir(dir);
@@ -353,12 +354,14 @@ program
     requireHarness(dir);
 
     const modelId = resolveModel(opts.model);
+    const activeTools = opts.tools ? opts.tools.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
     try {
       const agent = createHarness({
         dir,
         model: modelId,
         provider: opts.provider,
         apiKey: opts.apiKey,
+        ...(activeTools && activeTools.length > 0 ? { activeTools } : {}),
       });
 
       if (opts.stream) {

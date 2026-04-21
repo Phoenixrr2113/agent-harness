@@ -32,6 +32,12 @@ export const FrontmatterSchema = z.object({
   retry_delay_ms: z.number().int().positive().optional(),
   /** Sub-agent only: which config model tier to use. See AgentModelTier above. */
   model: z.enum(['primary', 'summary', 'fast']).optional(),
+  /**
+   * Sub-agent only: whitelist of tool names this agent may call. When set,
+   * narrows the inherited tool set to just these. Unknown names are silently
+   * ignored by the AI SDK. See activeTools on generateText/streamText.
+   */
+  active_tools: z.array(z.string()).optional(),
 });
 
 export type Frontmatter = z.infer<typeof FrontmatterSchema>;
@@ -374,6 +380,12 @@ export interface CreateHarnessOptions {
   hooks?: HarnessHooks;
   /** Tool execution configuration */
   toolExecutor?: ToolExecutorOptions;
+  /**
+   * Whitelist of tool names the model may call during this harness's runs.
+   * Narrows the loaded tool set without unloading. Applies to both `run()` and
+   * `stream()`; ignored when no tools are configured.
+   */
+  activeTools?: string[];
 }
 
 /** Record of a single tool call made during a run */

@@ -240,6 +240,11 @@ export interface GenerateOptions extends CallOptions {
   tools?: AIToolSet;
   /** Max tool-use roundtrips (default: 1 if tools provided, 0 otherwise) */
   maxToolSteps?: number;
+  /**
+   * Subset of `tools` (by name) the model may call during this invocation.
+   * Narrows without unloading. Unknown names are silently ignored by the AI SDK.
+   */
+  activeTools?: string[];
 }
 
 export interface GenerateWithMessagesOptions extends CallOptions {
@@ -251,6 +256,11 @@ export interface GenerateWithMessagesOptions extends CallOptions {
   tools?: AIToolSet;
   /** Max tool-use roundtrips (default: 1 if tools provided, 0 otherwise) */
   maxToolSteps?: number;
+  /**
+   * Subset of `tools` (by name) the model may call during this invocation.
+   * Narrows without unloading. Unknown names are silently ignored by the AI SDK.
+   */
+  activeTools?: string[];
 }
 
 export interface GenerateResult {
@@ -270,13 +280,15 @@ function extractUsage(usage: { inputTokens?: number; outputTokens?: number } | u
   };
 }
 
-function buildCallSettings(opts: CallOptions & { tools?: AIToolSet; maxToolSteps?: number }) {
+function buildCallSettings(opts: CallOptions & { tools?: AIToolSet; maxToolSteps?: number; activeTools?: string[] }) {
   const hasTools = opts.tools && Object.keys(opts.tools).length > 0;
+  const hasActive = hasTools && opts.activeTools && opts.activeTools.length > 0;
   return {
     ...(opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}),
     ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}),
     ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
     ...(hasTools ? { tools: opts.tools } : {}),
+    ...(hasActive ? { activeTools: opts.activeTools } : {}),
     ...(hasTools ? { stopWhen: stepCountIs(opts.maxToolSteps ?? 25) } : {}),
   };
 }
