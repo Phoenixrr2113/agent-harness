@@ -69,7 +69,7 @@ export class Conversation {
     this.harnessDir = harnessDir;
     this.apiKey = apiKey;
     this.tools = options?.tools ?? {};
-    this.maxToolSteps = options?.maxToolSteps ?? 5;
+    this.maxToolSteps = options?.maxToolSteps ?? 25;
     if (options?.recordSessions !== undefined) {
       this.recordSessions = options.recordSessions;
     }

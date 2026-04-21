@@ -208,7 +208,7 @@ function buildCallSettings(opts: CallOptions & { tools?: AIToolSet; maxToolSteps
     ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}),
     ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
     ...(hasTools ? { tools: opts.tools } : {}),
-    ...(hasTools ? { stopWhen: stepCountIs(opts.maxToolSteps ?? 5) } : {}),
+    ...(hasTools ? { stopWhen: stepCountIs(opts.maxToolSteps ?? 25) } : {}),
   };
 }
 

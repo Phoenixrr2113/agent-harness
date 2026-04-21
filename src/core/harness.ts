@@ -131,7 +131,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
           prompt,
           maxRetries: config.model.max_retries,
           timeoutMs: config.model.timeout_ms,
-          ...(hasTools ? { tools: toolSet, maxToolSteps: options.toolExecutor?.maxToolCalls ?? 5 } : {}),
+          ...(hasTools ? { tools: toolSet, maxToolSteps: options.toolExecutor?.maxToolCalls ?? 25 } : {}),
         });
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
@@ -252,7 +252,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
             prompt,
             maxRetries: config.model.max_retries,
             timeoutMs: config.model.timeout_ms,
-            ...(hasTools ? { tools: toolSet, maxToolSteps: options.toolExecutor?.maxToolCalls ?? 5 } : {}),
+            ...(hasTools ? { tools: toolSet, maxToolSteps: options.toolExecutor?.maxToolCalls ?? 25 } : {}),
           });
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));
