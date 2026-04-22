@@ -522,6 +522,13 @@ export interface CreateHarnessOptions {
    * non-interactive contexts (e.g. scripted pipelines). Default false.
    */
   bypassApproval?: boolean;
+  /**
+   * Transform the tool set after all built-in wrapping (MCP + approval) is
+   * applied but before the agent accepts prompts. Used by the durable-execution
+   * engine to wrap each tool's execute with cache-check logic. Receives the
+   * currently-wrapped tool set and must return a tool set of the same shape.
+   */
+  wrapToolSet?: (tools: Record<string, unknown>) => Record<string, unknown>;
 }
 
 /** Record of a single tool call made during a run */

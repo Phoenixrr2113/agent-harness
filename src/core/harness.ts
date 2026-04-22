@@ -83,6 +83,9 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
           tools: config.approval.tools,
         });
       }
+      if (options.wrapToolSet) {
+        toolSet = options.wrapToolSet(toolSet as Record<string, unknown>) as AIToolSet;
+      }
       const toolCount = Object.keys(toolSet).length;
 
       booted = true;
