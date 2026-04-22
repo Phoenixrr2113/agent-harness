@@ -54,6 +54,23 @@ describe('wrapToolsWithCache', () => {
     expect(callCount).toBe(1);
   });
 
+  it('writes step_cached event on cache hit (replay)', async () => {
+    const tools = wrapToolsWithCache(
+      { my_tool: makeFakeTool(async () => 'ok') },
+      { harnessDir: dir, runId: 'r1', ordinalCounter: { value: 0 } },
+    );
+    await tools.my_tool.execute!({ x: 1 }, fakeExecCtx);
+
+    const tools2 = wrapToolsWithCache(
+      { my_tool: makeFakeTool(async () => 'fresh') },
+      { harnessDir: dir, runId: 'r1', ordinalCounter: { value: 0 } },
+    );
+    await tools2.my_tool.execute!({ x: 1 }, fakeExecCtx);
+
+    const types = readEvents(dir, 'r1').map((e) => e.type);
+    expect(types).toContain('step_cached');
+  });
+
   it('different args at same ordinal produce different hashes (no collision)', async () => {
     let callCount = 0;
     const tools = wrapToolsWithCache(

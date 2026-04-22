@@ -33,7 +33,16 @@ export function wrapToolsWithCache(tools: AIToolSet, ctx: DurableRunContext): AI
         const ordinal = ctx.ordinalCounter.value++;
         const hash = hashStep(name, ordinal, args);
         const cached = loadStep(ctx.harnessDir, ctx.runId, hash);
-        if (cached !== undefined) return cached;
+        if (cached !== undefined) {
+          appendEvent(ctx.harnessDir, ctx.runId, {
+            type: 'step_cached',
+            ordinal,
+            toolName: name,
+            at: new Date().toISOString(),
+            hash,
+          });
+          return cached;
+        }
 
         appendEvent(ctx.harnessDir, ctx.runId, {
           type: 'step_started',

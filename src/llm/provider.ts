@@ -138,7 +138,12 @@ function getOrCreateFactory(providerName: ProviderName, apiKey?: string, options
       // so advanced users can rely on Responses API features.
       const createOptions: Parameters<typeof createOpenAI>[0] = {};
       if (key) createOptions.apiKey = key;
-      if (options?.baseURL) createOptions.baseURL = options.baseURL;
+      if (options?.baseURL) {
+        createOptions.baseURL = options.baseURL;
+        if (!createOptions.apiKey && /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(options.baseURL)) {
+          createOptions.apiKey = 'local-no-auth';
+        }
+      }
       const provider = createOpenAI(Object.keys(createOptions).length > 0 ? createOptions : undefined);
       factory = options?.baseURL
         ? (modelId) => provider.chat(modelId)

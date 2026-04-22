@@ -7,6 +7,7 @@ export type DurableEvent =
   | { type: 'started'; runId: string; workflowId: string; prompt: string; at: string }
   | { type: 'step_started'; ordinal: number; toolName: string; at: string; hash: string }
   | { type: 'step_completed'; ordinal: number; toolName: string; at: string; hash: string }
+  | { type: 'step_cached'; ordinal: number; toolName: string; at: string; hash: string }
   | { type: 'step_failed'; ordinal: number; toolName: string; at: string; hash: string; error: string }
   | { type: 'finished'; at: string; text: string; usage: DurableUsage }
   | { type: 'failed'; at: string; error: string }
