@@ -149,6 +149,11 @@ export class Scheduler {
 
     const docs = loadDirectory(workflowDir);
 
+    // Boot-time resume: drain any incomplete durable runs from a previous
+    // process crash or sleep-expired suspension. Runs in parallel with cron
+    // registration below so a slow resume doesn't hold up new schedules.
+    void this.drainResumableRuns(docs);
+
     for (const doc of docs) {
       const cronExpr = doc.frontmatter.schedule;
       if (!cronExpr) continue;
@@ -168,6 +173,37 @@ export class Scheduler {
       try { this.onSchedule?.(doc.frontmatter.id, cronExpr); } catch (e) {
         log.warn(`onSchedule hook failed: ${e instanceof Error ? e.message : String(e)}`);
       }
+    }
+  }
+
+  private async drainResumableRuns(docs: HarnessDocument[]): Promise<void> {
+    try {
+      const { scanResumableRuns, durableRun } = await import('./durable-engine.js');
+      const resumable = scanResumableRuns(this.harnessDir);
+      if (resumable.length === 0) return;
+      log.info(`Found ${resumable.length} resumable durable run(s)`);
+      for (const summary of resumable) {
+        const doc = docs.find((d) => d.frontmatter.id === summary.workflowId);
+        if (!doc) {
+          log.warn(`Resumable run ${summary.runId} references unknown workflow ${summary.workflowId} — skipping`);
+          continue;
+        }
+        const prompt = `Execute this workflow:\n\n${doc.body}`;
+        try {
+          await durableRun({
+            harnessDir: this.harnessDir,
+            workflowId: summary.workflowId,
+            prompt,
+            resumeRunId: summary.runId,
+            ...(this.apiKey ? { apiKey: this.apiKey } : {}),
+          });
+          log.info(`Resumed run ${summary.runId} (workflow ${summary.workflowId})`);
+        } catch (err) {
+          log.warn(`Failed to resume run ${summary.runId}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    } catch (err) {
+      log.warn(`Boot-time resume scan failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -225,6 +261,10 @@ export class Scheduler {
         let resultText: string;
         let tokensUsed: number;
 
+        const isDurable =
+          doc.frontmatter.durable === true ||
+          (config as unknown as { workflows?: { durable_default?: boolean } }).workflows?.durable_default === true;
+
         // If workflow has a `with:` field, delegate to that sub-agent
         const delegateAgentId = doc.frontmatter.with;
         if (delegateAgentId) {
@@ -237,6 +277,16 @@ export class Scheduler {
           });
           resultText = delegateResult.text;
           tokensUsed = delegateResult.usage.totalTokens;
+        } else if (isDurable) {
+          const { durableRun } = await import('./durable-engine.js');
+          const durable = await durableRun({
+            harnessDir: this.harnessDir,
+            workflowId,
+            prompt,
+            ...(this.apiKey ? { apiKey: this.apiKey } : {}),
+          });
+          resultText = durable.text;
+          tokensUsed = durable.usage.totalTokens;
         } else {
           const agent = createHarness({
             dir: this.harnessDir,
