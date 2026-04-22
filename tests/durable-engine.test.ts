@@ -1,7 +1,29 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+vi.mock('../src/llm/provider.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/llm/provider.js')>();
+  const { MockLanguageModelV3 } = await import('ai/test');
+  const model = new MockLanguageModelV3({
+    provider: 'mock',
+    modelId: 'mock-model',
+    doGenerate: async () => ({
+      content: [{ type: 'text' as const, text: 'done' }],
+      finishReason: { type: 'stop' as const },
+      usage: {
+        inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined },
+        outputTokens: { total: 1, text: 1, reasoning: undefined },
+      },
+    }),
+  });
+  return {
+    ...actual,
+    getModel: vi.fn().mockReturnValue(model),
+  };
+});
+
 import {
   durableRun,
   scanResumableRuns,
@@ -11,12 +33,14 @@ import {
 } from '../src/runtime/durable-engine.js';
 import { readEvents } from '../src/runtime/durable-events.js';
 import { readState, writeState } from '../src/runtime/durable-state.js';
+import { getModel } from '../src/llm/provider.js';
 
 function seedHarness(dir: string) {
   writeFileSync(
     join(dir, 'config.yaml'),
     `agent:\n  name: test\nmodel:\n  provider: openai\n  id: test\n`,
   );
+  writeFileSync(join(dir, 'CORE.md'), '# Test Agent\n');
 }
 
 describe('durableRun', () => {
@@ -32,13 +56,7 @@ describe('durableRun', () => {
       harnessDir: dir,
       workflowId: 'wf1',
       prompt: 'hello',
-      _runAgent: async () => ({
-        text: 'done',
-        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-        steps: 1,
-        toolCalls: [],
-        session_id: 's1',
-      }),
+      apiKey: 'test-key',
     });
 
     expect(result.text).toBe('done');
@@ -49,15 +67,23 @@ describe('durableRun', () => {
     expect(types).toEqual(['started', 'finished']);
   });
 
-  it('marks state failed and writes failed event when runAgent throws', async () => {
+  it('marks state failed and writes failed event when the model throws', async () => {
+    const { MockLanguageModelV3 } = await import('ai/test');
+    const failModel = new MockLanguageModelV3({
+      provider: 'mock',
+      modelId: 'mock-fail',
+      doGenerate: async () => {
+        throw new Error('model blew up');
+      },
+    });
+    (getModel as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce(failModel);
+
     await expect(
       durableRun({
         harnessDir: dir,
         workflowId: 'wf1',
         prompt: 'hello',
-        _runAgent: async () => {
-          throw new Error('model blew up');
-        },
+        apiKey: 'test-key',
       }),
     ).rejects.toThrow('model blew up');
 
@@ -73,26 +99,14 @@ describe('durableRun', () => {
       harnessDir: dir,
       workflowId: 'wf1',
       prompt: 'hello',
-      _runAgent: async () => ({
-        text: 'done',
-        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-        steps: 1,
-        toolCalls: [],
-        session_id: 's',
-      }),
+      apiKey: 'test-key',
     });
     const second = await durableRun({
       harnessDir: dir,
       workflowId: 'wf1',
       prompt: 'hello',
       resumeRunId: first.runId,
-      _runAgent: async () => ({
-        text: 'done-again',
-        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-        steps: 1,
-        toolCalls: [],
-        session_id: 's',
-      }),
+      apiKey: 'test-key',
     });
     expect(second.runId).toBe(first.runId);
     expect(second.resumed).toBe(true);

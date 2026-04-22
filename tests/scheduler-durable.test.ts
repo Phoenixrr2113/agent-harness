@@ -1,86 +1,67 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-vi.mock('../src/runtime/durable-engine.js', async () => {
-  const actual = await vi.importActual<typeof import('../src/runtime/durable-engine.js')>(
-    '../src/runtime/durable-engine.js',
-  );
-  return {
-    ...actual,
-    durableRun: vi.fn(async () => ({
-      runId: 'run_mock',
-      text: 'durable-ok',
-      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-      steps: 1,
-      resumed: false,
-    })),
-  };
-});
-
-vi.mock('../src/core/harness.js', async () => {
-  const actual = await vi.importActual<typeof import('../src/core/harness.js')>(
-    '../src/core/harness.js',
-  );
-  return {
-    ...actual,
-    createHarness: vi.fn(() => ({
-      name: 'mock',
-      async boot() {},
-      async run() {
-        return {
-          text: 'non-durable-ok',
-          usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-          session_id: 's',
-          steps: 1,
-          toolCalls: [],
-        };
+vi.mock('../src/llm/provider.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/llm/provider.js')>();
+  const { MockLanguageModelV3 } = await import('ai/test');
+  const model = new MockLanguageModelV3({
+    provider: 'mock',
+    modelId: 'mock-model',
+    doGenerate: async () => ({
+      content: [{ type: 'text' as const, text: 'ok' }],
+      finishReason: { type: 'stop' as const },
+      usage: {
+        inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined },
+        outputTokens: { total: 1, text: 1, reasoning: undefined },
       },
-      stream() { throw new Error('nyi'); },
-      async shutdown() {},
-      getSystemPrompt() { return ''; },
-      getState() { return { mode: 'active', goals: [], active_workflows: [], last_interaction: '', unfinished_business: [] }; },
-    })),
+    }),
+  });
+  return {
+    ...actual,
+    getModel: vi.fn().mockReturnValue(model),
   };
 });
 
 import { Scheduler } from '../src/runtime/scheduler.js';
-import { durableRun } from '../src/runtime/durable-engine.js';
 
 function seedHarness(dir: string, workflowContent: string, cfg = ''): void {
   writeFileSync(
     join(dir, 'config.yaml'),
-    `agent:\n  name: test\nmodel:\n  provider: openai\n  id: test\n${cfg}`,
+    `agent:\n  name: test\nmodel:\n  provider: openai\n  id: test\nruntime:\n  quiet_hours:\n    start: 0\n    end: 0\n${cfg}`,
   );
+  writeFileSync(join(dir, 'CORE.md'), '# Test\n');
   mkdirSync(join(dir, 'workflows'), { recursive: true });
   writeFileSync(join(dir, 'workflows', 'wf.md'), workflowContent);
 }
+
+const runsDir = (dir: string) => join(dir, '.workflow-data', 'runs');
 
 describe('scheduler durable dispatch', () => {
   let dir: string;
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'sched-durable-'));
-    vi.clearAllMocks();
   });
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('routes durable:true workflow through durableRun', async () => {
+  it('routes durable:true workflow through durableRun (creates .workflow-data/runs entry)', async () => {
     seedHarness(dir, `---\nid: wf1\ndurable: true\n---\nDo the thing.\n`);
     const sched = new Scheduler({ harnessDir: dir });
     const loadedDoc = { frontmatter: { id: 'wf1', durable: true, tags: [], related: [], author: 'human', status: 'active' }, body: 'Do the thing.', l0: '', l1: '', path: '', raw: '' };
     await sched.executeWorkflow(loadedDoc as never);
-    expect(durableRun).toHaveBeenCalledTimes(1);
+    expect(existsSync(runsDir(dir))).toBe(true);
+    expect(readdirSync(runsDir(dir)).length).toBeGreaterThanOrEqual(1);
   });
 
-  it('routes non-durable workflow through agent.run (durableRun not called)', async () => {
+  it('routes non-durable workflow through agent.run (no .workflow-data written)', async () => {
     seedHarness(dir, `---\nid: wf1\n---\nDo the thing.\n`);
     const sched = new Scheduler({ harnessDir: dir });
     const loadedDoc = { frontmatter: { id: 'wf1', tags: [], related: [], author: 'human', status: 'active' }, body: 'Do the thing.', l0: '', l1: '', path: '', raw: '' };
     await sched.executeWorkflow(loadedDoc as never);
-    expect(durableRun).not.toHaveBeenCalled();
+    expect(existsSync(join(dir, '.workflow-data'))).toBe(false);
   });
 
   it('durable_default: true in config routes non-flagged workflow through durableRun', async () => {
@@ -88,6 +69,7 @@ describe('scheduler durable dispatch', () => {
     const sched = new Scheduler({ harnessDir: dir });
     const loadedDoc = { frontmatter: { id: 'wf1', tags: [], related: [], author: 'human', status: 'active' }, body: 'Do the thing.', l0: '', l1: '', path: '', raw: '' };
     await sched.executeWorkflow(loadedDoc as never);
-    expect(durableRun).toHaveBeenCalledTimes(1);
+    expect(existsSync(runsDir(dir))).toBe(true);
+    expect(readdirSync(runsDir(dir)).length).toBeGreaterThanOrEqual(1);
   });
 });
