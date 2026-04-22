@@ -183,6 +183,7 @@ describe('harness init (scaffolding)', () => {
     expect(gitignoreContent).toContain('memory/scratch.md');
     expect(gitignoreContent).toContain('memory/sessions/*');
     expect(gitignoreContent).toContain('memory/journal/*');
+    expect(gitignoreContent).toContain('.workflow-data/');
     expect(gitignoreContent).toContain('.env');
     // Should preserve .gitkeep files
     expect(gitignoreContent).toContain('!memory/sessions/.gitkeep');

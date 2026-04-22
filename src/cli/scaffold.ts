@@ -282,6 +282,7 @@ memory/sessions/*
 memory/journal/*
 !memory/sessions/.gitkeep
 !memory/journal/.gitkeep
+.workflow-data/
 .env
 `
   );
