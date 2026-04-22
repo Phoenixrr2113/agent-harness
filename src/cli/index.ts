@@ -4818,4 +4818,46 @@ versionCmd
     }
   });
 
+const workflowsCmd = program
+  .command('workflows')
+  .description('Manage durable workflow runs');
+
+workflowsCmd
+  .command('status')
+  .description('List durable workflow runs')
+  .option('--dir <path>', 'Harness directory', process.cwd())
+  .action(async (opts) => {
+    const { statusCmd } = await import('./workflows.js');
+    await statusCmd(opts);
+  });
+
+workflowsCmd
+  .command('resume <runId>')
+  .description('Manually resume an incomplete run')
+  .option('--dir <path>', 'Harness directory', process.cwd())
+  .option('--api-key <key>', 'API key for the provider')
+  .action(async (runId: string, opts) => {
+    const { resumeCmd } = await import('./workflows.js');
+    await resumeCmd(runId, opts);
+  });
+
+workflowsCmd
+  .command('cleanup')
+  .description('Delete completed and failed runs older than N days')
+  .option('--dir <path>', 'Harness directory', process.cwd())
+  .option('--older-than <days>', 'Retention in days', (v) => parseInt(v, 10))
+  .action(async (opts) => {
+    const { cleanupCmd } = await import('./workflows.js');
+    await cleanupCmd(opts);
+  });
+
+workflowsCmd
+  .command('inspect <runId>')
+  .description('Print state + event log for a run')
+  .option('--dir <path>', 'Harness directory', process.cwd())
+  .action(async (runId: string, opts) => {
+    const { inspectCmd } = await import('./workflows.js');
+    await inspectCmd(runId, opts);
+  });
+
 program.parse();
