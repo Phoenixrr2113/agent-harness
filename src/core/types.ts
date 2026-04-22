@@ -43,6 +43,12 @@ export const FrontmatterSchema = z.object({
    * a tool on the primary. Falls back to the doc's L1 summary, then L0.
    */
   description: z.string().optional(),
+  /**
+   * Workflow only: opt this workflow into durable execution (filesystem-backed
+   * event log + step-result cache). When true, `scheduler.executeWorkflow`
+   * routes the run through `durableRun()` instead of `agent.run()`.
+   */
+  durable: z.boolean().optional(),
 });
 
 export type Frontmatter = z.infer<typeof FrontmatterSchema>;
@@ -124,6 +130,7 @@ export const HarnessConfigSchema = z.object({
   memory: z.object({
     session_retention_days: z.number().int().positive().default(7),
     journal_retention_days: z.number().int().positive().default(365),
+    workflow_retention_days: z.number().int().positive().default(30),
   }).passthrough(),
   channels: z.object({
     primary: z.string().default('cli'),
@@ -203,6 +210,13 @@ export const HarnessConfigSchema = z.object({
     /** Custom reflection directive — overrides the built-in template for the active strategy. */
     prompt_template: z.string().optional(),
   }).passthrough().default({ strategy: 'none' }),
+  workflows: z.object({
+    /**
+     * Apply durable execution to every markdown workflow, even those without
+     * `durable: true` in frontmatter. Default false — durability is opt-in.
+     */
+    durable_default: z.boolean().default(false),
+  }).passthrough().default({ durable_default: false }),
   content_filters: z.object({
     /**
      * Apply output content filters to model text before returning to the caller.
@@ -389,7 +403,7 @@ export const CONFIG_DEFAULTS: HarnessConfig = {
     quiet_hours: { start: 23, end: 6 },
     timezone: 'America/New_York',
   },
-  memory: { session_retention_days: 7, journal_retention_days: 365 },
+  memory: { session_retention_days: 7, journal_retention_days: 365, workflow_retention_days: 30 },
   channels: { primary: 'cli' },
   extensions: { directories: [] },
   rate_limits: {},
@@ -400,6 +414,7 @@ export const CONFIG_DEFAULTS: HarnessConfig = {
     tools: ['execute', 'write_file', 'edit_file', 'create_directory', 'move_file'],
   },
   reflection: { strategy: 'none' },
+  workflows: { durable_default: false },
   content_filters: { enabled: false, on_block: 'filter', filters: [] },
   intelligence: { auto_journal: false, auto_learn: false },
   proactive: { enabled: false, max_per_hour: 5, cooldown_minutes: 30 },

@@ -236,4 +236,23 @@ extensions:
     const config = loadConfig(testDir);
     expect(config.extensions.directories).toEqual(['protocols', 'templates']);
   });
+
+  it('defaults workflows.durable_default to false', () => {
+    const config = loadConfig(testDir);
+    expect(config.workflows.durable_default).toBe(false);
+  });
+
+  it('defaults memory.workflow_retention_days to 30', () => {
+    const config = loadConfig(testDir);
+    expect(config.memory.workflow_retention_days).toBe(30);
+  });
+
+  it('respects workflows.durable_default override in config.yaml', () => {
+    writeFileSync(
+      join(testDir, 'config.yaml'),
+      `agent: { name: t }\nmodel: { id: m }\nworkflows:\n  durable_default: true\n`,
+    );
+    const config = loadConfig(testDir);
+    expect(config.workflows.durable_default).toBe(true);
+  });
 });
