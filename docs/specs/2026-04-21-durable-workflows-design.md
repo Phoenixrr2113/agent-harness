@@ -1,243 +1,278 @@
 ---
-title: Durable workflows via Vercel Workflow Development Kit
+title: Durable workflows via filesystem-backed event log
 status: draft
 author: Randy Wilson
 date: 2026-04-21
 target_version: "0.7.0"
+supersedes: 2026-04-21-durable-workflows-design.md (WDK draft, superseded after spike)
 ---
 
-# Durable workflows via Vercel Workflow Development Kit
+# Durable workflows via filesystem-backed event log
 
 ## Goal
 
-Add crash-recoverable, resumable, long-running workflow execution to agent-harness
-without changing the markdown user-facing surface. Users keep authoring workflows
-as markdown files with cron schedules. Under the hood, scheduled workflows run
-through Vercel's Workflow Development Kit (WDK) so that:
+Add crash-recoverable, resumable, scheduler-driven workflow execution to
+agent-harness with no user-facing compile step, no external dependency, and
+the markdown authoring surface unchanged. Scheduled workflows that opt in via
+`durable: true` frontmatter get:
 
-1. A process crash mid-run does not lose completed tool calls — completed steps
-   replay from a cached event log.
-2. A scheduler that was down when a workflow should have fired can catch up
-   missed runs on boot (via suspended-run replay).
-3. Long-running workflows that need to pause for hours or days (future use case)
-   can call WDK's `sleep` primitive without consuming resources while paused.
+1. **Mid-run crash recovery** — tool calls that completed before a crash
+   return cached results on retry; the model's tool loop converges without
+   re-firing side effects.
+2. **Missed-run replay** — runs that should have fired while the scheduler
+   was down get picked up on next boot.
+3. **Future: pause/resume** — a `sleep_until` tool exposed to the LLM that
+   suspends a run and wakes it later (deferred to v0.8.0).
+
+## Why not Vercel WDK
+
+A spike against WDK's standalone builder + LocalWorld confirmed the library
+is tightly designed around framework-hosted execution (Next / Nitro /
+Astro). The workflow bundle runs in a bare `node:vm` sandbox that excludes
+Node builtins; WDK's own dependencies (ulid → node:crypto) are bundled in and
+throw `ReferenceError: require is not defined` on workflow start. Making this
+work would require patching bundle output or maintaining a fork. The features
+we'd be paying for (cross-deployment replay, framework routing, skew
+protection) are not features we need.
+
+Building our own durability layer — ~500 LOC — preserves markdown-first
+authoring, avoids VM sandbox brittleness, and ships faster. This spec assumes
+approach C.
 
 ## Non-goals
 
-- Exposing `'use workflow'` / `'use step'` directives to users. Markdown stays the
-  authoring surface.
-- Requiring users to run a web server or Next.js / Nitro app. CLI-only.
-- Distributed execution. Local World only in this spec; Postgres World is a
-  follow-up if ever needed.
-- Interactive `harness run` / `harness chat` durability. Those stay on the
-  existing path by default.
+- LLM call caching. Model responses are non-deterministic; we accept that
+  replay may produce different model text as long as tool calls converge.
+- Cross-machine replay. Runs are tied to the laptop's filesystem.
+- Distributed or multi-process execution. One scheduler owns its harness dir.
+- Interactive `harness run` / `harness chat` durability — stays non-durable.
 
 ## Context
 
 Today, `scheduler.ts` fires a workflow at its cron time by calling
-`agent.run(prompt)` once. The body of the markdown workflow is the prompt. The
-AI SDK's internal tool-call loop drives tool execution. Session records are
-written only after the full run completes. If the process dies mid-run, tool
-calls may have fired with no record and the next cron tick starts over.
-
-Vercel WDK is a compile-time TypeScript framework (SWC plugin transforms
-`'use workflow'` / `'use step'` directives into a step bundle + workflow
-bundle + client bundle). The Local World adapter stores run state in
-`.workflow-data/` on the filesystem and supports `registerHandler(prefix,
-handler)` for fully in-process execution, bypassing HTTP. That makes WDK
-embeddable in a CLI without a web framework.
+`agent.run(prompt)` once. The workflow body is the prompt. AI SDK's internal
+tool loop drives tool execution. Session records are written only after the
+full run completes. If the process dies mid-run, tool calls may have fired
+with no record; next cron tick starts over from scratch.
 
 ## Architecture
 
-Agent-harness ships ONE compiled workflow file built with WDK's SWC plugin in
-agent-harness's own `tsup` build. End users never see directives, never run the
-SWC plugin, never add a build step.
+A small filesystem-backed event log lives at `<harnessDir>/.workflow-data/`.
+For each durable run:
 
 ```
-@agntk/agent-harness
-├── src/workflows/harness-workflow.ts   ← 'use workflow' + 'use step' directives
-├── tsup.config.ts                       ← adds @workflow/swc-plugin to transforms
-└── dist/workflows/harness-workflow.js  ← compiled bundle shipped to npm
+.workflow-data/
+├── runs/
+│   └── <run-id>/
+│       ├── state.json          ← status, wake_time, workflow_id, prompt, started, ended
+│       ├── events.jsonl        ← append-only event log (started / step_completed / finished / failed)
+│       └── steps/
+│           └── <step-hash>.json ← cached tool-call result, keyed by hash(kind, ordinal, args)
+└── version                     ← schema version marker
 ```
 
-At runtime:
-- `createLocalWorld({ dataDir: '<harnessDir>/.workflow-data' })` is instantiated
-  once per harness.
-- In-process handlers are registered via `registerHandler('__wkf_step_', …)` and
-  `registerHandler('__wkf_workflow_', …)` so no HTTP transport spins up.
-- `scheduler.ts` replaces `agent.run(prompt)` with
-  `start(harnessAgentWorkflow, { prompt, system, harnessDir, modelId, ... })`.
-- On scheduler boot, suspended runs (paused by `sleep` whose wake time has
-  passed, or runs that were mid-step when the process died) are resumed
-  before new cron ticks fire.
+Durable execution flows:
 
-Existing non-durable paths stay unchanged:
-- `harness run` / `harness chat` / `harness delegate` keep calling `agent.run()`.
-- Workflows opt in via `durable: true` in frontmatter or `workflows.durable_default: true` in `config.yaml`.
-- Non-opted-in workflows retain today's behavior — zero-risk upgrade.
+1. **Start**: `scheduler.executeWorkflow()` sees `durable: true` → calls
+   `durableRun(prompt, harnessDir, config, state)` instead of `agent.run(prompt)`.
+2. **Run context**: `durableRun` creates a fresh run id (or reuses an
+   incomplete one for resume), writes `state.json` with `status: 'running'`,
+   builds the tool set and wraps each tool's `execute` with a cache-check
+   wrapper that keys by `hash(toolName, ordinalInRun, args)`. The ordinal is
+   a monotonically-incrementing counter per run.
+3. **LLM loop**: delegates to AI SDK's `generateText` as today — we do NOT
+   refactor the tool loop. Cached tool results short-circuit execution;
+   uncached calls fire for real and append to the event log.
+4. **Finish**: on return, writes `finished` event and flips `state.json` to
+   `status: 'complete'`.
+5. **Crash**: if process dies mid-run, `state.json` is left at `status: 'running'`
+   with partial `events.jsonl`. Tool results that already completed have
+   `steps/<hash>.json` files.
+6. **Resume**: on scheduler boot, `scanResumableRuns(harnessDir)` finds
+   incomplete runs (status `running` or `suspended` with passed wake-time) and
+   re-invokes `durableRun` with the same run id. The wrapped tool set returns
+   cached results for prior step hashes; the model's second-pass may take a
+   slightly different path, but any repeated tool call with identical args at
+   the same ordinal hits the cache.
 
-## Components & tool-call loop
+No new primitives, no directives, no bundling, no VM sandbox. Just filesystem
++ JSON + a wrapper around `tool.execute`.
 
-### `src/workflows/harness-workflow.ts`
+## Components
 
-Both `llmStep` and `toolStep` receive `harnessDir` and rebuild the tool set
-internally via `buildToolSet` + MCP + approval wrappers. The LLM sees the same
-tool schemas whether the run is fresh or replayed (tool schemas are generated
-from the rebuilt tool set on each step entry). This keeps the event log small
-(just tool names + args) at the cost of rebuilding the tool set per step. For
-long workflows we may cache the rebuilt tool set per run in a later revision.
+### `src/runtime/durable-engine.ts` — the core runtime
 
 ```typescript
-export async function harnessAgentWorkflow(input: {
-  prompt: string;
-  system: string;
+export interface DurableRunOptions {
   harnessDir: string;
-  modelId: string;
-  activeTools?: string[];
-}) {
-  'use workflow';
-
-  const messages: Message[] = [{ role: 'user', content: input.prompt }];
-  while (true) {
-    const turn = await llmStep({ messages, ...input });
-    messages.push({ role: 'assistant', content: turn.text, toolCalls: turn.toolCalls });
-
-    if (!turn.toolCalls?.length) {
-      return { text: turn.text, usage: turn.usage, messages };
-    }
-
-    for (const tc of turn.toolCalls) {
-      const result = await toolStep({
-        toolName: tc.toolName,
-        args: tc.args,
-        harnessDir: input.harnessDir,
-      });
-      messages.push({ role: 'tool', toolCallId: tc.id, content: result });
-    }
-  }
+  workflowId: string;
+  prompt: string;
+  config: HarnessConfig;
+  resumeRunId?: string;   // when resuming an existing run
 }
 
-async function llmStep(args): Promise<LlmTurnResult> {
-  'use step';
-  // One LLM call. AI SDK's maxRetries set to 0 here (WDK owns retry).
-  // Returns text, tool calls, usage. Classifies errors:
-  //   - rate-limit / 5xx / network  → RetryableError
-  //   - auth / quota / schema       → FatalError
+export interface DurableRunResult {
+  runId: string;
+  text: string;
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  steps: number;
+  resumed: boolean;
 }
 
-async function toolStep(args): Promise<unknown> {
-  'use step';
-  // Reconstruct tool set (buildToolSet + MCP + approval wrappers), look up tool
-  // by name, call execute(args). Thrown errors → RetryableError (maxAttempts: 2).
-  // Structured {approvalDenied:...} returns pass through unchanged.
+export async function durableRun(opts: DurableRunOptions): Promise<DurableRunResult>;
+
+export function scanResumableRuns(harnessDir: string): Array<{
+  runId: string;
+  workflowId: string;
+  status: 'running' | 'suspended';
+  startedAt: string;
+  wakeTime?: string;
+}>;
+
+export function readRunState(harnessDir: string, runId: string): RunState | null;
+export function listRuns(harnessDir: string): RunSummary[];
+export function deleteRun(harnessDir: string, runId: string): void;
+export function cleanupOldRuns(harnessDir: string, olderThanDays: number): number;
+```
+
+### `src/runtime/durable-cache.ts` — step-result caching
+
+Pure functions over the `.workflow-data/runs/<run-id>/steps/` directory.
+
+```typescript
+export function hashStep(toolName: string, ordinal: number, args: unknown): string;
+export function loadStep(harnessDir: string, runId: string, stepHash: string): unknown | undefined;
+export function saveStep(harnessDir: string, runId: string, stepHash: string, result: unknown): void;
+```
+
+Step hashes are stable across replays for the same (tool, ordinal, args) triple.
+Args are canonicalized (sorted keys) before hashing.
+
+### `src/runtime/durable-tools.ts` — tool wrapper
+
+```typescript
+export function wrapToolsWithCache(
+  tools: AIToolSet,
+  ctx: { harnessDir: string; runId: string; ordinalCounter: { value: number } },
+): AIToolSet;
+```
+
+Each wrapped tool's `execute`:
+1. Increments `ctx.ordinalCounter.value`.
+2. Computes `stepHash = hashStep(toolName, ordinal, args)`.
+3. Looks up the cache; returns cached on hit.
+4. Calls the original `execute`; writes `step_started` event, awaits result,
+   writes `step_completed` event with the hash, saves to cache, returns.
+5. On throw, writes `step_failed` event; re-throws. Next replay will retry.
+
+Side-effectful tools (file writes, shell exec, HTTP POSTs) thus re-run at
+most once per unique (ordinal, args) — a significant safety improvement over
+"re-run the whole workflow from scratch."
+
+### `src/runtime/durable-events.ts` — append-only event log
+
+```typescript
+export type DurableEvent =
+  | { type: 'started'; runId: string; workflowId: string; prompt: string; at: string }
+  | { type: 'step_started'; ordinal: number; toolName: string; at: string; hash: string }
+  | { type: 'step_completed'; ordinal: number; toolName: string; at: string; hash: string }
+  | { type: 'step_failed'; ordinal: number; toolName: string; at: string; hash: string; error: string }
+  | { type: 'finished'; at: string; text: string; usage: Usage }
+  | { type: 'failed'; at: string; error: string }
+  | { type: 'suspended'; at: string; wakeTime: string };
+
+export function appendEvent(harnessDir: string, runId: string, event: DurableEvent): void;
+export function readEvents(harnessDir: string, runId: string): DurableEvent[];
+```
+
+JSONL format. Atomic append via `fs.appendFileSync` (small lines, single process per harness).
+
+### `src/runtime/durable-state.ts` — run status file
+
+Simple read/write of `.workflow-data/runs/<run-id>/state.json`:
+```json
+{
+  "runId": "run_xxx",
+  "workflowId": "daily-summary",
+  "prompt": "...",
+  "status": "complete|running|suspended|failed",
+  "startedAt": "2026-04-21T10:00:00.000Z",
+  "endedAt": "2026-04-21T10:02:13.000Z",
+  "wakeTime": null,
+  "lastOrdinal": 7
 }
 ```
 
-Every tool call — built-in, MCP, sub-agent, approval-wrapped — flows through
-`toolStep`, so each gets an entry in the event log and replays from cache on
-crash. Sub-agent delegate calls are wrapped as a single `toolStep`; the
-sub-agent's internal LLM turns are not individually durable in v1.
-
-### Provider refactor
-
-AI SDK's `generateText` hides the tool-call loop internally. To put each tool
-call on a step boundary (inside the durable workflow) we need a
-`generateTurn()` that does exactly ONE model call and returns
-`{ text, toolCalls, usage }` without auto-executing tools.
-
-- New: `generateTurn(opts)` in `src/llm/provider.ts` — uses AI SDK primitives
-  but stops at the first tool call, returns tool calls unexecuted. Consumed
-  ONLY by `llmStep` inside the durable workflow.
-- The non-durable path (`harness run`, `harness chat`, non-durable workflows)
-  keeps using `generate`/`streamGenerateWithDetails` with AI SDK's internal
-  loop — no behavior change, no streaming regression risk.
-- `agent.run()` public signature unchanged. Durability is dispatched at the
-  scheduler level (which calls `start(harnessAgentWorkflow, ...)` directly for
-  opted-in workflows), not inside `agent.run()` itself.
+`status: 'running'` on a run from a previous process indicates a crash → eligible for resume.
 
 ### Scheduler integration
 
 ```typescript
-// src/runtime/scheduler.ts — executeWorkflow()
-const isDurable = doc.frontmatter.durable === true || config.workflows?.durable_default;
+// src/runtime/scheduler.ts — inside executeWorkflow()
+const isDurable =
+  doc.frontmatter.durable === true || config.workflows?.durable_default === true;
 
 if (isDurable) {
-  const run = await start(harnessAgentWorkflow, {
-    prompt, system, harnessDir, modelId, activeTools,
-  }, { world: getWorld(harnessDir) });
-  resultText = (await run.result).text;
-  tokensUsed = (await run.result).usage.totalTokens;
+  const result = await durableRun({
+    harnessDir: this.harnessDir,
+    workflowId,
+    prompt,
+    config,
+  });
+  resultText = result.text;
+  tokensUsed = result.usage.totalTokens;
 } else {
-  // existing path: createHarness + agent.run()
+  // existing agent.run() path, unchanged
 }
 ```
 
-On scheduler boot (before registering cron tasks), drain two buckets:
-
-1. **Suspended runs** — paused by `sleep` whose wake time has passed. Resume
-   them in wake-time order.
-2. **Stale "running" runs** — marked running when the previous process died.
-   These exist because WDK can't distinguish crash from live process. Resume
-   in-place; WDK's step cache means completed steps return their cached result
-   and only the in-flight step re-executes.
-
+Boot-time resume in `Scheduler.start()`:
 ```typescript
-const dueSuspended = (await listRuns({ status: 'suspended' }))
-  .filter((r) => r.wakeTime && r.wakeTime <= new Date());
-const stale = await listRuns({ status: 'running' });
-for (const run of [...dueSuspended, ...stale]) {
-  await run.resume();
+const resumable = scanResumableRuns(this.harnessDir);
+for (const { runId, wakeTime } of resumable) {
+  if (wakeTime && new Date(wakeTime) > new Date()) continue;
+  try {
+    await durableRun({ harnessDir: this.harnessDir, workflowId, prompt, config, resumeRunId: runId });
+  } catch (err) {
+    log.warn(`Failed to resume run ${runId}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 ```
 
-Concurrency is bounded by the scheduler's existing per-workflow cooldown
-logic so boot-time resume can't thundering-herd the model.
+No refactor of AI SDK, no `generateTurn`, no provider changes.
 
 ## Storage, state & ops
 
-- `.workflow-data/` directory inside the harness dir. Automatically added to
-  `.gitignore` by scaffolder.
-- Contents: `runs/`, `steps/`, `hooks/`, `sleep/`, `version`. Structure is
-  owned by `@workflow/world-local` — we don't manipulate it directly.
-- Scoped per-harness; two harnesses on the same laptop can run concurrently
-  without collision.
-- Retention: `memory.workflow_retention_days` (default 30).
-- `.workflow-data/version` tracks the WDK spec version. On boot, if the version
-  is incompatible with the installed WDK, runs in that dir are marked stale
-  (don't auto-delete — user decides).
+- `.workflow-data/` directory inside the harness dir.
+- `.workflow-data/version` tracks our own schema version (`"1"` for v0.7.0).
+  On boot, if the version is newer than we understand, log a warning and
+  refuse to resume. If older and a migration is known, run it; otherwise
+  refuse and tell the user to run `harness workflows cleanup --force`.
+- Scaffolder adds `.workflow-data/` to the generated `.gitignore`.
+- Retention: `memory.workflow_retention_days` (default 30) applied by
+  `harness workflows cleanup`.
 
-New CLI subcommands:
-- `harness workflows status` — table of pending / running / suspended / complete / failed runs.
-- `harness workflows resume <run-id>` — manual resume (escape hatch for misbehaving auto-resume).
-- `harness workflows cleanup` — wipes completed runs older than retention.
-- `harness workflows inspect <run-id>` — prints event log for debugging.
+New CLI subcommands (under `harness workflows`):
+- `status` — table of runs with status, started time, duration.
+- `resume <runId>` — manually resume an incomplete run.
+- `cleanup [--older-than <days>] [--force]` — delete completed runs older
+  than N days; `--force` deletes all runs regardless of status (escape hatch
+  for schema migration).
+- `inspect <runId>` — pretty-print the run's `state.json` + `events.jsonl`.
 
 ## Error handling & retry
 
-WDK's error taxonomy:
-- `RetryableError(message, { maxAttempts? })` — step retries with exponential backoff.
-- `FatalError(message)` — workflow fails immediately; no retry.
-- Anything else — treated as retryable with default budget.
+Simpler than WDK's RetryableError / FatalError taxonomy. We only distinguish:
+- **Tool call throws** → append `step_failed`, re-throw so AI SDK's own retry
+  (`maxRetries: 2` by default on the model call) can handle it.
+- **Exhausted retries** → `failed` event, `state.json.status = 'failed'`. The
+  scheduler's existing `max_retries` / `retry_delay_ms` frontmatter logic
+  applies at the run level (not step level).
+- **LLM call fails entirely** → caught by the existing `createHarness`
+  error path, which already has health/failure recording. Durable runs
+  additionally write a `failed` event to their event log.
 
-Classification rules:
-- `llmStep`:
-  - HTTP 429 / 503 / network timeouts → `RetryableError({ maxAttempts: 3 })`.
-  - HTTP 401 / 403 / quota exceeded / schema errors → `FatalError`.
-  - Ollama "model not found" → `FatalError` (user fixes config).
-- `toolStep`:
-  - Any throw → `RetryableError({ maxAttempts: 2 })`.
-  - Structured `{ approvalDenied: true }` returns → pass through (not an error).
-  - Tool execution timeout (`config.runtime.tool_timeout_ms`) → `RetryableError`.
-- AI SDK's own `maxRetries` set to `0` inside `llmStep` — WDK owns retry.
-
-Timeouts:
-- Per-LLM-call: `config.model.timeout_ms` applied inside `llmStep`.
-- Per-tool-call: existing `ToolExecutorOptions.toolTimeoutMs` applied inside `toolStep`.
-- Per-workflow: future enhancement; no cap in v0.7.0.
-
-Missed-run replay is a natural consequence of WDK's Run model — suspended runs
-persist across restarts. The scheduler's boot-time resume loop drains the
-backlog before starting normal cron ticks.
+No new error types.
 
 ## Config additions
 
@@ -248,69 +283,78 @@ workflows:
   durable_default: false
 
 memory:
-  workflow_retention_days: 30   # cleanup age for completed runs
+  workflow_retention_days: 30
 ```
 
-Frontmatter on markdown workflows:
+Frontmatter:
 ```yaml
 ---
 id: workflow-daily-summary
 schedule: "0 22 * * *"
-durable: true        # opt in to WDK-backed execution
+durable: true
 ---
 ```
 
 ## Testing
 
-Unit tests (in-process, mock World):
-- `tests/workflows/harness-workflow.test.ts` — orchestration with
-  `createLocalWorld({ dataDir: tmpDir, tag: 'vitest-0' })`. Use `clear()` between tests.
-- `tests/workflows/error-classification.test.ts` — llm/tool error taxonomy
-  with mocked provider errors.
-- `tests/workflows/schema-version.test.ts` — plant stale `.workflow-data/version`,
-  verify graceful degrade.
+Unit tests (no external deps, tmpdir-scoped):
+- `tests/durable-cache.test.ts` — hashStep determinism, load/save roundtrip,
+  cache miss semantics.
+- `tests/durable-events.test.ts` — append/read correctness, atomic appends.
+- `tests/durable-engine.test.ts` — durableRun lifecycle: fresh run, happy
+  path; resume of incomplete run returns cached tool results and eventually
+  completes; failed tool logs event and propagates.
+- `tests/durable-tools.test.ts` — wrap behaviour: cache hit skips real
+  execute; unique ordinals produce unique hashes.
+- `tests/cli-workflows.test.ts` — subcommand behaviour (empty dir, seeded runs).
+- `tests/scheduler-durable.test.ts` — durable dispatch flag; boot-time scan
+  of resumable runs.
 
-Integration test (local-only, gated behind `INTEGRATION=1`, same pattern as
-learning-loop):
-- `tests/integration/workflow-resume.e2e.test.ts` — 3-tool-call workflow
-  against Ollama, kill process via `AbortController` after step 2, restart with
-  same run id, assert step 2's result was cached and step 3 runs.
-- CI does not run it. Local-only requirement documented in CLAUDE.md like
-  the existing learning-loop test.
+Integration test (`INTEGRATION=1` gated, local-only, Ollama):
+- `tests/integration/workflow-resume.e2e.test.ts` — run a durable workflow
+  with 3 tool calls against `qwen3:1.7b`; kill the process after step 2 via
+  SIGKILL on a child process; restart scheduler and resume; assert the run
+  completes and steps/ contains exactly 3 cached results (no duplicates).
 
-Scheduler test:
-- `tests/scheduler-resume.test.ts` — seed a suspended run with passed wake
-  time, boot scheduler, assert resume fires exactly once (no duplicates).
+Gated like the existing learning-loop test. CI doesn't run it; CLAUDE.md is
+updated with the must-run-locally reminder.
 
 ## Deferred / future
 
-- `sleep` exposure to markdown workflows (could be a tool the LLM calls:
-  `sleep_until` / `wait_for_event`, or a magic frontmatter field).
-- Hooks (external-event resume via webhooks). Likely needs a local HTTP listener
-  — out of scope for v0.7.0.
-- Sub-agent durability (today: whole delegate call is one step; future: nested
-  workflow-in-workflow).
-- Postgres World for team deployments.
-- Per-workflow timeout cap.
-- Workflow-in-workflow (one durable workflow calling another).
+- **`sleep_until` tool** for the LLM — suspends run, wakes on schedule.
+  v0.8.0 candidate; straightforward extension: new event type `suspended`,
+  `state.status = 'suspended'`, `wakeTime` set; scheduler boot-scan already
+  handles it.
+- **LLM call caching** — middleware that caches `(messages, model)` →
+  `text + toolCalls`. Would make replay fully deterministic; defer until we
+  see evidence it matters.
+- **Multi-step workflows with named checkpoints** — require a different UX
+  (not just "a run"); defer until requested.
+- **Webhook-triggered hooks** — would need a local HTTP listener; out of
+  scope for v0.7.0.
 
 ## Risks & mitigations
 
-1. **SWC plugin in our `tsup` build may not cooperate.** tsup is esbuild-based;
-   the plugin is SWC. Mitigation: run the SWC transform as a pre-build step
-   producing a pre-compiled `.js` file that tsup consumes unchanged. Verify
-   during implementation prototype before committing to the approach.
-2. **Step args must be JSON-serializable** for the event log. Tool args already
-   are (MCP protocol). LLM turn results (with usage metadata) are already plain
-   objects. Low risk.
-3. **WDK version churn.** WDK is beta-GA as of late 2025. Pin `workflow` to an
-   exact version; bump deliberately with a regression run of the resume test.
-4. **Non-idempotent tools shouldn't retry on failure.** The `RetryableError`
-   default on `toolStep` will re-fire tools like `execute_shell` on failure.
-   Mitigation: frontmatter `max_retries: 0` on risky tools, enforced inside
-   `toolStep` by inspecting the tool descriptor. Defer full side-effect modeling
-   to a later spec.
+1. **Step ordinal drift under non-determinism.** If the LLM takes a different
+   path on replay (calls tool B before tool A instead of A before B), the
+   ordinals don't line up and cached results miss. In practice, with a stable
+   prompt and cached prior tool outputs, convergence is common but not
+   guaranteed. **Mitigation:** log cache miss events and surface in `inspect`
+   so divergence is visible. If this hurts in practice, add (toolName, args-only)
+   fallback keying as a secondary cache layer.
+2. **Concurrent resumes.** If the scheduler boots while another scheduler
+   process is already running in the same harness dir, two resumers could
+   fight over the same run. **Mitigation:** a simple lockfile at
+   `.workflow-data/runs/<run-id>/.lock` acquired at durableRun entry;
+   release on exit (including abnormal exit via process.on('exit')). Stale
+   locks older than N minutes are considered abandoned.
+3. **Disk usage growth.** Unbounded runs = unbounded disk. **Mitigation:**
+   retention via `memory.workflow_retention_days` + `harness workflows cleanup`.
+4. **Schema evolution.** Our event types / state fields may need to change.
+   **Mitigation:** `.workflow-data/version` marker + refuse-with-guidance on
+   mismatch. Migrations are per-version functions registered in the engine.
 
 ## Ship target
 
-v0.7.0. No breaking changes — durability is opt-in per-workflow.
+v0.7.0. No breaking changes — durability is opt-in per-workflow. No new
+npm dependencies. No build pipeline changes.
