@@ -285,6 +285,7 @@ export class Scheduler {
             prompt,
             ...(this.apiKey ? { apiKey: this.apiKey } : {}),
           });
+          log.info(`→ Durable run: ${durable.runId} (${durable.resumed ? 'resumed' : 'new'})`);
           resultText = durable.text;
           tokensUsed = durable.usage.totalTokens;
         } else {

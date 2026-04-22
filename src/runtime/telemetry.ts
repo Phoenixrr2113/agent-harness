@@ -327,7 +327,12 @@ export function formatDashboard(snapshot: TelemetrySnapshot): string {
   if (m.bootedAt) lines.push(`    Booted: ${m.bootedAt}`);
   if (m.lastSuccessfulRun) lines.push(`    Last success: ${m.lastSuccessfulRun}`);
   if (m.lastFailedRun) lines.push(`    Last failure: ${m.lastFailedRun}`);
-  if (m.lastError) lines.push(`    Last error: ${m.lastError.slice(0, 120)}`);
+  if (m.lastError) {
+    const isStale = m.lastSuccessfulRun && m.lastFailedRun
+      && new Date(m.lastSuccessfulRun) > new Date(m.lastFailedRun);
+    const marker = isStale ? ' (stale — succeeded since)' : '';
+    lines.push(`    Last error: ${m.lastError.slice(0, 120)}${marker}`);
+  }
 
   return lines.join('\n');
 }

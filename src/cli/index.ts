@@ -1526,7 +1526,8 @@ workflowCmd
       const schedule = doc.frontmatter.schedule || '(no schedule)';
       const status = doc.frontmatter.status === 'active' ? '' : ` [${doc.frontmatter.status}]`;
       const withAgent = doc.frontmatter.with ? ` → ${doc.frontmatter.with}` : '';
-      console.log(`  ${doc.frontmatter.id}${status}`);
+      const durable = (doc.frontmatter as { durable?: boolean }).durable === true ? ' [durable]' : '';
+      console.log(`  ${doc.frontmatter.id}${status}${durable}`);
       console.log(`    Schedule: ${schedule}${withAgent}`);
       if (doc.l0) console.log(`    ${doc.l0}`);
     }
@@ -3024,7 +3025,11 @@ program
       console.log(`    Last failure:  ${health.metrics.lastFailedRun}`);
     }
     if (health.metrics.lastError) {
-      console.log(`    Last error:    ${health.metrics.lastError.slice(0, 120)}`);
+      const lastSuccess = health.metrics.lastSuccessfulRun;
+      const lastFail = health.metrics.lastFailedRun;
+      const isStale = lastSuccess && lastFail && new Date(lastSuccess) > new Date(lastFail);
+      const marker = isStale ? ' (stale — succeeded since)' : '';
+      console.log(`    Last error:    ${health.metrics.lastError.slice(0, 120)}${marker}`);
     }
 
     if (health.costToday > 0 || health.costThisMonth > 0) {
@@ -3816,6 +3821,7 @@ gateCmd
 gateCmd
   .command('list')
   .description('List available verification gates')
+  .option('-d, --dir <path>', 'Harness directory', '.')
   .action(async () => {
     const { listGates } = await import('../runtime/intelligence.js');
     const gates = listGates();

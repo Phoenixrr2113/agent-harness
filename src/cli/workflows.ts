@@ -19,9 +19,15 @@ export async function statusCmd(opts: DirOpts): Promise<void> {
     console.log('No runs found.');
     return;
   }
-  console.log(['RUN ID', 'WORKFLOW', 'STATUS', 'STARTED', 'ENDED'].join('\t'));
-  for (const r of runs) {
-    console.log([r.runId, r.workflowId, r.status, r.startedAt, r.endedAt ?? '-'].join('\t'));
+  const rows = [
+    ['RUN ID', 'WORKFLOW', 'STATUS', 'STARTED', 'ENDED'],
+    ...runs.map((r) => [r.runId, r.workflowId, r.status, r.startedAt, r.endedAt ?? '-']),
+  ];
+  const widths = rows[0].map((_, col) =>
+    Math.max(...rows.map((row) => row[col].length)),
+  );
+  for (const row of rows) {
+    console.log(row.map((cell, i) => cell.padEnd(widths[i])).join('  '));
   }
 }
 

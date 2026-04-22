@@ -147,18 +147,28 @@ export function getHealthStatus(harnessDir: string): HealthStatus {
     checks.push({ name: 'memory-dir', status: 'fail', message: 'Memory directory missing' });
   }
 
-  // Check 3: API key availability
+  // Check 3: API key availability. Skip the warning when the configured
+  // provider is a local-only one (ollama, localhost OpenAI-compat) or a
+  // pre-keyed service (agntk-free).
   const apiKeys: Array<{ name: string; envVar: string }> = [
     { name: 'OpenRouter', envVar: 'OPENROUTER_API_KEY' },
     { name: 'Anthropic', envVar: 'ANTHROPIC_API_KEY' },
     { name: 'OpenAI', envVar: 'OPENAI_API_KEY' },
+    { name: 'Cerebras', envVar: 'CEREBRAS_API_KEY' },
   ];
   const presentKeys = apiKeys.filter((k) => process.env[k.envVar]);
+  const providerNeedsKey = detectProviderNeedsKey(harnessDir);
   if (presentKeys.length > 0) {
     checks.push({
       name: 'api-keys',
       status: 'pass',
       message: `API keys: ${presentKeys.map((k) => k.name).join(', ')}`,
+    });
+  } else if (!providerNeedsKey) {
+    checks.push({
+      name: 'api-keys',
+      status: 'pass',
+      message: 'Local/pre-keyed provider — no API key required',
     });
   } else {
     checks.push({ name: 'api-keys', status: 'warn', message: 'No API keys found in environment' });
@@ -231,4 +241,31 @@ export function getHealthStatus(harnessDir: string): HealthStatus {
  */
 export function resetHealth(harnessDir: string): void {
   saveHealth(harnessDir, defaultMetrics());
+}
+
+/**
+ * Returns true when the configured provider requires an API key in the
+ * environment. Returns false for local-only providers (ollama, openai with
+ * a localhost base_url) and for agntk-free which ships with an embedded key.
+ * Best-effort — falls back to "yes, needs a key" if the config cannot be read.
+ */
+function detectProviderNeedsKey(harnessDir: string): boolean {
+  try {
+    const configPath = join(harnessDir, 'config.yaml');
+    const altConfigPath = join(harnessDir, 'config.yml');
+    const path = existsSync(configPath) ? configPath : existsSync(altConfigPath) ? altConfigPath : null;
+    if (!path) return true;
+    const raw = readFileSync(path, 'utf-8');
+    const providerMatch = raw.match(/^\s*provider:\s*([^\s#]+)/m);
+    const baseUrlMatch = raw.match(/^\s*base_url:\s*([^\s#]+)/m);
+    const provider = providerMatch?.[1]?.toLowerCase();
+    const baseUrl = baseUrlMatch?.[1];
+    if (provider === 'ollama' || provider === 'agntk-free') return false;
+    if (provider === 'openai' && baseUrl && /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(baseUrl)) {
+      return false;
+    }
+    return true;
+  } catch {
+    return true;
+  }
 }
