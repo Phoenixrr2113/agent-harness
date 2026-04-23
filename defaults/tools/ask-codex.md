@@ -65,35 +65,63 @@ command as its argument.
 
 ## How to invoke
 
-**Non-interactive execution:**
+### Sandbox mode — pick the right one for the task
+
+`codex exec` gates every shell/file operation through a sandbox + approval layer. In a non-TTY
+subprocess there's no UI to approve anything, so you must pick a policy up front:
+
+| Flag | What the subagent can do | Use when |
+|---|---|---|
+| `-s read-only` *(default)* | Read files, analyze code. No disk writes, no shell commands. | Research, review, summarization. |
+| `-s workspace-write` | Read + write within `-C <dir>`. Shell commands still prompt. | Scoped edits where you trust the working directory. |
+| `--full-auto` | Alias for sandboxed automatic execution. **Still prompts for some operations** — observed to hang on non-TTY read_process_output loops in testing. | Mostly read tasks that edit small things. Verify it doesn't stall before relying on it. |
+| `--dangerously-bypass-approvals-and-sandbox` | Full access, zero prompts. **Required for reliable in-place edits from a non-TTY subprocess.** | File-editing delegation where the orchestrator is trusted. |
+
+If you pick a mode that still prompts (or `--full-auto` for broad edits), expect the
+subprocess to stall silently. `--dangerously-bypass-approvals-and-sandbox` is the pragmatic choice
+when the harness orchestrator is already sandboxing the work to a known scope via `-C`.
+
+### Command patterns
+
+**Read-only research:**
 ```bash
 codex exec "Review src/auth.ts for security issues. Return findings as bullet points."
 ```
 
-**Specifying a working directory:**
+**Scoped working directory:**
 ```bash
-codex exec --cd ~/repo "Summarize the module structure of src/runtime/."
+codex exec -C ~/repo "Summarize the module structure of src/runtime/."
 ```
 
-**Model override (if supported by the user's subscription):**
+**In-place edits (file modifications allowed, no approval prompts):**
+```bash
+codex exec --dangerously-bypass-approvals-and-sandbox -C ~/repo "Edit src/auth.ts to fix the bug. Save the result back to the same path."
+```
+
+**Model override:**
 ```bash
 codex exec --model gpt-5.5 "<prompt>"
-```
-
-**Full-auto mode (no approval prompts, read-only by default):**
-```bash
-codex exec --full-auto "<prompt>"
 ```
 
 Check `codex exec --help` for the flags available in the installed version — flags vary by release.
 
 ## Usage pattern
 
-Call the shell MCP's `start_process` tool with the full command:
+Call the shell MCP's `start_process` tool with the full command. Pick the sandbox flag based on
+whether the task needs file writes.
 
+**Read-only research:**
 ```
 start_process({
-  command: "codex exec --cd ~/repo \"Read every file under src/runtime/durable-*.ts and explain the checkpoint/resume flow. Return as a short bullet list.\"",
+  command: "codex exec -C ~/repo \"Read every file under src/runtime/durable-*.ts and explain the checkpoint/resume flow. Return as a short bullet list.\"",
+  timeout_ms: 300000
+})
+```
+
+**In-place edits:**
+```
+start_process({
+  command: "codex exec --dangerously-bypass-approvals-and-sandbox -C ~/repo \"Edit src/runtime/foo.ts to fix the bug. Save the result.\"",
   timeout_ms: 300000
 })
 ```
@@ -103,7 +131,8 @@ Treat the captured stdout as if it came from a subagent you spawned.
 
 ## Gotchas
 
-- **Approval prompts** — default mode may ask before writing or running commands. In non-interactive contexts use `--full-auto` or set its equivalent via config. Verify this with `codex exec --help` before trusting it.
+- **`--full-auto` can hang on non-TTY writes** — observed in testing: a delegation with `--full-auto` to rewrite a single source file stayed alive for 20+ minutes without writing anything. If you need in-place edits from a non-TTY subprocess, use `--dangerously-bypass-approvals-and-sandbox` instead.
+- **Approval prompts in default mode** — read-only is the default; write/shell operations prompt. In a non-TTY subprocess there's no UI to approve. Either pick a sandbox flag that matches the task, or the subprocess will stall silently.
 - **Rate limits** — ChatGPT Plus/Pro subscriptions have per-minute caps. Heavy delegation will hit them.
 - **Output can be large** — summarize or truncate before re-ingesting.
 - **Non-TTY mode required** — `codex exec` is the non-interactive form. Don't use `codex` (TUI) inside a bash subprocess.

@@ -565,6 +565,22 @@ program
             } else {
               console.log(`  ↷ shell MCP already in config`);
             }
+            // Activate the delegate-to-cli skill so the primary agent has the
+            // decision tree (when to delegate, which CLI, which permission
+            // flag for which task shape) loaded alongside the ask-* tools.
+            const skillFile = join(targetDir, 'skills', 'delegate-to-cli.md');
+            if (existsSync(skillFile)) {
+              try {
+                const content = readFileSync(skillFile, 'utf-8');
+                const updated = content.replace(/^status: draft\s*$/m, 'status: active');
+                if (updated !== content) {
+                  writeFileSync(skillFile, updated, 'utf-8');
+                  console.log(`  ✓ activated delegate-to-cli skill (skills/delegate-to-cli.md)`);
+                }
+              } catch (err) {
+                console.log(`  ✗ skill activation failed: ${err instanceof Error ? err.message : String(err)}`);
+              }
+            }
           } else {
             console.log(`  ↷ Skipped. Activate later by editing tools/ask-<cli>.md (status: draft → active),`);
             console.log(`    then install the shell MCP: harness mcp install shell -d ${agentName}`);

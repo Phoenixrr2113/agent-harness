@@ -65,16 +65,37 @@ command as its argument.
 
 ## How to invoke
 
-**Text output (simplest):**
+### Permission mode — pick the right one for the task
+
+Claude Code's `-p` mode gates every tool call (Read, Edit, Write, Bash) through its permission
+system. In a non-TTY subprocess there's no UI to approve them, so you must pick a policy up front:
+
+| Mode flag | What the subagent can do | Use when |
+|---|---|---|
+| *(omit)* | **Read-only behavior** — analysis, summarization, answering questions. Edit/Write calls will be blocked. | Research, summarization, code review — you only want text back. |
+| `--permission-mode bypassPermissions` | **Full access** — Read, Edit, Write, Bash all allowed without prompting. | In-place file edits, codebase transformations, anything that modifies disk. **Required for file-editing delegation.** |
+| `--permission-mode acceptEdits` | Edits auto-approved, Bash still prompts. | Rarely useful here — auto-approving edits without Bash usually isn't worth the interactive failure risk. |
+
+If you skip the flag and ask for an edit, the subprocess will appear to hang (waiting for an
+approval that never comes). Match the flag to the task.
+
+### Command patterns
+
+**Read-only (simplest):**
 ```bash
-claude -p "Review the changes in ~/repo/src/auth.ts for security issues. Return findings as a bullet list." --output-format text
+claude -p "Review ~/repo/src/auth.ts for security issues. Return findings as a bullet list." --output-format text < /dev/null
+```
+
+**In-place edit (file modifications allowed):**
+```bash
+claude -p "Edit ~/repo/src/auth.ts to fix the bug. Save the result back to the same path." --output-format text --permission-mode bypassPermissions < /dev/null
 ```
 
 **JSON output (for parsing):**
 ```bash
 claude -p "<prompt>" --output-format json
 ```
-Returns `{ result: string, session_id: string, total_cost_usd: number, ... }`. Parse `result` for the answer.
+Returns `{ result, session_id, total_cost_usd, ... }`. Parse `result` for the answer.
 
 **Model override:**
 ```bash
@@ -95,11 +116,20 @@ Only if the MCPs are in a format `claude` understands — check with `claude mcp
 ## Usage pattern
 
 Call the shell MCP's `start_process` tool with the full command. Append `< /dev/null` to skip the
-3-second stdin-wait warning:
+3-second stdin-wait warning. Pick the permission flag based on whether the task needs file writes.
 
+**Read-only delegation:**
 ```
 start_process({
-  command: "claude -p \"Read all TypeScript files under src/runtime/ and summarize the module boundaries. Return as a short bullet list with one line per module.\" --output-format text < /dev/null",
+  command: "claude -p \"Read all TypeScript files under src/runtime/ and summarize the module boundaries. Return as a short bullet list.\" --output-format text < /dev/null",
+  timeout_ms: 300000
+})
+```
+
+**In-place edit delegation:**
+```
+start_process({
+  command: "claude -p \"Edit src/runtime/foo.ts to fix the bug. Save the result.\" --output-format text --permission-mode bypassPermissions < /dev/null",
   timeout_ms: 300000
 })
 ```
