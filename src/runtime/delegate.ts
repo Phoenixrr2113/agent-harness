@@ -195,20 +195,24 @@ function prepareDelegation(opts: DelegateOptions) {
   // Invalid values throw a clear error at delegation time.
   const modelTier = (agentDoc.frontmatter as { model?: string }).model ?? 'primary';
   let model;
+  let resolvedModelId: string;
   switch (modelTier) {
     case 'primary':
       model = getModel(config, apiKey);
+      resolvedModelId = config.model.id;
       break;
     case 'summary':
       model = getSummaryModel(config, apiKey);
+      resolvedModelId = config.model.summary_model ?? config.model.id;
       log.debug(
-        `[delegate] agent "${agentDoc.frontmatter.id}" using summary model tier`,
+        `[delegate] agent "${agentDoc.frontmatter.id}" using summary model tier → ${resolvedModelId}`,
       );
       break;
     case 'fast':
       model = getFastModel(config, apiKey);
+      resolvedModelId = config.model.fast_model ?? config.model.summary_model ?? config.model.id;
       log.debug(
-        `[delegate] agent "${agentDoc.frontmatter.id}" using fast model tier`,
+        `[delegate] agent "${agentDoc.frontmatter.id}" using fast model tier → ${resolvedModelId}`,
       );
       break;
     default:
@@ -221,7 +225,7 @@ function prepareDelegation(opts: DelegateOptions) {
   const toolSet = buildToolSet(harnessDir, { includeAgentTools: false });
   const hasTools = Object.keys(toolSet).length > 0;
 
-  return { agentDoc, config, systemPrompt, model, toolSet, hasTools };
+  return { agentDoc, config, systemPrompt, model, resolvedModelId, toolSet, hasTools };
 }
 
 /**
@@ -236,7 +240,7 @@ function prepareDelegation(opts: DelegateOptions) {
  */
 export async function delegateTo(opts: DelegateOptions): Promise<DelegationResult> {
   const { harnessDir, prompt } = opts;
-  const { agentDoc, config, systemPrompt, model, toolSet, hasTools } = prepareDelegation(opts);
+  const { agentDoc, config, systemPrompt, model, resolvedModelId, toolSet, hasTools } = prepareDelegation(opts);
 
   const sessionId = createSessionId();
   const started = new Date().toISOString();
@@ -260,7 +264,7 @@ export async function delegateTo(opts: DelegateOptions): Promise<DelegationResul
     prompt,
     summary: result.text.slice(0, 200),
     tokens_used: result.usage.totalTokens,
-    model_id: config.model.id,
+    model_id: resolvedModelId,
     delegated_to: agentDoc.frontmatter.id,
     steps: result.steps,
     tool_calls: result.toolCalls.length > 0 ? result.toolCalls : undefined,
@@ -296,7 +300,7 @@ export function delegateStream(opts: DelegateOptions): DelegateStreamResult {
 
   // prepareDelegation() is called eagerly so callers get immediate errors
   // (e.g., agent not found) before consuming the stream.
-  const { agentDoc, config, systemPrompt, model, toolSet, hasTools } = prepareDelegation(opts);
+  const { agentDoc, config, systemPrompt, model, resolvedModelId, toolSet, hasTools } = prepareDelegation(opts);
 
   const sessionId = createSessionId();
   const started = new Date().toISOString();
@@ -347,7 +351,7 @@ export function delegateStream(opts: DelegateOptions): DelegateStreamResult {
       prompt,
       summary: fullText.slice(0, 200),
       tokens_used: usage.totalTokens,
-      model_id: config.model.id,
+      model_id: resolvedModelId,
       delegated_to: agentDoc.frontmatter.id,
       steps,
       tool_calls: toolCalls.length > 0 ? toolCalls : undefined,

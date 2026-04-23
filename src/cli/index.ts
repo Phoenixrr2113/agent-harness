@@ -276,8 +276,9 @@ program
             const configPath = resolve(targetDir, 'config.yaml');
             const yaml = discoveredServersToYaml(safeServers);
             appendFileSync(configPath, '\n' + yaml + '\n');
-            console.log(`  → Added to config.yaml`);
-            console.log(`  → Run 'harness mcp test' to verify connections`);
+            console.log(`  → Added to config.yaml with enabled: false (opt-in per server)`);
+            console.log(`  → Edit config.yaml to flip enabled and optionally set tools.include filters`);
+            console.log(`  → Run 'harness mcp test' to verify once enabled`);
           } else {
             console.log(`  → Skipped MCP discovery. Add servers manually with 'harness mcp install <name>'.`);
           }

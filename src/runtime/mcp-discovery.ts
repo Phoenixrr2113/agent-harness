@@ -549,10 +549,19 @@ export function filterUnsafeServers(servers: DiscoveredMcpServer[]): DiscoveredM
 export function discoveredServersToYaml(servers: DiscoveredMcpServer[]): string {
   if (servers.length === 0) return '';
 
-  const lines: string[] = ['mcp:', '  servers:'];
+  const lines: string[] = [
+    '# Auto-discovered MCP servers are written with enabled: false by default.',
+    '# A single agent connecting to many servers can easily exceed ~20 tools,',
+    '# which degrades model tool-selection. Review each, decide which you want',
+    '# for THIS agent, flip enabled to true, and optionally add a tools.include',
+    '# filter to narrow the surface further.',
+    'mcp:',
+    '  servers:',
+  ];
 
   for (const server of servers) {
     lines.push(`    ${server.name}:`);
+    lines.push(`      enabled: false`);
     lines.push(`      transport: ${server.transport}`);
 
     if (server.transport === 'stdio') {

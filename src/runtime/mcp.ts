@@ -152,6 +152,34 @@ export interface McpManager {
   hasServers(): boolean;
 }
 
+// --- Env Var Substitution ---
+
+const ENV_VAR_PATTERN = /\$\{([A-Z_][A-Z0-9_]*)\}/g;
+
+/**
+ * Expand `${VAR}` references in a string against `process.env`. Leaves the
+ * literal token in place when the var is unset so missing-env errors surface
+ * at the MCP server level instead of silently substituting empty strings.
+ * Used on MCP `env:` values and `headers:` values so config files can reference
+ * secrets without hard-coding them.
+ */
+function expandEnvVars(value: string): string {
+  return value.replace(ENV_VAR_PATTERN, (match, varName: string) => {
+    const resolved = process.env[varName];
+    return resolved !== undefined ? resolved : match;
+  });
+}
+
+/** Expand env-var references in every value of a string-to-string record. */
+function expandEnvRecord(rec: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (!rec) return rec;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(rec)) {
+    out[k] = expandEnvVars(v);
+  }
+  return out;
+}
+
 // --- Transport Factory ---
 
 /**
@@ -181,11 +209,12 @@ function buildClientConfig(name: string, serverConfig: McpServerConfig): MCPClie
         }
       }
 
+      const expandedEnv = expandEnvRecord(serverConfig.env);
       return {
         transport: new Experimental_StdioMCPTransport({
           command: serverConfig.command,
           args: serverConfig.args,
-          env: serverConfig.env ? { ...process.env, ...serverConfig.env } as Record<string, string> : undefined,
+          env: expandedEnv ? { ...process.env, ...expandedEnv } as Record<string, string> : undefined,
           cwd,
           stderr,
         }),
@@ -200,7 +229,7 @@ function buildClientConfig(name: string, serverConfig: McpServerConfig): MCPClie
         transport: {
           type: 'http' as const,
           url: serverConfig.url,
-          headers: serverConfig.headers,
+          headers: expandEnvRecord(serverConfig.headers),
         },
         name: `harness-mcp-${name}`,
       };
@@ -213,7 +242,7 @@ function buildClientConfig(name: string, serverConfig: McpServerConfig): MCPClie
         transport: {
           type: 'sse' as const,
           url: serverConfig.url,
-          headers: serverConfig.headers,
+          headers: expandEnvRecord(serverConfig.headers),
         },
         name: `harness-mcp-${name}`,
       };
