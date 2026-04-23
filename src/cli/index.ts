@@ -1795,7 +1795,8 @@ workflowCmd
       const status = doc.frontmatter.status === 'active' ? '' : ` [${doc.frontmatter.status}]`;
       const withAgent = doc.frontmatter.with ? ` → ${doc.frontmatter.with}` : '';
       const durable = (doc.frontmatter as { durable?: boolean }).durable === true ? ' [durable]' : '';
-      console.log(`  ${doc.frontmatter.id}${status}${durable}`);
+      const bundle = doc.bundleDir ? ' [bundle]' : '';
+      console.log(`  ${doc.frontmatter.id}${status}${durable}${bundle}`);
       console.log(`    Schedule: ${schedule}${withAgent}`);
       if (doc.l0) console.log(`    ${doc.l0}`);
     }
@@ -1884,7 +1885,8 @@ program
     for (const r of results) {
       const tags = r.doc.frontmatter.tags.length > 0 ? ` [${r.doc.frontmatter.tags.join(', ')}]` : '';
       const status = r.doc.frontmatter.status !== 'active' ? ` (${r.doc.frontmatter.status})` : '';
-      console.log(`  ${r.directory}/${r.doc.frontmatter.id}${status}${tags}`);
+      const bundle = r.doc.bundleDir ? ' [bundle]' : '';
+      console.log(`  ${r.directory}/${r.doc.frontmatter.id}${status}${bundle}${tags}`);
       console.log(`    ${r.matchReason}`);
       if (r.doc.l0) console.log(`    ${r.doc.l0}`);
     }

@@ -16,8 +16,27 @@ import { z } from 'zod';
  */
 export type AgentModelTier = 'primary' | 'summary' | 'fast';
 
-export const FrontmatterSchema = z.object({
+/**
+ * Slugify an Agent Skills `name` field (lowercase-hyphen) into a valid id.
+ * "My Cool Skill" → "my-cool-skill". Used when a primitive file uses the
+ * Agent Skills spec's `name` field and omits the legacy `id`.
+ */
+function slugifyName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+const FrontmatterInnerSchema = z.object({
   id: z.string(),
+  /**
+   * Agent Skills spec primary identifier (https://agentskills.io). When set
+   * without an `id`, the loader derives `id = slugify(name)`. This field is
+   * preserved in the parsed frontmatter so downstream code that wants the
+   * original (e.g. for display) can access it.
+   */
+  name: z.string().optional(),
   tags: z.array(z.string()).default([]),
   created: z.string().optional(),
   updated: z.string().optional(),
@@ -39,8 +58,8 @@ export const FrontmatterSchema = z.object({
    */
   active_tools: z.array(z.string()).optional(),
   /**
-   * Sub-agent only: explicit description used when this agent is exposed as
-   * a tool on the primary. Falls back to the doc's L1 summary, then L0.
+   * Agent Skills spec summary + sub-agent tool description. Primitive loaders
+   * use it for L1 fallback; sub-agent exposure uses it as the tool description.
    */
   description: z.string().optional(),
   /**
@@ -49,7 +68,31 @@ export const FrontmatterSchema = z.object({
    * routes the run through `durableRun()` instead of `agent.run()`.
    */
   durable: z.boolean().optional(),
+  // --- Agent Skills spec optional fields (https://agentskills.io/specification) ---
+  /** License string (SPDX id or free-form), e.g. "MIT". */
+  license: z.string().optional(),
+  /** Free-form compatibility hint, e.g. "claude-code >= 2.1". */
+  compatibility: z.string().optional(),
+  /** Opaque metadata bag for tool-specific extensions. */
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  /** Agent Skills spec: whitelist of tools this primitive may call. */
+  'allowed-tools': z.array(z.string()).optional(),
 });
+
+/**
+ * Frontmatter schema with Agent Skills dual-schema support: if a primitive
+ * file omits `id` but provides `name` (the Agent Skills convention), the
+ * loader auto-derives `id = slugify(name)` before validation. Legacy files
+ * using `id` directly keep working unchanged.
+ */
+export const FrontmatterSchema = z.preprocess((input) => {
+  if (typeof input !== 'object' || input === null) return input;
+  const data = { ...(input as Record<string, unknown>) };
+  if (!data.id && typeof data.name === 'string' && data.name.trim().length > 0) {
+    data.id = slugifyName(data.name);
+  }
+  return data;
+}, FrontmatterInnerSchema);
 
 export type Frontmatter = z.infer<typeof FrontmatterSchema>;
 
@@ -61,6 +104,13 @@ export interface HarnessDocument {
   l1: string;
   body: string;
   raw: string;
+  /**
+   * Absolute path to the primitive's bundle directory, if this doc is the
+   * entry-point of a multi-file bundle (e.g. `skills/my-skill/SKILL.md`).
+   * Undefined for flat single-file primitives. Consumers can list/read other
+   * files in this directory on demand — they are NOT auto-loaded into context.
+   */
+  bundleDir?: string;
 }
 
 // --- Primitive Types ---

@@ -1,5 +1,5 @@
-import { readFileSync, readdirSync, existsSync } from 'fs';
-import { join, extname } from 'path';
+import { readFileSync, readdirSync, existsSync, statSync } from 'fs';
+import { join, extname, basename } from 'path';
 import matter from 'gray-matter';
 import { FrontmatterSchema, CORE_PRIMITIVE_DIRS, type HarnessDocument, type Frontmatter } from '../core/types.js';
 
@@ -19,12 +19,34 @@ export interface LoadResult {
 const L0_REGEX = /<!--\s*L0:\s*([\s\S]*?)\s*-->/;
 const L1_REGEX = /<!--\s*L1:\s*([\s\S]*?)\s*-->/;
 
-export function parseHarnessDocument(filePath: string): HarnessDocument {
+/**
+ * Primitive kinds that support multi-file bundles (Agent Skills convention).
+ * Each maps to its canonical entry filename. Other kinds (instincts, tools,
+ * agents, intake) must be flat single-file primitives; a directory in those
+ * kinds is a user error and reported as such.
+ *
+ * See: https://agentskills.io/specification — we follow it verbatim for
+ * `skills/` and mirror the pattern for other bundle-capable kinds.
+ */
+export const BUNDLE_ENTRY_BY_KIND: Record<string, string> = {
+  skills: 'SKILL.md',
+  playbooks: 'PLAYBOOK.md',
+  rules: 'RULE.md',
+  workflows: 'WORKFLOW.md',
+};
+
+/**
+ * Return the canonical entry filename for a primitive kind (by basename of its
+ * directory), or null if bundling is not supported for that kind.
+ */
+export function bundleEntryNameFor(kind: string): string | null {
+  return BUNDLE_ENTRY_BY_KIND[kind] ?? null;
+}
+
+export function parseHarnessDocument(filePath: string, bundleDir?: string): HarnessDocument {
   const raw = readFileSync(filePath, 'utf-8');
   const { data, content } = matter(raw);
 
-  // Parse frontmatter with defaults
-  // Normalize dates: gray-matter converts date strings to Date objects
   const normalized = { ...data };
   for (const key of ['created', 'updated']) {
     if (normalized[key] instanceof Date) {
@@ -36,25 +58,24 @@ export function parseHarnessDocument(filePath: string): HarnessDocument {
   try {
     frontmatter = FrontmatterSchema.parse(normalized);
   } catch {
-    // Fallback: create minimal frontmatter from filename
-    const id = filePath.split('/').pop()?.replace('.md', '') || 'unknown';
-    frontmatter = FrontmatterSchema.parse({ id });
+    const fallbackId = bundleDir
+      ? basename(bundleDir)
+      : basename(filePath).replace(/\.md$/, '') || 'unknown';
+    frontmatter = FrontmatterSchema.parse({ id: fallbackId });
   }
 
-  // Extract L0 and L1 from content
   const l0Match = content.match(L0_REGEX);
   const l1Match = content.match(L1_REGEX);
 
   const l0 = l0Match ? l0Match[1].trim() : '';
   const l1 = l1Match ? l1Match[1].trim() : '';
 
-  // Body is the content without L0/L1 comments
   const body = content
     .replace(L0_REGEX, '')
     .replace(L1_REGEX, '')
     .trim();
 
-  return {
+  const doc: HarnessDocument = {
     path: filePath,
     frontmatter,
     l0,
@@ -62,6 +83,23 @@ export function parseHarnessDocument(filePath: string): HarnessDocument {
     body,
     raw,
   };
+  if (bundleDir) doc.bundleDir = bundleDir;
+  return doc;
+}
+
+/**
+ * Find the entry-point markdown file for a bundled primitive, given its
+ * containing kind (e.g. "skills" → looks for SKILL.md). Returns the full path
+ * if present, or null if the bundle is malformed (no entry file).
+ */
+function findBundleEntry(bundleDir: string, kind: string): string | null {
+  const entryName = bundleEntryNameFor(kind);
+  if (!entryName) return null;
+  const candidate = join(bundleDir, entryName);
+  if (existsSync(candidate) && statSync(candidate).isFile()) {
+    return candidate;
+  }
+  return null;
 }
 
 export function loadDirectory(dirPath: string): HarnessDocument[] {
@@ -71,26 +109,67 @@ export function loadDirectory(dirPath: string): HarnessDocument[] {
 export function loadDirectoryWithErrors(dirPath: string): LoadResult {
   if (!existsSync(dirPath)) return { docs: [], errors: [] };
 
-  const files = readdirSync(dirPath);
+  const kind = basename(dirPath);
+  const entryName = bundleEntryNameFor(kind);
   const docs: HarnessDocument[] = [];
   const errors: ParseError[] = [];
 
-  for (const file of files) {
-    if (extname(file) !== '.md') continue;
-    if (file.startsWith('_')) continue; // Skip index files
-    if (file.startsWith('.')) continue; // Skip hidden files
+  for (const entry of readdirSync(dirPath)) {
+    if (entry.startsWith('_')) continue; // index files, _archive, etc.
+    if (entry.startsWith('.')) continue; // hidden
 
-    const filePath = join(dirPath, file);
+    const entryPath = join(dirPath, entry);
+    let stats;
     try {
-      const doc = parseHarnessDocument(filePath);
-      if (doc.frontmatter.status !== 'archived' && doc.frontmatter.status !== 'deprecated') {
-        docs.push(doc);
+      stats = statSync(entryPath);
+    } catch {
+      continue;
+    }
+
+    if (stats.isDirectory()) {
+      // Bundled primitive. Only kinds listed in BUNDLE_ENTRY_BY_KIND support
+      // bundling (skills/playbooks/rules/workflows). For other kinds, a
+      // directory here is a user error — flag it so they don't silently
+      // lose a primitive they thought was loaded.
+      if (!entryName) {
+        errors.push({
+          path: entryPath,
+          error: `Bundling is not supported for "${kind}" — use flat .md files only (bundle-capable kinds: ${Object.keys(BUNDLE_ENTRY_BY_KIND).join(', ')})`,
+        });
+        continue;
       }
-    } catch (err) {
-      errors.push({
-        path: filePath,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      const entryFile = findBundleEntry(entryPath, kind);
+      if (!entryFile) {
+        errors.push({
+          path: entryPath,
+          error: `Bundle directory is missing its entry file (expected ${entryName})`,
+        });
+        continue;
+      }
+      try {
+        const doc = parseHarnessDocument(entryFile, entryPath);
+        if (doc.frontmatter.status !== 'archived' && doc.frontmatter.status !== 'deprecated') {
+          docs.push(doc);
+        }
+      } catch (err) {
+        errors.push({
+          path: entryFile,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    } else if (stats.isFile() && extname(entry) === '.md') {
+      // Flat primitive — single-file convention, backward compatible.
+      try {
+        const doc = parseHarnessDocument(entryPath);
+        if (doc.frontmatter.status !== 'archived' && doc.frontmatter.status !== 'deprecated') {
+          docs.push(doc);
+        }
+      } catch (err) {
+        errors.push({
+          path: entryPath,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }
 

@@ -540,4 +540,252 @@ Good content`,
       expect(result.errors).toHaveLength(0);
     });
   });
+
+  describe('bundled primitive directories (Agent Skills convention)', () => {
+    it('loads skills/<name>/SKILL.md', () => {
+      const skillsDir = join(testDir, 'skills');
+      const bundleDir = join(skillsDir, 'debug-workflow');
+      mkdirSync(bundleDir, { recursive: true });
+      writeFileSync(
+        join(bundleDir, 'SKILL.md'),
+        `---
+name: debug-workflow
+description: Systematic debug procedure with diagnostic script.
+tags: [skill, debugging]
+status: active
+---
+
+<!-- L0: Systematic debug procedure. -->
+
+# Debug Workflow
+
+See scripts/run-diagnostics.sh.
+`,
+      );
+      mkdirSync(join(bundleDir, 'scripts'));
+      writeFileSync(join(bundleDir, 'scripts', 'run-diagnostics.sh'), '#!/bin/sh\necho diag\n');
+
+      const docs = loadDirectory(skillsDir);
+
+      expect(docs).toHaveLength(1);
+      expect(docs[0].frontmatter.id).toBe('debug-workflow');
+      expect(docs[0].frontmatter.name).toBe('debug-workflow');
+      expect(docs[0].frontmatter.description).toBe('Systematic debug procedure with diagnostic script.');
+      expect(docs[0].bundleDir).toBe(bundleDir);
+    });
+
+    it('loads playbooks/<name>/PLAYBOOK.md', () => {
+      const playbooksDir = join(testDir, 'playbooks');
+      const bundleDir = join(playbooksDir, 'deploy-production');
+      mkdirSync(bundleDir, { recursive: true });
+      writeFileSync(
+        join(bundleDir, 'PLAYBOOK.md'),
+        `---
+name: deploy-production
+description: Ship-to-prod sequence with preflight + rollback.
+status: active
+---
+
+<!-- L0: Ship-to-prod sequence. -->
+`,
+      );
+
+      const docs = loadDirectory(playbooksDir);
+
+      expect(docs).toHaveLength(1);
+      expect(docs[0].frontmatter.id).toBe('deploy-production');
+      expect(docs[0].bundleDir).toBe(bundleDir);
+    });
+
+    it('loads rules/<name>/RULE.md and workflows/<name>/WORKFLOW.md', () => {
+      const cases: Array<[string, string]> = [
+        ['rules', 'RULE.md'],
+        ['workflows', 'WORKFLOW.md'],
+      ];
+      for (const [kind, entry] of cases) {
+        const bundleDir = join(testDir, kind, `my-${kind}-bundle`);
+        mkdirSync(bundleDir, { recursive: true });
+        writeFileSync(
+          join(bundleDir, entry),
+          `---
+name: my-${kind}-bundle
+status: active
+---
+
+<!-- L0: ${kind} bundle. -->
+`,
+        );
+      }
+
+      const primitives = loadAllPrimitives(testDir);
+
+      expect(primitives.get('rules')?.[0].frontmatter.id).toBe('my-rules-bundle');
+      expect(primitives.get('rules')?.[0].bundleDir).toContain('my-rules-bundle');
+      expect(primitives.get('workflows')?.[0].frontmatter.id).toBe('my-workflows-bundle');
+      expect(primitives.get('workflows')?.[0].bundleDir).toContain('my-workflows-bundle');
+    });
+
+    it('errors when a bundle-capable dir has a subdir missing its entry file', () => {
+      const skillsDir = join(testDir, 'skills');
+      const bundleDir = join(skillsDir, 'orphan-bundle');
+      mkdirSync(bundleDir, { recursive: true });
+      writeFileSync(join(bundleDir, 'just-a-script.js'), 'console.log("orphan");\n');
+
+      const result = loadDirectoryWithErrors(skillsDir);
+
+      expect(result.docs).toHaveLength(0);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].path).toBe(bundleDir);
+      expect(result.errors[0].error).toContain('SKILL.md');
+    });
+
+    it('errors when a flat-only kind (instincts) contains a directory', () => {
+      const instinctsDir = join(testDir, 'instincts');
+      const rogueSubdir = join(instinctsDir, 'my-instinct-bundle');
+      mkdirSync(rogueSubdir, { recursive: true });
+      writeFileSync(
+        join(rogueSubdir, 'INSTINCT.md'),
+        `---\nid: bundled-instinct\nstatus: active\n---\n<!-- L0: nope -->`,
+      );
+
+      const result = loadDirectoryWithErrors(instinctsDir);
+
+      expect(result.docs).toHaveLength(0);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].path).toBe(rogueSubdir);
+      expect(result.errors[0].error).toContain('Bundling is not supported for "instincts"');
+    });
+
+    it('keeps flat .md files working alongside bundled dirs in the same kind', () => {
+      const skillsDir = join(testDir, 'skills');
+      mkdirSync(skillsDir);
+      writeFileSync(
+        join(skillsDir, 'flat-skill.md'),
+        `---
+id: flat-skill
+tags: [skill]
+status: active
+---
+
+<!-- L0: Flat one. -->
+`,
+      );
+      const bundleDir = join(skillsDir, 'bundled-skill');
+      mkdirSync(bundleDir);
+      writeFileSync(
+        join(bundleDir, 'SKILL.md'),
+        `---
+name: bundled-skill
+status: active
+---
+
+<!-- L0: Bundled one. -->
+`,
+      );
+
+      const docs = loadDirectory(skillsDir).sort((a, b) =>
+        a.frontmatter.id.localeCompare(b.frontmatter.id),
+      );
+
+      expect(docs).toHaveLength(2);
+      expect(docs[0].frontmatter.id).toBe('bundled-skill');
+      expect(docs[0].bundleDir).toBe(bundleDir);
+      expect(docs[1].frontmatter.id).toBe('flat-skill');
+      expect(docs[1].bundleDir).toBeUndefined();
+    });
+
+    it('skips hidden and _underscore bundle dirs silently', () => {
+      const skillsDir = join(testDir, 'skills');
+      mkdirSync(skillsDir);
+      mkdirSync(join(skillsDir, '.hidden-bundle'));
+      mkdirSync(join(skillsDir, '_archive-bundle'));
+      writeFileSync(
+        join(skillsDir, '.hidden-bundle', 'SKILL.md'),
+        `---\nname: hidden\nstatus: active\n---\n<!-- L0: h -->`,
+      );
+      writeFileSync(
+        join(skillsDir, '_archive-bundle', 'SKILL.md'),
+        `---\nname: archived\nstatus: active\n---\n<!-- L0: a -->`,
+      );
+
+      const result = loadDirectoryWithErrors(skillsDir);
+
+      expect(result.docs).toHaveLength(0);
+      expect(result.errors).toHaveLength(0);
+    });
+  });
+
+  describe('Agent Skills frontmatter (name/description) dual-schema', () => {
+    it('derives id from name when id is missing', () => {
+      const skillsDir = join(testDir, 'skills');
+      const bundleDir = join(skillsDir, 'pr-review');
+      mkdirSync(bundleDir, { recursive: true });
+      writeFileSync(
+        join(bundleDir, 'SKILL.md'),
+        `---
+name: PR Review
+description: Structured pull-request review.
+status: active
+---
+
+<!-- L0: PR review. -->
+`,
+      );
+
+      const docs = loadDirectory(skillsDir);
+
+      expect(docs).toHaveLength(1);
+      expect(docs[0].frontmatter.id).toBe('pr-review');
+      expect(docs[0].frontmatter.name).toBe('PR Review');
+      expect(docs[0].frontmatter.description).toBe('Structured pull-request review.');
+    });
+
+    it('preserves explicit id when both id and name are present', () => {
+      const testFile = join(testDir, 'legacy.md');
+      writeFileSync(
+        testFile,
+        `---
+id: explicit-id
+name: Display Name
+status: active
+---
+
+Body.
+`,
+      );
+
+      const doc = parseHarnessDocument(testFile);
+
+      expect(doc.frontmatter.id).toBe('explicit-id');
+      expect(doc.frontmatter.name).toBe('Display Name');
+    });
+
+    it('accepts Agent Skills optional fields (license, compatibility, metadata, allowed-tools)', () => {
+      const testFile = join(testDir, 'skills-compat.md');
+      writeFileSync(
+        testFile,
+        `---
+name: example-skill
+description: test
+license: MIT
+compatibility: claude-code >= 2.1
+metadata:
+  author_url: https://example.com
+allowed-tools:
+  - Read
+  - Bash
+---
+
+Body.
+`,
+      );
+
+      const doc = parseHarnessDocument(testFile);
+
+      expect(doc.frontmatter.license).toBe('MIT');
+      expect(doc.frontmatter.compatibility).toBe('claude-code >= 2.1');
+      expect(doc.frontmatter.metadata?.author_url).toBe('https://example.com');
+      expect(doc.frontmatter['allowed-tools']).toEqual(['Read', 'Bash']);
+    });
+  });
 });

@@ -153,6 +153,70 @@ The harness loads files intelligently based on token budget — L0 to decide rel
 
 Every file has exactly one owner — **human** writes rules and CORE.md, **agent** writes instincts and sessions, **infrastructure** writes indexes and journals.
 
+## Flat files vs bundled primitives
+
+Most primitives live as a single `.md` file (`skills/research.md`, `rules/operations.md`). When a primitive needs supporting files — scripts, templates, references, examples — it can ship as a **bundle**: a directory containing an entry markdown plus arbitrary support files.
+
+Only **skills**, **playbooks**, **rules**, and **workflows** support bundles. The other three (instincts, tools, agents) are flat-only by design.
+
+### Convention (Agent Skills compatible)
+
+The harness follows the [Agent Skills open standard](https://agentskills.io) — adopted by Claude Code, OpenAI Codex, Cursor, GitHub Copilot, and ~40 other tools. A bundled skill drops into any of those tools without modification.
+
+```
+skills/
+├── research.md                         ← flat (single-file)
+└── debug-workflow/                     ← bundled
+    ├── SKILL.md                        ← entry, frontmatter + L0/L1
+    ├── scripts/
+    │   └── run-diagnostics.sh
+    ├── references/
+    │   └── error-catalog.md
+    └── assets/
+        └── bug-report-template.md
+
+playbooks/
+└── deploy-production/
+    ├── PLAYBOOK.md                     ← entry
+    ├── scripts/preflight.sh
+    └── references/runbook.md
+
+rules/<name>/RULE.md      workflows/<name>/WORKFLOW.md
+```
+
+**Entry filename is kind-specific and uppercase**: `SKILL.md`, `PLAYBOOK.md`, `RULE.md`, `WORKFLOW.md`. The loader looks for it in the bundle's root; missing it = parse error.
+
+### What's loaded into context
+
+Only the entry markdown's L0/L1/L2 enters the agent's system prompt at boot — same progressive disclosure as flat files. Support files (`scripts/`, `references/`, `assets/`) stay on disk. The agent reads or executes them on demand via its Read/Bash tools when the body of the entry file points to them.
+
+This keeps context budget predictable: a 12-file bundled skill costs the same tokens as a 1-file flat skill, until the agent decides a support file is worth pulling in.
+
+### Frontmatter schemas
+
+Both schemas work side by side:
+
+```yaml
+---
+# Legacy harness schema
+id: my-skill
+tags: [skill]
+status: active
+---
+```
+
+```yaml
+---
+# Agent Skills schema (preferred for new bundles)
+name: my-skill
+description: One-line description of what this skill does.
+license: MIT
+allowed-tools: [Read, Bash]
+---
+```
+
+If `name` is set and `id` is not, the loader derives `id = slugify(name)`. Existing primitives using `id` keep working unchanged.
+
 ## Templates
 
 `harness init <name> --template <t>` picks a starting config:
