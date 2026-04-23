@@ -16,8 +16,8 @@ process.on('warning', (warning: NodeJS.ErrnoException) => {
 
 import { Command } from 'commander';
 import { createRequire } from 'module';
-import { resolve, join, basename } from 'path';
-import { existsSync } from 'fs';
+import { resolve, join, basename, dirname } from 'path';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { config as loadDotenv } from 'dotenv';
 import { setGlobalLogLevel, type LogLevel } from '../core/logger.js';
 
@@ -285,21 +285,93 @@ program
         }
       }
 
-      // Auto-discover environment variables
+      // Small helper for consent prompts. Returns true on Y/empty/yes.
+      // In non-TTY or with --yes, defaults to `defaultYes` (so -y auto-accepts
+      // and CI contexts skip without prompting).
+      const confirm = async (question: string, defaultYes: boolean): Promise<boolean> => {
+        if (opts.yes) return defaultYes;
+        if (!process.stdin.isTTY) return false;
+        const readline = await import('readline');
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        try {
+          const ans = await new Promise<string>((res) => {
+            rl.question(`\n${question} `, (a) => res(a.trim()));
+          });
+          if (!ans) return defaultYes;
+          const lower = ans.toLowerCase();
+          return lower === 'y' || lower === 'yes';
+        } finally {
+          rl.close();
+        }
+      };
+
+      // Auto-discover environment variables — interactive install for
+      // canonical alias-matched MCPs, print-only for registry-only matches.
       if (opts.discoverEnv !== false) {
         const { discoverEnvKeys } = await import('../runtime/env-discovery.js');
+        const { resolveKnownAlias } = await import('../runtime/mcp-registry.js');
         const envResult = discoverEnvKeys({ dir: parentDir, extraDirs: [targetDir] });
 
         if (envResult.suggestions.length > 0) {
           console.log(`\n✓ Detected ${envResult.keys.length} API key(s) in environment:`);
+
+          const canonical: Array<{ trigger: string; message: string; aliasName: string }> = [];
+          const registryOnly: Array<{ trigger: string; message: string; query: string }> = [];
           for (const suggestion of envResult.suggestions) {
-            console.log(`  ${suggestion.triggeredBy} → ${suggestion.message}`);
-            console.log(`    Install: harness mcp install "${suggestion.serverQuery}" -d ${name}`);
+            const alias = resolveKnownAlias(suggestion.serverQuery);
+            if (alias) {
+              canonical.push({
+                trigger: suggestion.triggeredBy,
+                message: suggestion.message,
+                aliasName: alias.name,
+              });
+            } else {
+              registryOnly.push({
+                trigger: suggestion.triggeredBy,
+                message: suggestion.message,
+                query: suggestion.serverQuery,
+              });
+            }
+          }
+
+          for (const c of canonical) {
+            console.log(`  ${c.trigger} → ${c.message}  (canonical: ${c.aliasName})`);
+          }
+          for (const r of registryOnly) {
+            console.log(`  ${r.trigger} → ${r.message}`);
+            console.log(`    Try: harness mcp install "${r.query}" -d ${agentName}`);
+          }
+
+          if (canonical.length > 0) {
+            const names = canonical.map((c) => c.aliasName).join(', ');
+            const shouldInstall = await confirm(
+              `Install ${canonical.length} canonical MCP(s) (${names})? [Y/n]`,
+              true,
+            );
+            if (shouldInstall) {
+              const { updateConfigWithServer, serverExistsInConfig } = await import('../runtime/mcp-installer.js');
+              for (const c of canonical) {
+                if (serverExistsInConfig(targetDir, c.aliasName)) {
+                  console.log(`  ↷ ${c.aliasName}: already in config, skipped`);
+                  continue;
+                }
+                const alias = resolveKnownAlias(c.aliasName);
+                if (!alias) continue;
+                try {
+                  updateConfigWithServer(targetDir, c.aliasName, alias.config);
+                  console.log(`  ✓ installed ${c.aliasName}`);
+                } catch (err) {
+                  console.log(`  ✗ ${c.aliasName}: ${err instanceof Error ? err.message : String(err)}`);
+                }
+              }
+            }
           }
         }
       }
 
-      // Auto-discover project context
+      // Auto-discover project context — interactive stub scaffold for
+      // suggested rules/skills. MCP suggestions from project-discovery are
+      // still print-only (they go through the registry).
       let projectDetected = false;
       if (opts.discoverProject !== false) {
         const { discoverProjectContext } = await import('../runtime/project-discovery.js');
@@ -310,14 +382,42 @@ program
           const stack = projectResult.signals.map((s) => s.name).join(', ');
           console.log(`\n✓ Detected project stack: ${stack}`);
 
-          if (projectResult.suggestions.length > 0) {
-            console.log(`  Suggestions:`);
-            for (const suggestion of projectResult.suggestions) {
-              if (suggestion.type === 'mcp-server') {
-                console.log(`    Install MCP: harness mcp install "${suggestion.target}" -d ${name}`);
-              } else {
-                console.log(`    Create ${suggestion.type}: ${suggestion.target}`);
+          const primitiveStubs = projectResult.suggestions.filter((s) => s.type !== 'mcp-server');
+          const mcpHints = projectResult.suggestions.filter((s) => s.type === 'mcp-server');
+
+          for (const s of mcpHints) {
+            console.log(`  MCP: harness mcp install "${s.target}" -d ${agentName}`);
+          }
+
+          if (primitiveStubs.length > 0) {
+            console.log(`  Suggested primitives:`);
+            for (const s of primitiveStubs) {
+              console.log(`    ${s.type}: ${s.target}`);
+            }
+            const shouldScaffold = await confirm(
+              `Scaffold ${primitiveStubs.length} stub primitive(s)? [Y/n]`,
+              true,
+            );
+            if (shouldScaffold) {
+              let made = 0;
+              for (const s of primitiveStubs) {
+                const fullPath = join(targetDir, s.target);
+                if (existsSync(fullPath)) continue;
+                mkdirSync(dirname(fullPath), { recursive: true });
+                const id = basename(s.target, '.md');
+                const title = id.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                const today = new Date().toISOString().slice(0, 10);
+                writeFileSync(
+                  fullPath,
+                  `---\nid: ${id}\ntags: [${s.type}]\nauthor: human\nstatus: active\ncreated: ${today}\n---\n\n` +
+                  `<!-- L0: TODO — one-line summary of this ${s.type}. -->\n` +
+                  `<!-- L1: TODO — paragraph summary of what this ${s.type} governs and when it applies. -->\n\n` +
+                  `# ${title}\n\n` +
+                  `TODO: describe this ${s.type}. Suggested by 'harness init' project discovery on ${today}.\n`,
+                );
+                made += 1;
               }
+              console.log(`  ✓ created ${made} stub file(s)`);
             }
           }
         }
@@ -341,6 +441,50 @@ program
             console.log(`    Disable with: harness config set mcp.servers.filesystem.enabled false`);
           } catch (err) {
             console.log(`  (skipped filesystem auto-wire: ${err instanceof Error ? err.message : String(err)})`);
+          }
+        }
+      }
+
+      // Parent-project package.json script injection — so the user can invoke
+      // the harness from their project root without cd'ing into the agent
+      // folder each time. Only fires when the parent directory has a
+      // package.json and the user has not already defined a conflicting
+      // script name. Tries candidate names in priority order, picks the
+      // first free one.
+      {
+        const parentPkgPath = join(parentDir, 'package.json');
+        if (existsSync(parentPkgPath)) {
+          let pkg: Record<string, unknown> | null = null;
+          try {
+            pkg = JSON.parse(readFileSync(parentPkgPath, 'utf-8'));
+          } catch {
+            pkg = null;
+          }
+          if (pkg !== null) {
+            const scripts = ((pkg.scripts as Record<string, string>) ?? {});
+            const candidates = ['agent', 'harness', 'ai', `${agentName}`];
+            const chosen = candidates.find((n) => !scripts[n]);
+            if (chosen) {
+              const scriptCmd = `cd ${agentName} && harness`;
+              console.log(`\n✓ Detected package.json in parent directory.`);
+              console.log(`  Candidate script: "${chosen}": "${scriptCmd}"`);
+              const shouldAdd = await confirm(
+                `Add 'npm run ${chosen}' script to parent package.json? [Y/n]`,
+                true,
+              );
+              if (shouldAdd) {
+                try {
+                  const updated = { ...pkg, scripts: { ...scripts, [chosen]: scriptCmd } };
+                  writeFileSync(parentPkgPath, JSON.stringify(updated, null, 2) + '\n');
+                  console.log(`  ✓ Added. Usage: npm run ${chosen} -- run "your prompt"`);
+                } catch (err) {
+                  console.log(`  ✗ could not write package.json: ${err instanceof Error ? err.message : String(err)}`);
+                }
+              } else {
+                console.log(`  ↷ Skipped. To add manually:`);
+                console.log(`      "scripts": { "${chosen}": "${scriptCmd}" }`);
+              }
+            }
           }
         }
       }
