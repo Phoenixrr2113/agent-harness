@@ -139,6 +139,18 @@ const KNOWN_ALIASES: Record<string, KnownAlias> = {
     description: 'Structured sequential reasoning tool',
     npmPackage: '@modelcontextprotocol/server-sequential-thinking',
   },
+  shell: {
+    name: 'shell',
+    description: 'Spawn and control shell processes (start, read output, terminate)',
+    npmPackage: '@wonderwhy-er/desktop-commander',
+    defaultTools: [
+      'start_process',
+      'read_process_output',
+      'interact_with_process',
+      'force_terminate',
+      'list_processes',
+    ],
+  },
 };
 
 /**

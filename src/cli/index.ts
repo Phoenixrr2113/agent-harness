@@ -489,6 +489,89 @@ program
         }
       }
 
+      // CLI delegation tool activation — detect installed CLI agents
+      // (claude, codex, gemini) and offer to activate the corresponding
+      // ask-*.md tool primitive. Activation flips status draft→active so
+      // the agent can reach for bash-based delegation to offload bounded
+      // subtasks onto the user's CLI subscription instead of burning API
+      // tokens through the harness.
+      {
+        const { execSync } = await import('child_process');
+        const detectInstalled = (cmd: string): boolean => {
+          try {
+            execSync(`command -v ${cmd}`, { stdio: 'ignore' });
+            return true;
+          } catch {
+            return false;
+          }
+        };
+        const detected: Array<{ cli: string; toolFile: string }> = [];
+        for (const cli of ['claude', 'codex', 'gemini']) {
+          if (!detectInstalled(cli)) continue;
+          const toolFile = join(targetDir, 'tools', `ask-${cli}.md`);
+          if (existsSync(toolFile)) detected.push({ cli, toolFile });
+        }
+        if (detected.length > 0) {
+          const names = detected.map((d) => d.cli).join(', ');
+          console.log(`\n✓ Detected CLI agent(s) available: ${names}`);
+          console.log(`  Activating lets the harness agent shell out to these CLIs for bounded`);
+          console.log(`  subtasks — the work runs on your CLI subscription, not the harness's API budget.`);
+          console.log();
+          console.log(`  ⚠  TERMS-OF-SERVICE WARNING`);
+          console.log(`  Invoking these CLIs programmatically from another agent may fall outside`);
+          console.log(`  the Acceptable Use terms of your subscription (automated/derivative use,`);
+          console.log(`  rate-limit bypass, etc). Each provider's terms vary and can change. You`);
+          console.log(`  should review the relevant TOS before enabling:`);
+          console.log(`    anthropic.com/legal   openai.com/policies   policies.google.com/terms`);
+          console.log(`  This is opt-in. The default is OFF — if in doubt, say no and skip it.`);
+          console.log();
+          // Deliberately defaultYes: false — this is a compliance decision the
+          // user must make consciously, so -y and bare Enter both decline.
+          const shouldActivate = await confirm(
+            `Activate ${detected.length} CLI delegation tool(s)? [y/N]`,
+            false,
+          );
+          if (shouldActivate) {
+            for (const { cli, toolFile } of detected) {
+              try {
+                const content = readFileSync(toolFile, 'utf-8');
+                const updated = content.replace(/^status: draft\s*$/m, 'status: active');
+                if (updated !== content) {
+                  writeFileSync(toolFile, updated, 'utf-8');
+                  console.log(`  ✓ activated ask-${cli} (tools/ask-${cli}.md)`);
+                } else {
+                  console.log(`  ↷ ask-${cli}: already active`);
+                }
+              } catch (err) {
+                console.log(`  ✗ ask-${cli}: ${err instanceof Error ? err.message : String(err)}`);
+              }
+            }
+            // Hard dependency: ask-* tools are useless without a way for the
+            // agent to spawn shell processes. Auto-install the canonical
+            // shell MCP (filtered to process-management tools so it doesn't
+            // overlap with the auto-wired filesystem MCP).
+            const { resolveKnownAlias } = await import('../runtime/mcp-registry.js');
+            const { updateConfigWithServer, serverExistsInConfig } = await import('../runtime/mcp-installer.js');
+            if (!serverExistsInConfig(targetDir, 'shell')) {
+              const shellAlias = resolveKnownAlias('shell');
+              if (shellAlias) {
+                try {
+                  updateConfigWithServer(targetDir, 'shell', shellAlias.config);
+                  console.log(`  ✓ wired shell MCP (desktop-commander, process tools only)`);
+                } catch (err) {
+                  console.log(`  ✗ shell MCP wire failed: ${err instanceof Error ? err.message : String(err)}`);
+                }
+              }
+            } else {
+              console.log(`  ↷ shell MCP already in config`);
+            }
+          } else {
+            console.log(`  ↷ Skipped. Activate later by editing tools/ask-<cli>.md (status: draft → active),`);
+            console.log(`    then install the shell MCP: harness mcp install shell -d ${agentName}`);
+          }
+        }
+      }
+
       console.log(`\nNext steps — try these in order:`);
       console.log(`  cd ${targetDir}`);
       console.log(`  harness run "What can you do?"           # see what's loaded`);
