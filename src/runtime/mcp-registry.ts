@@ -80,6 +80,111 @@ const REGISTRY_BASE = 'https://registry.modelcontextprotocol.io';
 const REGISTRY_API_VERSION = 'v0.1';
 const DEFAULT_SEARCH_LIMIT = 10;
 
+// --- Canonical alias map ---
+// The MCP registry does not carry the `@modelcontextprotocol/server-*`
+// packages that Anthropic publishes on npm, so plain registry search for
+// names like "filesystem" or "github" returns third-party clones. This map
+// resolves well-known single-word aliases to the canonical npm packages
+// directly, bypassing the registry. Users can still pass a full `org/name`
+// to `harness mcp install` to hit the registry for non-canonical choices.
+
+interface KnownAlias {
+  name: string;
+  description: string;
+  npmPackage: string;
+  /** For servers that require an absolute path as the primary arg (filesystem). */
+  requiresPath?: boolean;
+  /** Env vars the server expects to read, with descriptions. */
+  env?: Array<{ name: string; description?: string; isRequired?: boolean }>;
+  /** Suggested tools.include filter — keeps the surface tight. */
+  defaultTools?: string[];
+}
+
+const KNOWN_ALIASES: Record<string, KnownAlias> = {
+  filesystem: {
+    name: 'filesystem',
+    description: 'Read, list, and search files in a specified directory',
+    npmPackage: '@modelcontextprotocol/server-filesystem',
+    requiresPath: true,
+    defaultTools: ['read_text_file', 'list_directory', 'search_files', 'get_file_info'],
+  },
+  github: {
+    name: 'github',
+    description: 'GitHub API — repos, issues, pull requests, files',
+    npmPackage: '@modelcontextprotocol/server-github',
+    env: [{
+      name: 'GITHUB_PERSONAL_ACCESS_TOKEN',
+      description: 'GitHub personal access token',
+      isRequired: true,
+    }],
+    defaultTools: ['get_pull_request', 'get_file_contents', 'list_commits', 'get_pull_request_files'],
+  },
+  fetch: {
+    name: 'fetch',
+    description: 'HTTP fetch with content extraction',
+    npmPackage: '@modelcontextprotocol/server-fetch',
+  },
+  memory: {
+    name: 'memory',
+    description: 'Knowledge-graph memory',
+    npmPackage: '@modelcontextprotocol/server-memory',
+  },
+  time: {
+    name: 'time',
+    description: 'Time and timezone utilities',
+    npmPackage: '@modelcontextprotocol/server-time',
+  },
+  'sequential-thinking': {
+    name: 'sequential-thinking',
+    description: 'Structured sequential reasoning tool',
+    npmPackage: '@modelcontextprotocol/server-sequential-thinking',
+  },
+};
+
+/**
+ * Build a ResolvedServer from a known alias without hitting the registry.
+ * The resulting config runs the canonical npm package via npx.
+ */
+function resolveAlias(alias: KnownAlias, pathArg?: string): ResolvedServer {
+  const args: string[] = ['-y', alias.npmPackage];
+  if (alias.requiresPath) {
+    args.push(pathArg ?? process.cwd());
+  }
+  const envVars: RegistryEnvVar[] = (alias.env ?? []).map((e) => ({
+    name: e.name,
+    description: e.description,
+    isRequired: e.isRequired,
+  }));
+  const config: McpServerConfig = {
+    transport: 'stdio',
+    command: 'npx',
+    args,
+    enabled: true,
+  };
+  if (alias.defaultTools && alias.defaultTools.length > 0) {
+    config.tools = { include: alias.defaultTools };
+  }
+  return {
+    name: alias.name,
+    description: alias.description,
+    registryName: `alias:${alias.name}`,
+    config,
+    requiredEnv: envVars.filter((e) => e.isRequired),
+    allEnv: envVars,
+  };
+}
+
+/**
+ * Look up a known alias (case-insensitive). Returns null if not a known name.
+ * Exposed so callers (e.g. `harness init` auto-wiring) can reuse the same map.
+ */
+export function resolveKnownAlias(query: string, pathArg?: string): ResolvedServer | null {
+  const key = query.toLowerCase();
+  const alias = KNOWN_ALIASES[key];
+  if (!alias) return null;
+  return resolveAlias(alias, pathArg);
+}
+
 // --- Registry Client ---
 
 /**
@@ -280,6 +385,13 @@ function resolveHttpPackage(
  * Otherwise, search and return the first result.
  */
 export async function findServer(query: string): Promise<ResolvedServer | null> {
+  // Curated aliases win over the registry for single-word canonical names
+  // like "filesystem" and "github" — the registry doesn't carry the
+  // @modelcontextprotocol/server-* packages so plain search returns
+  // third-party clones.
+  const alias = resolveKnownAlias(query);
+  if (alias) return alias;
+
   // If it looks like an exact registry name, try direct lookup
   if (query.includes('/') || query.includes('io.')) {
     try {

@@ -112,6 +112,15 @@ export function updateConfigWithServer(
     }
   }
 
+  // Common fields across transports
+  if (serverConfig.enabled !== undefined) configNode['enabled'] = serverConfig.enabled;
+  if (serverConfig.tools && (serverConfig.tools.include?.length || serverConfig.tools.exclude?.length)) {
+    const toolsNode: Record<string, unknown> = {};
+    if (serverConfig.tools.include?.length) toolsNode['include'] = serverConfig.tools.include;
+    if (serverConfig.tools.exclude?.length) toolsNode['exclude'] = serverConfig.tools.exclude;
+    configNode['tools'] = toolsNode;
+  }
+
   // Set the server entry (add or overwrite)
   servers.set(serverName, doc.createNode(configNode));
 

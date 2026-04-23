@@ -300,11 +300,13 @@ program
       }
 
       // Auto-discover project context
+      let projectDetected = false;
       if (opts.discoverProject !== false) {
         const { discoverProjectContext } = await import('../runtime/project-discovery.js');
         const projectResult = discoverProjectContext({ dir: parentDir });
 
         if (projectResult.signals.length > 0) {
+          projectDetected = true;
           const stack = projectResult.signals.map((s) => s.name).join(', ');
           console.log(`\n✓ Detected project stack: ${stack}`);
 
@@ -317,6 +319,28 @@ program
                 console.log(`    Create ${suggestion.type}: ${suggestion.target}`);
               }
             }
+          }
+        }
+      }
+
+      // Auto-wire filesystem MCP when init runs inside a real project.
+      // Without this, the agent boots but can't see any of your code —
+      // the whole point of running init in a project is to work with
+      // that project. Pointed at the parent dir (the user's project
+      // root), enabled by default, filtered to read-only tools.
+      if (projectDetected) {
+        const { resolveKnownAlias } = await import('../runtime/mcp-registry.js');
+        const { updateConfigWithServer } = await import('../runtime/mcp-installer.js');
+        const alias = resolveKnownAlias('filesystem', parentDir);
+        if (alias) {
+          try {
+            updateConfigWithServer(targetDir, 'filesystem', alias.config);
+            console.log(`\n✓ Wired filesystem MCP → ${parentDir}`);
+            console.log(`    read-only tools: read_text_file, list_directory,`);
+            console.log(`    search_files, get_file_info`);
+            console.log(`    Disable with: harness config set mcp.servers.filesystem.enabled false`);
+          } catch (err) {
+            console.log(`  (skipped filesystem auto-wire: ${err instanceof Error ? err.message : String(err)})`);
           }
         }
       }
