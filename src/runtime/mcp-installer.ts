@@ -1,3 +1,14 @@
+/**
+ * MCP server installation flow. Provides helpers to search the MCP registry, add
+ * or update an MCP server entry in the harness config file (while preserving
+ * existing YAML structure and comments), test the connection, and generate
+ * tools/*.md knowledge docs. Exports the install entry points
+ * (`installMcpServer`, `listRegistryServers`, `formatRegistryServer`), the config
+ * mutation helpers (`updateConfigWithServer`, `serverExistsInConfig`,
+ * `generateToolDocs`), the `McpInstallResult` / `McpInstallOptions` interfaces,
+ * and re-exports registry types and lookup functions from `./mcp-registry.js`.
+ */
+
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import YAML from 'yaml';
@@ -9,12 +20,9 @@ import type { ResolvedServer, RegistryEnvVar, RegistryServer, RegistrySearchResp
 import { findServer, searchServers, searchRegistry, getRegistryServer } from './mcp-registry.js';
 import { log } from '../core/logger.js';
 
-// Re-export registry types and functions for consumers
 export { searchRegistry, getRegistryServer };
 export type { RegistryServer, RegistrySearchResponse, RegistryEnvVar, ResolvedServer };
 export type { RegistryPackage, RegistryRemote, RegistrySearchResult } from './mcp-registry.js';
-
-// --- Types ---
 
 /** Result of installing an MCP server */
 export interface McpInstallResult {
@@ -53,8 +61,6 @@ export interface McpInstallOptions {
   name?: string;
 }
 
-// --- Config Update ---
-
 const CONFIG_FILENAMES = ['config.yaml', 'config.yml', 'harness.yaml', 'harness.yml'];
 
 /**
@@ -82,10 +88,8 @@ export function updateConfigWithServer(
   const configPath = findConfigPath(dir);
   const content = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : '';
 
-  // Parse existing YAML, preserving structure
   const doc = YAML.parseDocument(content);
 
-  // Ensure mcp.servers exists
   if (!doc.has('mcp')) {
     doc.set('mcp', doc.createNode({ servers: {} }));
   }
@@ -95,7 +99,6 @@ export function updateConfigWithServer(
   }
   const servers = mcp.get('servers') as YAML.YAMLMap;
 
-  // Build the server config node
   const configNode: Record<string, unknown> = {
     transport: serverConfig.transport,
   };
@@ -112,7 +115,6 @@ export function updateConfigWithServer(
     }
   }
 
-  // Common fields across transports
   if (serverConfig.enabled !== undefined) configNode['enabled'] = serverConfig.enabled;
   if (serverConfig.tools && (serverConfig.tools.include?.length || serverConfig.tools.exclude?.length)) {
     const toolsNode: Record<string, unknown> = {};
@@ -121,10 +123,8 @@ export function updateConfigWithServer(
     configNode['tools'] = toolsNode;
   }
 
-  // Set the server entry (add or overwrite)
   servers.set(serverName, doc.createNode(configNode));
 
-  // Write back
   writeFileSync(configPath, doc.toString(), 'utf-8');
 }
 
@@ -139,8 +139,6 @@ export function serverExistsInConfig(dir: string, serverName: string): boolean {
     return false;
   }
 }
-
-// --- Tool Doc Generation ---
 
 /**
  * Generate a tools/*.md knowledge doc from a connected MCP server's tools.
@@ -185,8 +183,6 @@ export function generateToolDocs(
   return [docPath];
 }
 
-// --- Connection Test ---
-
 /**
  * Test an MCP server connection and return tool info.
  */
@@ -195,14 +191,12 @@ async function testConnection(
   serverName: string,
   serverConfig: McpServerConfig,
 ): Promise<{ connected: boolean; toolCount: number; toolNames: string[]; error?: string }> {
-  // Build a minimal config for testing just this server
   const config = loadConfig(dir);
   const testConfig: HarnessConfig = {
     ...config,
     mcp: { servers: { [serverName]: { ...serverConfig, enabled: serverConfig.enabled ?? true } } },
   };
 
-  // Validate first
   const validationErrors = validateMcpConfig(testConfig);
   if (validationErrors.length > 0) {
     return {
@@ -245,8 +239,6 @@ async function testConnection(
   }
 }
 
-// --- Main Install Flow ---
-
 /**
  * Install an MCP server by name or search query.
  *
@@ -263,7 +255,6 @@ export async function installMcpServer(
 ): Promise<McpInstallResult> {
   const { dir, skipTest, skipDocs, force, name: nameOverride } = options;
 
-  // Step 1: Find the server in the registry
   log.info(`Searching MCP registry for "${query}"...`);
   let resolved: ResolvedServer | null;
   try {
@@ -291,7 +282,6 @@ export async function installMcpServer(
 
   const serverName = nameOverride ?? resolved.name;
 
-  // Step 2: Check if already exists
   if (!force && serverExistsInConfig(dir, serverName)) {
     return {
       installed: false,
@@ -303,7 +293,6 @@ export async function installMcpServer(
     };
   }
 
-  // Step 3: Write to config.yaml
   log.info(`Adding "${serverName}" to config.yaml...`);
   updateConfigWithServer(dir, serverName, resolved.config);
 
@@ -315,13 +304,11 @@ export async function installMcpServer(
     pendingEnvVars: resolved.requiredEnv,
   };
 
-  // Step 4: Test connection (optional)
   if (!skipTest) {
     log.info(`Testing connection to "${serverName}"...`);
     result.connectionTest = await testConnection(dir, serverName, resolved.config);
   }
 
-  // Step 5: Generate tool docs (optional)
   if (!skipDocs && result.connectionTest?.connected && result.connectionTest.toolNames.length > 0) {
     log.info(`Generating tool docs for "${serverName}"...`);
     result.generatedDocs = generateToolDocs(
@@ -359,7 +346,6 @@ export function formatRegistryServer(entry: { server: RegistryServer }): string 
     lines.push(`    ${desc}`);
   }
 
-  // Show packages
   const npmPkgs = (s.packages ?? []).filter((p) => p.registryType === 'npm');
   const pypiPkgs = (s.packages ?? []).filter((p) => p.registryType === 'pypi');
   if (npmPkgs.length > 0) {
@@ -369,12 +355,10 @@ export function formatRegistryServer(entry: { server: RegistryServer }): string 
     lines.push(`    pypi: ${pypiPkgs.map((p) => p.identifier).join(', ')}`);
   }
 
-  // Show remotes
   if (s.remotes && s.remotes.length > 0) {
     lines.push(`    remote: ${s.remotes[0].transportType} ${s.remotes[0].url}`);
   }
 
-  // Show required env vars
   const allEnvVars = (s.packages ?? [])
     .flatMap((p) => p.environmentVariables ?? [])
     .filter((v) => v.isRequired);
