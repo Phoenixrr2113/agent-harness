@@ -302,6 +302,30 @@ harness delegate summarizer "Summarize this paragraph: ..."
 
 All three model roles resolve on the **same provider** as your primary config.
 
+## CLI agent delegation (opt-in)
+
+In addition to in-harness sub-agents, the harness can delegate bounded subtasks to local CLI agents you already have installed — `claude`, `codex`, or `gemini` — by shelling out via a shell MCP. The CLI does its own tool-use internally and returns text; the harness only sees the final answer. This pushes heavy work (reading many files, long summarizations) onto your CLI subscription instead of the harness's API budget.
+
+> ⚠ **TOS notice.** Invoking a subscription-backed CLI programmatically from another agent may fall outside the acceptable-use terms of that subscription. Delegation is **opt-in, default off**. Review each provider's terms before enabling.
+
+During `harness init`, if any of `claude` / `codex` / `gemini` are on your PATH, you'll see a prompt with a TOS warning. Typing `y` activates three tool primitives (`tools/ask-{claude,codex,gemini}.md`), the `skills/delegate-to-cli.md` decision-tree skill, and installs the `shell` MCP (desktop-commander, filtered to process tools only).
+
+**Picking the right permission flag matters** — without it, the subagent subprocess stalls silently in a non-TTY context:
+
+| CLI | Read-only | In-place edits |
+|---|---|---|
+| `claude` | *(no flag)* | `--permission-mode bypassPermissions` |
+| `codex` | `-s read-only` *(default)* | `--dangerously-bypass-approvals-and-sandbox` |
+| `gemini` | *(no flag)* | verify with `gemini --help` in current release |
+
+The `delegate-to-cli` skill documents the full decision tree (when to delegate, which CLI for which task, orchestration loop, failure modes). The `ask-*` tool docs cover each CLI's specific flags and gotchas. To activate later without rerunning init:
+
+```bash
+# Flip status on each tool you want, then install the shell MCP.
+sed -i '' 's/^status: draft/status: active/' tools/ask-claude.md skills/delegate-to-cli.md
+harness mcp install shell -d <harness-dir>
+```
+
 ## Guardrails
 
 ### Per-tool approval
@@ -410,7 +434,9 @@ mcp:
     shell:
       transport: stdio
       command: npx
-      args: ["-y", "shell-exec-mcp"]
+      args: ["-y", "@wonderwhy-er/desktop-commander"]
+      tools:
+        include: [start_process, read_process_output, interact_with_process, force_terminate, list_processes]
     my-api:
       transport: http
       url: https://example.com/mcp
