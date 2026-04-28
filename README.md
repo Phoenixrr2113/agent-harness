@@ -6,6 +6,16 @@ Agent Harness is the layer between "I have an LLM API key" and "I have a working
 
 **Who this is for**: anyone technical or semi-technical who has a repeating problem they want an agent to own. Writers, founders, ops people, researchers, developers, consultants, analysts. If you can describe what you want in a document, you can build an agent for it.
 
+## When to use this (and when not to)
+
+**Use it as itself.** `harness init my-agent && harness chat` — you're talking to an agent that works on whatever you give it. Standalone, identity in `CORE.md`, memory under `memory/`, learning loop on by default.
+
+**Use it as your project's resident assistant.** Initialize a harness inside any codebase or workspace; the agent operates on that project's files, runs scripts, manages tasks, learns your patterns over time. Like having a colleague who's read every file and remembers every conversation.
+
+**Don't try to embed it inside another agent product.** If you're building something like Claude Code, Cursor, an in-house ops bot, a phone assistant, or any product where *you* own the agent loop, agent-harness isn't infrastructure for you — it is itself an agent, and embedding it gives you two minds in one process: two identity layers, two memory systems, two reflection loops, two tool registries, and a permanent orchestration tax between them. People have tried this and burned days on it. Don't.
+
+If you're building your own agent product and want what's good here, **copy the patterns, not the runtime.** The file format is open ([Agent Skills compatible](https://agentskills.io)), the source is MIT-licensed, and ideas like progressive disclosure, session capture, journal synthesis, the instinct review queue, and the durable workflow engine all transplant cleanly into your codebase. The runtime itself is intentionally not exposed as a library — no `import { createAgent }`, no `exports` field in `package.json`, no published types. The `harness` CLI is the only supported entry point. That's by design, not an oversight.
+
 ## What makes it different
 
 Most agent frameworks give you a box of parts and leave the rest to you. agent-harness gives you a runtime that does three things nobody else does:
@@ -106,7 +116,7 @@ Writing an agent in TypeScript or Python couples the agent's behavior to your pr
 - **The harness can write back** — `harness learn` produces markdown files you can read and edit by hand before accepting them.
 - **Portability** — the folder IS the agent. Share it by copying. Version it with git. Deploy it by tarring it.
 
-agent-harness is a CLI, not a library. There is no `import { createAgent }` API — the entire authoring surface is markdown files inside a harness directory and the `harness` command. If you need programmatic control, script the CLI from your shell or call `harness run` / `harness serve` from any process spawn (subprocess, Lambda, GitHub Actions).
+The authoring surface is markdown files in a harness directory and the `harness` command — there's no library API by design (see [When to use this](#when-to-use-this-and-when-not-to)). For automation — cron jobs, CI runners, scheduled tasks — shell out to `harness run` or POST to `harness serve`.
 
 ## How it works
 
@@ -578,7 +588,7 @@ Aliases are shorthand for OpenRouter model IDs — change `model.id` directly if
 
 ## HTTP server
 
-`harness serve` exposes a REST API for webhooks and integrations. Run the agent from anywhere you can make an HTTP call:
+`harness serve` exposes a REST API for webhooks, scheduled jobs, and remote access — for triggering the agent from external systems like CI runners, cron, Zapier, or GitHub Actions. This is **not** a way to embed the agent inside another agent product (see [When to use this](#when-to-use-this-and-when-not-to)); it's a remote control surface for the same standalone agent.
 
 ```bash
 harness serve --port 8080 --webhook-secret $SECRET
