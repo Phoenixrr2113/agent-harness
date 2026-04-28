@@ -64,6 +64,29 @@ export const compatibilitySchema = z
   .min(1, 'compatibility must not be empty')
   .max(500, 'compatibility must be ≤ 500 characters');
 
+/**
+ * Strict Agent Skills frontmatter schema (https://agentskills.io/specification).
+ *
+ * Skills MUST have only spec-defined top-level fields. All harness extensions
+ * (tags, status, author, etc.) move into `metadata` with the `harness-` prefix.
+ * The loader's normalization layer extracts those into the canonical
+ * HarnessDocument shape so downstream code reads them uniformly.
+ *
+ * The "name matches parent directory" rule is enforced by the loader, not here.
+ */
+export const SkillFrontmatterSchema = z
+  .object({
+    name: nameSchema,
+    description: descriptionSchema,
+    license: z.string().optional(),
+    compatibility: compatibilitySchema.optional(),
+    metadata: z.record(z.string(), z.string()).optional(),
+    'allowed-tools': z.string().optional(),
+  })
+  .strict();
+
+export type SkillFrontmatter = z.infer<typeof SkillFrontmatterSchema>;
+
 const FrontmatterInnerSchema = z.object({
   id: z.string(),
   /**

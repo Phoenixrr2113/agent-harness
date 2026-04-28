@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nameSchema, descriptionSchema, compatibilitySchema } from '../../src/core/types.js';
+import { nameSchema, descriptionSchema, compatibilitySchema, SkillFrontmatterSchema } from '../../src/core/types.js';
 
 describe('nameSchema', () => {
   it('accepts valid lowercase-hyphen names', () => {
@@ -65,5 +65,74 @@ describe('compatibilitySchema', () => {
 
   it('rejects empty', () => {
     expect(compatibilitySchema.safeParse('').success).toBe(false);
+  });
+});
+
+describe('SkillFrontmatterSchema', () => {
+  it('accepts minimal valid skill frontmatter', () => {
+    const result = SkillFrontmatterSchema.safeParse({
+      name: 'research',
+      description: 'Conducts deep research. Use when investigating a topic.',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('requires name', () => {
+    const result = SkillFrontmatterSchema.safeParse({
+      description: 'A description.',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('requires description', () => {
+    const result = SkillFrontmatterSchema.safeParse({
+      name: 'research',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts allowed-tools as space-separated string', () => {
+    const result = SkillFrontmatterSchema.safeParse({
+      name: 'research',
+      description: 'Research stuff.',
+      'allowed-tools': 'WebSearch Read Bash(jq:*)',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects allowed-tools as array', () => {
+    const result = SkillFrontmatterSchema.safeParse({
+      name: 'research',
+      description: 'Research stuff.',
+      'allowed-tools': ['WebSearch', 'Read'],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects unknown top-level fields (strict)', () => {
+    const result = SkillFrontmatterSchema.safeParse({
+      name: 'research',
+      description: 'Research stuff.',
+      tags: ['skill'],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts metadata as string→string map', () => {
+    const result = SkillFrontmatterSchema.safeParse({
+      name: 'research',
+      description: 'Research stuff.',
+      metadata: { 'harness-tags': 'research,knowledge-work', 'harness-status': 'active' },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects metadata with non-string values', () => {
+    const result = SkillFrontmatterSchema.safeParse({
+      name: 'research',
+      description: 'Research stuff.',
+      metadata: { 'harness-tags': ['research', 'knowledge-work'] },
+    });
+    expect(result.success).toBe(false);
   });
 });
