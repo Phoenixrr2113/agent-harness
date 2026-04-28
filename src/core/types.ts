@@ -87,6 +87,49 @@ export const SkillFrontmatterSchema = z
 
 export type SkillFrontmatter = z.infer<typeof SkillFrontmatterSchema>;
 
+/**
+ * Frontmatter schema for non-skill primitives (rules, instincts, playbooks,
+ * workflows, tools, agents). Mirrors the Agent Skills shape (name +
+ * description required, metadata bag) but adds harness-specific top-level
+ * fields where structural significance justifies it.
+ *
+ * Permissive on `metadata` (string → unknown) since these primitives aren't
+ * bound by the spec's string-only metadata constraint.
+ *
+ * Spec #2 collapses these primitives into skills + rules; this schema covers
+ * the transitional state where they still exist as separate kinds.
+ */
+export const NonSkillFrontmatterSchema = z
+  .object({
+    name: nameSchema,
+    description: descriptionSchema,
+    license: z.string().optional(),
+    compatibility: compatibilitySchema.optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+    'allowed-tools': z.string().optional(),
+    // Harness extensions
+    tags: z.array(z.string()).default([]),
+    status: z.enum(['active', 'archived', 'deprecated', 'draft']).default('active'),
+    author: z.enum(['human', 'agent', 'infrastructure']).default('human'),
+    created: z.string().optional(),
+    updated: z.string().optional(),
+    related: z.array(z.string()).default([]),
+    // Workflow-specific
+    schedule: z.string().optional(),
+    with: z.string().optional(),
+    channel: z.string().optional(),
+    duration_minutes: z.number().optional(),
+    max_retries: z.number().int().nonnegative().optional(),
+    retry_delay_ms: z.number().int().positive().optional(),
+    durable: z.boolean().optional(),
+    // Agent-specific
+    model: z.enum(['primary', 'summary', 'fast']).optional(),
+    active_tools: z.array(z.string()).optional(),
+  })
+  .passthrough();
+
+export type NonSkillFrontmatter = z.infer<typeof NonSkillFrontmatterSchema>;
+
 const FrontmatterInnerSchema = z.object({
   id: z.string(),
   /**

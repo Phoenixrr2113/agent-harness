@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nameSchema, descriptionSchema, compatibilitySchema, SkillFrontmatterSchema } from '../../src/core/types.js';
+import { nameSchema, descriptionSchema, compatibilitySchema, SkillFrontmatterSchema, NonSkillFrontmatterSchema } from '../../src/core/types.js';
 
 describe('nameSchema', () => {
   it('accepts valid lowercase-hyphen names', () => {
@@ -132,6 +132,48 @@ describe('SkillFrontmatterSchema', () => {
       name: 'research',
       description: 'Research stuff.',
       metadata: { 'harness-tags': ['research', 'knowledge-work'] },
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('NonSkillFrontmatterSchema', () => {
+  it('accepts minimal valid non-skill frontmatter', () => {
+    const result = NonSkillFrontmatterSchema.safeParse({
+      name: 'operations',
+      description: 'Operational rules for the agent.',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts harness extension fields at top level', () => {
+    const result = NonSkillFrontmatterSchema.safeParse({
+      name: 'daily-reflection',
+      description: 'Synthesize today\'s sessions.',
+      tags: ['reflection', 'daily'],
+      status: 'active',
+      author: 'infrastructure',
+      created: '2026-04-28',
+      updated: '2026-04-28',
+      schedule: '0 22 * * *',
+      durable: true,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts permissive metadata (any value type)', () => {
+    const result = NonSkillFrontmatterSchema.safeParse({
+      name: 'foo',
+      description: 'A thing.',
+      metadata: { count: 5, tags: ['a', 'b'] },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('still validates name regex', () => {
+    const result = NonSkillFrontmatterSchema.safeParse({
+      name: 'Operations',
+      description: 'A thing.',
     });
     expect(result.success).toBe(false);
   });
