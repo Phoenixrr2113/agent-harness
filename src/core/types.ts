@@ -28,6 +28,23 @@ function slugifyName(name: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+/**
+ * Agent Skills spec name validator (https://agentskills.io/specification#name-field).
+ * Required for skills; optional but checked when present for non-skill primitives.
+ *
+ * Rules: 1–64 chars, lowercase a-z, digits, hyphens; no leading/trailing hyphen;
+ * no consecutive hyphens. The "match parent dir" rule is enforced by the loader,
+ * not by the schema itself.
+ */
+export const nameSchema = z
+  .string()
+  .min(1, 'name must not be empty')
+  .max(64, 'name must be ≤ 64 characters')
+  .regex(
+    /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9]))*$/,
+    'name must be lowercase a-z/0-9/hyphen, no leading/trailing/consecutive hyphens'
+  );
+
 const FrontmatterInnerSchema = z.object({
   id: z.string(),
   /**
