@@ -45,6 +45,25 @@ export const nameSchema = z
     'name must be lowercase a-z/0-9/hyphen, no leading/trailing/consecutive hyphens'
   );
 
+/**
+ * Agent Skills spec description validator. Required for skills (1-1024 chars,
+ * non-empty after trim). Should describe what the skill does AND when to use
+ * it (the "imperative phrasing" guidance from the optimizing-descriptions doc).
+ */
+export const descriptionSchema = z
+  .string()
+  .min(1, 'description must not be empty')
+  .max(1024, 'description must be ≤ 1024 characters')
+  .refine((s) => s.trim().length > 0, { message: 'description must not be only whitespace' });
+
+/**
+ * Agent Skills spec compatibility hint. Optional; when present, must be 1-500 chars.
+ */
+export const compatibilitySchema = z
+  .string()
+  .min(1, 'compatibility must not be empty')
+  .max(500, 'compatibility must be ≤ 500 characters');
+
 const FrontmatterInnerSchema = z.object({
   id: z.string(),
   /**
