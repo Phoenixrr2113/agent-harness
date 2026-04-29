@@ -302,6 +302,36 @@ harness rules promote <candidate-id>                  # gated by default
 harness rules promote <candidate-id> --no-eval-gate   # power-user bypass
 ```
 
+## Provider integration
+
+`harness export` adapts harness skills, rules, and identity into the formats other agent tools expect — so a project that already has `.claude/`, `.cursor/`, or `.github/copilot-instructions.md` can stay in sync with one source of truth. The harness directory is canonical; provider directories are generated artifacts (similar to a `dist/` build output) with embedded sha256 provenance markers used for drift detection.
+
+Six providers ship in v0.13.0: `claude`, `codex`, `agents` (cross-tool `.agents/`), `cursor`, `copilot`, `gemini`.
+
+```bash
+harness export claude                 # single provider
+harness export                        # all configured targets from config.yaml
+harness export --dry-run              # preview without writing
+harness doctor --check-drift          # check for external edits to generated files
+```
+
+Configure targets per-provider in `config.yaml`:
+
+```yaml
+export:
+  enabled: true
+  targets:
+    - provider: claude
+      path: ".claude"
+    - provider: cursor
+      path: ".cursor"
+  on_drift: warn
+```
+
+For the full reference — per-provider format mapping, drift resolution, resync semantics, configuration schema — see [docs/provider-integration.md](./docs/provider-integration.md).
+
+> **Renamed in v0.13.0.** The previous `harness export <output.json>` (portable harness bundle) is now `harness export-bundle <output.json>`. Same behavior; only the verb changed to free up `export` for provider integration.
+
 ## Durable workflows
 
 As of 0.7.0, workflows run durably. Each step of a tool-using agent checkpoints to disk, so interruptions don't cost the whole run.
@@ -603,7 +633,10 @@ The full surface is ~90 commands. `harness --help` shows everything; `harness <c
 `costs show|budget|clear`, `health`, `ratelimit status|clear`, `dashboard`, `check-rules`, `list-rules`, `gate run`, `intelligence promote|dead|contradictions|suggest|failures`
 
 ### Portability
-`export`, `import`, `scratch`, `cleanup`, `version init|snapshot`, `semantic index|stats`
+`export-bundle`, `import`, `scratch`, `cleanup`, `version init|snapshot`, `semantic index|stats`
+
+### Provider integration
+`export [provider]`, `doctor --check-drift`
 
 ### Misc
 `hardware`, `fix <file>`, `intake`, `compress`, `tools list|show`, `auth`, `emotional status|signal`, `state-merge apply|ownership`

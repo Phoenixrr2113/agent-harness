@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { loadAllPrimitives, loadAllPrimitivesWithErrors, estimateTokens } from '../primitives/loader.js';
 import type { ParseError } from '../primitives/loader.js';
 import type { HarnessConfig, ContextBudget } from '../core/types.js';
@@ -192,4 +192,44 @@ export function buildLoadedContext(harnessDir: string, config: HarnessConfig): L
   };
 
   return { systemPrompt, budget, parseErrors, warnings };
+}
+
+export interface ProjectContextRule {
+  name: string;
+  description: string;
+  body: string;
+  status: 'active';
+  source: string;
+}
+
+/**
+ * If the harness is scaffolded inside a subdirectory and the project root
+ * has an AGENTS.md / CLAUDE.md / GEMINI.md, load it as a synthetic rule
+ * named `project-context` so the harness's agent sees the project's
+ * existing guidance.
+ *
+ * Returns null if no such file exists. Wiring this into the runtime context
+ * (so it appears in the agent's system prompt) is a follow-up; this helper
+ * is just the loader.
+ */
+export function loadProjectContextRule(harnessDir: string): ProjectContextRule | null {
+  const projectRoot = dirname(harnessDir);
+  const candidates = [
+    join(projectRoot, 'AGENTS.md'),
+    join(projectRoot, 'CLAUDE.md'),
+    join(projectRoot, 'GEMINI.md'),
+  ];
+  for (const path of candidates) {
+    if (existsSync(path)) {
+      const body = readFileSync(path, 'utf-8');
+      return {
+        name: 'project-context',
+        description: 'Project-level guidance from the host project',
+        body,
+        status: 'active',
+        source: path,
+      };
+    }
+  }
+  return null;
 }
