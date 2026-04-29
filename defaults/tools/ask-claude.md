@@ -1,8 +1,6 @@
 ---
 id: ask-claude
 tags: [tool, delegation, cli, claude]
-created: {{DATE}}
-updated: {{DATE}}
 author: human
 status: draft
 related:

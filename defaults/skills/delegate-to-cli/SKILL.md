@@ -1,24 +1,15 @@
 ---
-id: delegate-to-cli
-tags: [skill, delegation, cli]
-created: {{DATE}}
-updated: {{DATE}}
-author: human
-status: draft
-related:
-  - ask-claude
-  - ask-codex
-  - ask-gemini
-  - research
+name: delegate-to-cli
+description: >-
+  Delegate bounded subtasks to local CLI agents (claude/codex/gemini) via the
+  shell MCP to save API tokens and context. Requires the matching
+  permission-mode flag for the work type.
+metadata:
+  harness-tags: skill,delegation,cli
+  harness-status: draft
+  harness-author: human
+  harness-related: ask-claude,ask-codex,ask-gemini,research
 ---
-
-<!-- L0: Delegate bounded subtasks to local CLI agents (claude/codex/gemini) via the shell MCP to save API tokens and context. Requires the matching permission-mode flag for the work type. -->
-<!-- L1: Decision tree: is the task text-in-text-out and bounded? If yes, pick the CLI and the
-     permission mode, launch via shell MCP's start_process, poll read_process_output until exit.
-     Claude needs `--permission-mode bypassPermissions` for edits. Codex needs
-     `--dangerously-bypass-approvals-and-sandbox` for reliable non-TTY edits. Without the right
-     flag the subprocess silently stalls. -->
-
 # Skill: Delegate bounded subtasks to CLI agents
 
 Use a local CLI agent (`claude`, `codex`, `gemini`) as a subprocess subagent when the work is
@@ -101,7 +92,7 @@ Standard loop — same every time:
 - **"Execution error" fast return from `claude -p`** — version mismatch. User has an older binary
   on PATH. Check `claude --version` and escalate if < 2.1.
 - **Rate limits** — CLI subscriptions have per-minute and daily caps. Heavy parallel delegation
-  hits them. Back off and serialize if you see 429-style errors.
+  hits them. Back off and serialize if you see 429-like errors.
 - **Missing CLI** — don't fall back silently. Tell the user what's missing so they can install it.
 
 Related: [ask-claude], [ask-codex], [ask-gemini], [research]

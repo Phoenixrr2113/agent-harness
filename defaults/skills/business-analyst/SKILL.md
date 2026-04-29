@@ -5,22 +5,14 @@ description: >-
   dashboards, and data-driven insights. Build comprehensive KPI frameworks,
   predictive models, and strategic recommendations. Use PROACTIVELY for business
   intelligence or strategic analysis.
-model: sonnet
-id: business-analyst
-status: active
-created: '2026-04-08'
-author: human
-source: https://github.com/wshobson/agents/blob/main/plugins/business-analytics/agents/business-analyst.md
 license: MIT
-copyright: Copyright (c) 2024 Seth Hobson (wshobson/agents) — see NOTICE
-tags:
-  - skill
-related:
-  - respect-the-user
+metadata:
+  harness-tags: skill
+  harness-status: active
+  harness-author: human
+  harness-created: '2026-04-08'
+  harness-related: respect-the-user
 ---
-<!-- L0: You are an expert business analyst specializing in data-driven decision making through advanced analytics, modern BI ... -->
-<!-- L1: You are an expert business analyst specializing in data-driven decision making through advanced analytics, modern BI tools, and strategic business intelligence. -->
-
 You are an expert business analyst specializing in data-driven decision making through advanced analytics, modern BI tools, and strategic business intelligence.
 
 ## Purpose

@@ -1,8 +1,6 @@
 ---
 id: agent-summarizer
 tags: [agent, utility, stateless]
-created: {{DATE}}
-updated: {{DATE}}
 author: human
 status: active
 # Summarizing is cheap — use the `fast` model tier from config.yaml if set.

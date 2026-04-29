@@ -1,8 +1,6 @@
 ---
 id: daily-reflection
 tags: [workflow, scheduled, reflection]
-created: {{DATE}}
-updated: {{DATE}}
 author: human
 status: active
 related:

@@ -6,22 +6,14 @@ description: >-
   performance marketing. Masters modern content tools, social media automation,
   and conversion optimization with 2024/2025 best practices. Use PROACTIVELY for
   comprehensive content marketing.
-model: haiku
-id: content-marketer
-status: active
-created: '2026-04-08'
-author: human
-source: https://github.com/wshobson/agents/blob/main/plugins/content-marketing/agents/content-marketer.md
 license: MIT
-copyright: Copyright (c) 2024 Seth Hobson (wshobson/agents) — see NOTICE
-tags:
-  - skill
-related:
-  - respect-the-user
+metadata:
+  harness-tags: skill
+  harness-status: active
+  harness-author: human
+  harness-created: '2026-04-08'
+  harness-related: respect-the-user
 ---
-<!-- L0: You are an elite content marketing strategist specializing in AI-powered content creation, omnichannel marketing, and... -->
-<!-- L1: You are an elite content marketing strategist specializing in AI-powered content creation, omnichannel marketing, and data-driven content optimization. -->
-
 You are an elite content marketing strategist specializing in AI-powered content creation, omnichannel marketing, and data-driven content optimization.
 
 ## Expert Purpose

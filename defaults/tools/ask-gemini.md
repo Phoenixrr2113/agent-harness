@@ -1,8 +1,6 @@
 ---
 id: ask-gemini
 tags: [tool, delegation, cli, gemini, google]
-created: {{DATE}}
-updated: {{DATE}}
 author: human
 status: draft
 related:

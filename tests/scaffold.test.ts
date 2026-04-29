@@ -73,7 +73,7 @@ describe('harness init (scaffolding)', () => {
       'instincts/lead-with-answer.md',
       'instincts/read-before-edit.md',
       'instincts/search-before-create.md',
-      'skills/research.md',
+      'skills/research/SKILL.md',
       'playbooks/ship-feature.md',
     ];
 
@@ -120,7 +120,6 @@ describe('harness init (scaffolding)', () => {
       'instincts/lead-with-answer.md',
       'instincts/read-before-edit.md',
       'instincts/search-before-create.md',
-      'skills/research.md',
       'playbooks/ship-feature.md',
     ];
 
@@ -133,41 +132,16 @@ describe('harness init (scaffolding)', () => {
       // Should have required fields
       expect(content).toContain('id:');
       expect(content).toContain('tags:');
-      expect(content).toContain('created:');
       expect(content).toContain('author:');
       expect(content).toContain('status:');
     }
-  });
 
-  it('should include L0 and L1 summaries in primitives', () => {
-    scaffoldHarness(agentDir, 'test-agent');
-
-    const primitives = [
-      'rules/operations.md',
-      'instincts/lead-with-answer.md',
-      'skills/research.md',
-      'playbooks/ship-feature.md',
-    ];
-
-    for (const file of primitives) {
-      const content = readFileSync(join(agentDir, file), 'utf-8');
-
-      // Should have L0 and L1 summaries as HTML comments
-      const l0Match = content.match(/<!-- L0: (.+?) -->/);
-      const l1Match = content.match(/<!-- L1: (.+?) -->/s);
-
-      expect(l0Match, `${file} should have L0 summary`).toBeTruthy();
-      expect(l1Match, `${file} should have L1 summary`).toBeTruthy();
-
-      if (l0Match && l1Match) {
-        // L0 should be short (roughly one line)
-        expect(l0Match[1].length).toBeLessThan(100);
-
-        // L1 should be longer but not huge
-        expect(l1Match[1].length).toBeGreaterThan(l0Match[1].length);
-        expect(l1Match[1].length).toBeLessThan(600);
-      }
-    }
+    // Skills use bundle format with metadata.harness-* fields
+    const skillContent = readFileSync(join(agentDir, 'skills/research/SKILL.md'), 'utf-8');
+    expect(skillContent.startsWith('---\n'), 'skills/research/SKILL.md should have frontmatter').toBe(true);
+    expect(skillContent).toContain('harness-tags:');
+    expect(skillContent).toContain('harness-status:');
+    expect(skillContent).toContain('harness-author:');
   });
 
   it('should create .gitignore that excludes ephemeral files', () => {
@@ -203,9 +177,9 @@ describe('harness init (scaffolding)', () => {
     const instinctContent = readFileSync(join(agentDir, 'instincts/lead-with-answer.md'), 'utf-8');
     expect(instinctContent).toContain('author: agent');
 
-    // Skills can be mixed, but default should be human
-    const skillContent = readFileSync(join(agentDir, 'skills/research.md'), 'utf-8');
-    expect(skillContent).toContain('author: human');
+    // Skills use bundle format — author is in metadata.harness-author
+    const skillContent = readFileSync(join(agentDir, 'skills/research/SKILL.md'), 'utf-8');
+    expect(skillContent).toContain('harness-author: human');
 
     // Playbooks can be mixed, but default should be human
     const playbookContent = readFileSync(join(agentDir, 'playbooks/ship-feature.md'), 'utf-8');

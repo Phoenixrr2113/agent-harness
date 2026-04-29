@@ -1,8 +1,6 @@
 ---
 id: lead-with-answer
 tags: [instinct, communication]
-created: {{DATE}}
-updated: {{DATE}}
 author: agent
 status: active
 source: learned-behavior

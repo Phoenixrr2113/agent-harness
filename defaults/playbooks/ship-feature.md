@@ -1,8 +1,6 @@
 ---
 id: ship-feature
 tags: [playbook, development, shipping]
-created: {{DATE}}
-updated: {{DATE}}
 author: human
 status: active
 related:

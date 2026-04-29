@@ -1,8 +1,6 @@
 ---
 id: qualify-before-recommending
 tags: [instinct, communication, recommendations]
-created: {{DATE}}
-updated: {{DATE}}
 author: agent
 status: active
 source: default

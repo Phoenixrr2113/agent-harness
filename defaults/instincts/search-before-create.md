@@ -1,8 +1,6 @@
 ---
 id: search-before-create
 tags: [instinct, development, reuse]
-created: {{DATE}}
-updated: {{DATE}}
 author: agent
 status: active
 source: learned-behavior

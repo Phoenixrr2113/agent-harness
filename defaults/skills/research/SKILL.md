@@ -1,19 +1,15 @@
 ---
-id: research
-tags: [skill, research, analysis]
-created: {{DATE}}
-updated: {{DATE}}
-author: human
-status: active
-related:
-  - ask-before-assuming
+name: research
+description: >-
+  Deep research — clarify question, find primary sources, verify, deliver
+  recommendation. Use when the answer requires checking documentation, papers,
+  or official repos rather than guessing from memory.
+metadata:
+  harness-tags: skill,research,analysis
+  harness-status: active
+  harness-author: human
+  harness-related: ask-before-assuming
 ---
-
-<!-- L0: Deep research — clarify question, find primary sources, verify, deliver recommendation. -->
-<!-- L1: Research workflow: clarify the actual question -> find primary sources (not summaries) ->
-     verify information recency -> cross-reference claims -> deliver a single clear recommendation
-     with confidence level. Never deliver a list of options without a recommendation. -->
-
 # Skill: Research
 
 ## Process

@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'fs';
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { writeDefaultConfig } from '../core/config.js';
@@ -51,7 +51,28 @@ function applyTemplate(content: string, vars: TemplateVars): string {
 }
 
 /**
+ * Recursively copy a directory, applying template variable substitution to
+ * every .md file encountered. Non-.md files are copied verbatim.
+ */
+function copyDirRecursive(srcDir: string, destDir: string, vars: TemplateVars): void {
+  mkdirSync(destDir, { recursive: true });
+  for (const entry of readdirSync(srcDir)) {
+    const srcPath = join(srcDir, entry);
+    const destPath = join(destDir, entry);
+    if (statSync(srcPath).isDirectory()) {
+      copyDirRecursive(srcPath, destPath, vars);
+    } else if (entry.endsWith('.md')) {
+      const content = readFileSync(srcPath, 'utf-8');
+      writeFileSync(destPath, applyTemplate(content, vars), 'utf-8');
+    } else {
+      writeFileSync(destPath, readFileSync(srcPath));
+    }
+  }
+}
+
+/**
  * Copy markdown primitives from a source directory into a target harness.
+ * Handles both flat .md files and bundle directories (e.g. skills/research/).
  * Existing files at the destination are overwritten.
  */
 function copyPrimitivesFrom(srcRoot: string, targetDir: string, vars: TemplateVars): void {
@@ -60,10 +81,17 @@ function copyPrimitivesFrom(srcRoot: string, targetDir: string, vars: TemplateVa
   for (const dir of primitiveDirs) {
     const srcDir = join(srcRoot, dir);
     if (!existsSync(srcDir)) continue;
-    const files = readdirSync(srcDir).filter((f) => f.endsWith('.md'));
-    for (const file of files) {
-      const content = readFileSync(join(srcDir, file), 'utf-8');
-      writeFileSync(join(targetDir, dir, file), applyTemplate(content, vars), 'utf-8');
+    for (const entry of readdirSync(srcDir)) {
+      const srcPath = join(srcDir, entry);
+      const destPath = join(targetDir, dir, entry);
+      if (statSync(srcPath).isDirectory()) {
+        // Bundle directory — copy recursively with template substitution
+        copyDirRecursive(srcPath, destPath, vars);
+      } else if (entry.endsWith('.md')) {
+        // Flat .md file — copy with template substitution
+        const content = readFileSync(srcPath, 'utf-8');
+        writeFileSync(destPath, applyTemplate(content, vars), 'utf-8');
+      }
     }
   }
 }
@@ -288,11 +316,21 @@ export function generateSystemMd(harnessDir: string, agentName: string): string 
     const dirPath = join(harnessDir, dir);
     if (!existsSync(dirPath)) continue;
 
-    const files = readdirSync(dirPath).filter((f) => f.endsWith('.md') && !f.startsWith('_'));
-    if (files.length === 0) {
+    // Collect both flat .md files and bundle directories (treated as named primitives)
+    const entries = readdirSync(dirPath).filter((f) => !f.startsWith('_'));
+    const names: string[] = [];
+    for (const entry of entries) {
+      const entryPath = join(dirPath, entry);
+      if (statSync(entryPath).isDirectory()) {
+        names.push(entry);
+      } else if (entry.endsWith('.md')) {
+        names.push(entry.replace('.md', ''));
+      }
+    }
+    if (names.length === 0) {
       sections.push(`- \`${dir}/\` — (empty)`);
     } else {
-      sections.push(`- \`${dir}/\` — ${files.length} file(s): ${files.map((f) => f.replace('.md', '')).join(', ')}`);
+      sections.push(`- \`${dir}/\` — ${names.length} file(s): ${names.join(', ')}`);
     }
   }
 

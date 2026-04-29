@@ -1,8 +1,6 @@
 ---
 id: read-before-edit
 tags: [instinct, development]
-created: {{DATE}}
-updated: {{DATE}}
 author: agent
 status: active
 source: learned-behavior

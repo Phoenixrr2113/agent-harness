@@ -1,8 +1,6 @@
 ---
 id: respect-the-user
 tags: [rule, communication, respect]
-created: {{DATE}}
-updated: {{DATE}}
 author: human
 status: active
 related:

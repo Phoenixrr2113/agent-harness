@@ -1,8 +1,6 @@
 ---
 id: ask-before-assuming
 tags: [rule, communication]
-created: {{DATE}}
-updated: {{DATE}}
 author: human
 status: active
 related:

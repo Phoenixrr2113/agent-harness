@@ -1,8 +1,6 @@
 ---
 id: ask-codex
 tags: [tool, delegation, cli, codex, openai]
-created: {{DATE}}
-updated: {{DATE}}
 author: human
 status: draft
 related:

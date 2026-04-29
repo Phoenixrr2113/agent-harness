@@ -1,10 +1,8 @@
 ---
 id: example-web-search
 tags: [tool, example, web-search]
-created: {{DATE}}
-updated: {{DATE}}
 author: human
-status: example
+status: draft
 related:
   - research
 ---
