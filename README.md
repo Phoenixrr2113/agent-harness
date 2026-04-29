@@ -33,13 +33,13 @@ You don't prune files, check token counts, or write cleanup scripts. The harness
 ### 2. It learns from itself
 
 ```
-Interaction → Session → Journal → Instinct proposed → Auto-installed → Behavior changes
+Interaction → Session → Journal → Rule proposed → Auto-installed → Behavior changes
 ```
 
 1. Every `harness run` or `harness chat` is saved as a session.
 2. `harness journal` synthesizes the day's sessions and finds patterns across them.
-3. `harness learn --install` promotes patterns to **instincts** — behavioral rules written to disk with full provenance ("learned from session X because you kept doing Y").
-4. On the next run, the agent loads the new instincts and **actually behaves differently**.
+3. `harness learn --install` promotes patterns to **rules** — behavioral rules written to disk with full provenance ("learned from session X because you kept doing Y").
+4. On the next run, the agent loads the new rules and **actually behaves differently**.
 
 No retraining. No fine-tuning. No tokenization. You use the agent for a week and it measurably improves, with an auditable trail of what changed and why.
 
@@ -99,8 +99,8 @@ harness prompt
 
 # Build the learning loop
 harness journal            # synthesize today's sessions
-harness learn --install    # promote patterns to instincts
-harness run "Same question again" # agent now applies its new instincts
+harness learn --install    # promote patterns to rules
+harness run "Same question again" # agent now applies its new rules
 
 # Watch + dashboard at http://localhost:3000
 harness dev
@@ -124,20 +124,15 @@ When you run `harness init my-agent`, you get this directory:
 
 ```
 my-agent/
-├── IDENTITY.md             # Agent identity (was CORE.md)
+├── IDENTITY.md             # Agent identity
 ├── config.yaml             # Model, runtime, memory, MCP, scheduler
-├── rules/                  # Human-authored operational boundaries
-├── instincts/              # Agent-learned reflexive behaviors (collapsed in next release)
-├── skills/                 # Capabilities with embedded expertise (Agent Skills bundles)
-├── playbooks/              # Adaptive guidance (collapsed in next release)
-├── workflows/              # Cron-driven automations (collapsed in next release)
-├── tools/                  # External service integrations (collapsed in next release)
-├── agents/                 # Sub-agent roster (collapsed in next release)
+├── rules/                  # Always-loaded behavioral guidance
+├── skills/                 # Agent Skills bundles (discovery + activation)
 └── memory/
-    ├── state.md            # Live state (mode, goals, last interaction)
-    ├── sessions/           # Auto-captured interaction records
-    ├── journal/            # Daily synthesized reflections
-    └── scratch.md          # Ephemeral working memory
+    ├── state.md
+    ├── sessions/
+    ├── journal/
+    └── scratch.md
 ```
 
 ### Progressive disclosure
@@ -150,25 +145,37 @@ The harness loads files at three tiers per the [Agent Skills spec](https://agent
 
 Identity (`IDENTITY.md`) and rules (`rules/`) are always loaded in full. Skills are loaded progressively.
 
-## The 7 primitives
+## The 2 primitives
 
-| Primitive | Owner | Purpose | Example |
-|-----------|-------|---------|---------|
-| **Rules** | Human | Operational boundaries that don't change | "Never deploy on Fridays" |
-| **Instincts** | Agent | Learned behaviors that evolve over time | "Lead with the answer, not reasoning" |
-| **Skills** | Mixed | Capabilities with embedded judgment | "How to do research" |
-| **Playbooks** | Mixed | Adaptive guidance for achieving outcomes | "How to ship a feature" |
-| **Workflows** | Infra | Cron-driven deterministic automations | "Hourly health check" |
-| **Tools** | External | Service integration knowledge | "GitHub API patterns" |
-| **Agents** | External | Sub-agent roster and capabilities | "Code reviewer agent" |
+agent-harness has exactly two primitive types:
 
-Every file has exactly one owner — **human** writes rules and IDENTITY.md, **agent** writes instincts and sessions, **infrastructure** writes indexes and journals.
+| Primitive | Owner | Activation | Always loaded? |
+|---|---|---|---|
+| **Rules** | Human or learned (`author: agent`) | Always | Yes — full body in every system prompt |
+| **Skills** | Mixed | Discovery + activation per Agent Skills spec | No — only `name` + `description` until invoked |
+
+Skills can have different activation triggers via `metadata.harness-trigger`:
+
+| Trigger | When the harness fires the skill |
+|---|---|
+| (none) | User-invokable via the `activate_skill` tool |
+| `subagent` | User-invokable, runs in an isolated subagent session |
+| `prepare-call` | Per AI SDK call (modifies model/tools/instructions) |
+| `prepare-step` | Per step in the tool loop |
+| `step-finish` | After each step (observation) |
+| `run-finish` | After the run (observation) |
+| `tool-pre` / `tool-post` | Wraps every tool's execute |
+| `repair-tool-call` | When a tool call fails to validate |
+| `stop-condition` | Step boundaries (vote on early stop) |
+| `stream-transform` | Streaming output transform |
+
+A skill with `metadata.harness-schedule: <cron>` is invoked by the harness scheduler at the cron times instead of by the model.
+
+For the previous 7-primitive shape and the migration story, run `harness doctor --migrate -d <dir>`.
 
 ## Flat files vs bundled primitives
 
-Most primitives live as a single `.md` file (`skills/research.md`, `rules/operations.md`). When a primitive needs supporting files — scripts, templates, references, examples — it can ship as a **bundle**: a directory containing an entry markdown plus arbitrary support files.
-
-Only **skills**, **playbooks**, **rules**, and **workflows** support bundles. The other three (instincts, tools, agents) are flat-only by design.
+Both primitives (rules and skills) can live as a single `.md` file (`skills/research.md`, `rules/operations.md`) or as a **bundle**: a directory containing an entry markdown plus arbitrary support files — scripts, templates, references, examples.
 
 ### Convention (Agent Skills compatible)
 
@@ -186,16 +193,13 @@ skills/
     └── assets/
         └── bug-report-template.md
 
-playbooks/
-└── deploy-production/
-    ├── PLAYBOOK.md                     ← entry
-    ├── scripts/preflight.sh
-    └── references/runbook.md
-
-rules/<name>/RULE.md      workflows/<name>/WORKFLOW.md
+rules/
+├── never-deploy-friday.md              ← flat
+└── content-policy/                     ← bundled
+    └── RULE.md
 ```
 
-**Entry filename is kind-specific and uppercase**: `SKILL.md`, `PLAYBOOK.md`, `RULE.md`, `WORKFLOW.md`. The loader looks for it in the bundle's root; missing it = parse error.
+**Entry filename is kind-specific and uppercase**: `SKILL.md` for skills, `RULE.md` for rules. The loader looks for it in the bundle's root; missing it = parse error.
 
 ### What's loaded into context
 
@@ -205,7 +209,7 @@ This keeps context budget predictable: a 12-file bundled skill costs the same to
 
 ### Frontmatter schemas
 
-Skills use the strict Agent Skills schema; other primitives (rules, playbooks, workflows, etc.) use the harness extension schema:
+Skills use the strict Agent Skills schema; rules use the harness extension schema:
 
 ```yaml
 # Agent Skills schema (canonical for skills/)
@@ -223,7 +227,7 @@ metadata:
 ```
 
 ```yaml
-# Harness extension schema (rules, playbooks, workflows, etc.)
+# Harness extension schema (rules/)
 ---
 name: my-rule
 description: One-line description.
@@ -257,8 +261,8 @@ Run `harness init` with no args for interactive mode — it walks you through na
 ```bash
 # After a few days of use
 harness journal --all     # synthesize every day with sessions
-harness learn --install   # propose + install instincts
-harness harvest --install # pull instinct candidates from journal entries
+harness learn --install   # propose + install rules
+harness harvest --install # pull rule candidates from journal entries
 harness auto-promote --install --threshold 3  # promote patterns seen 3+ times
 ```
 
@@ -266,8 +270,8 @@ Inspect the learning state:
 ```bash
 harness status         # primitives, sessions, config, state
 harness analytics      # session trends, tools used, token burn
-harness suggest        # skills/playbooks the agent doesn't have yet but needs
-harness contradictions # conflicts between rules and instincts
+harness suggest        # skills the agent doesn't have yet but needs
+harness contradictions # conflicts between rules and skills
 harness dead-primitives # orphaned files not used in 30+ days
 ```
 
@@ -295,39 +299,39 @@ memory:
 
 ## Sub-agents and delegation
 
-Drop a markdown file into `agents/` to define a sub-agent. The harness auto-exposes it as a tool on the primary agent, so the primary can call it the same way it calls any MCP tool.
+Define a subagent skill by setting `metadata.harness-trigger: subagent` in the skill's frontmatter. When the model invokes the skill via `activate_skill`, the harness spawns a fresh `agent.generate` call with the skill's body as the system prompt and returns the final text to the parent. See [docs/skill-authoring.md](./docs/skill-authoring.md#subagent-skills) for the full authoring pattern.
 
 ```yaml
 ---
-id: agent-summarizer
-tags: [agent, utility]
-model: fast   # primary (default) | summary | fast
+name: summarizer
+description: Summarize a long text into 3 bullet points.
+metadata:
+  harness-trigger: subagent
+  harness-model: fast   # primary (default) | summary | fast
 ---
-
-# Agent: Summarizer
-Condense arbitrary text into 3 bullet points.
+You are a summarization agent. Return exactly 3 bullet points capturing the key points of the input.
 ```
 
 - **`primary`** — uses `config.model.id`. Same model as `harness run`.
 - **`summary`** — uses `config.model.summary_model`, falling back to primary.
 - **`fast`** — uses `config.model.fast_model`, then summary, then primary.
 
-Call one directly:
+Call a skill-based subagent directly from the CLI:
 
 ```bash
-harness agents                               # list all sub-agents
-harness delegate summarizer "Summarize this paragraph: ..."
+harness skill list                           # list all skills including subagent skills
+harness skill run summarizer "Summarize this paragraph: ..."
 ```
 
 All three model roles resolve on the **same provider** as your primary config.
 
 ## CLI agent delegation (opt-in)
 
-In addition to in-harness sub-agents, the harness can delegate bounded subtasks to local CLI agents you already have installed — `claude`, `codex`, or `gemini` — by shelling out via a shell MCP. The CLI does its own tool-use internally and returns text; the harness only sees the final answer. This pushes heavy work (reading many files, long summarizations) onto your CLI subscription instead of the harness's API budget.
+The harness can delegate bounded subtasks to local CLI agents you already have installed — `claude`, `codex`, or `gemini` — by shelling out via a shell MCP. The CLI does its own tool-use internally and returns text; the harness only sees the final answer. This pushes heavy work (reading many files, long summarizations) onto your CLI subscription instead of the harness's API budget.
 
 > ⚠ **TOS notice.** Invoking a subscription-backed CLI programmatically from another agent may fall outside the acceptable-use terms of that subscription. Delegation is **opt-in, default off**. Review each provider's terms before enabling.
 
-During `harness init`, if any of `claude` / `codex` / `gemini` are on your PATH, you'll see a prompt with a TOS warning. Typing `y` activates three tool primitives (`tools/ask-{claude,codex,gemini}.md`), the `skills/delegate-to-cli.md` decision-tree skill, and installs the `shell` MCP (desktop-commander, filtered to process tools only).
+During `harness init`, if any of `claude` / `codex` / `gemini` are on your PATH, you'll see a prompt with a TOS warning. Typing `y` activates the `skills/delegate-to-cli.md` decision-tree skill and installs the `shell` MCP (desktop-commander, filtered to process tools only).
 
 **Picking the right permission flag matters** — without it, the subagent subprocess stalls silently in a non-TTY context:
 
@@ -337,11 +341,11 @@ During `harness init`, if any of `claude` / `codex` / `gemini` are on your PATH,
 | `codex` | `-s read-only` *(default)* | `--dangerously-bypass-approvals-and-sandbox` |
 | `gemini` | *(no flag)* | verify with `gemini --help` in current release |
 
-The `delegate-to-cli` skill documents the full decision tree (when to delegate, which CLI for which task, orchestration loop, failure modes). The `ask-*` tool docs cover each CLI's specific flags and gotchas. To activate later without rerunning init:
+The `delegate-to-cli` skill documents the full decision tree (when to delegate, which CLI for which task, orchestration loop, failure modes). To activate later without rerunning init:
 
 ```bash
-# Flip status on each tool you want, then install the shell MCP.
-sed -i '' 's/^status: draft/status: active/' tools/ask-claude.md skills/delegate-to-cli.md
+# Flip status on the skill you want, then install the shell MCP.
+sed -i '' 's/^status: draft/status: active/' skills/delegate-to-cli/SKILL.md
 harness mcp install shell -d <harness-dir>
 ```
 
@@ -430,13 +434,11 @@ harness update <bundle-name>    # pull a new version
 
 ## Tools
 
-Three tool layers, in priority order:
+Two tool layers, in priority order:
 
 1. **MCP servers** — the primary tool layer. Anything an agent reaches beyond its own files comes from an MCP server: web search, browsers, databases, file systems, code execution. `harness mcp search <query>` to find one, `harness mcp install <name>` to wire it up.
 
-2. **Markdown HTTP tools** — for trivial REST APIs where spinning up an MCP server is overkill. Drop a markdown file in `tools/` with frontmatter, an `## Authentication` section, and an `## Operations` section. The HTTP executor calls them directly.
-
-3. **Narrowing per run** — `harness run "..." --tools read_text_file,edit_file` restricts a run to a subset of tools. Also settable in agent frontmatter as `active_tools:`.
+2. **Narrowing per run** — `harness run "..." --tools read_text_file,edit_file` restricts a run to a subset of tools. Also settable in skill frontmatter as `active_tools:`.
 
 ### MCP configuration
 
@@ -558,8 +560,8 @@ The full surface is ~90 commands. `harness --help` shows everything; `harness <c
 ### Workflows
 `workflow list|run`, `workflows status|resume|cleanup|inspect` (durable), `metrics show|history`
 
-### Sub-agents
-`agents`, `delegate <agent-id> <prompt>`
+### Skills
+`skill list`, `skill run <name> <prompt>`, `skill scheduled`
 
 ### MCP
 `mcp list|test|discover|search|install`
@@ -611,10 +613,13 @@ On every run, the harness:
 
 1. Loads **IDENTITY.md** (always, full content)
 2. Loads **memory/state.md** (current goals and mode)
-3. Scans all primitive directories, loading files at the appropriate disclosure level based on remaining token budget
-4. Loads **memory/scratch.md** if it has content
+3. Loads **rules/** — every active rule, full body
+4. Loads the **skills catalog** — name + description for each model-invokable skill (lifecycle-triggered and scheduled skills are excluded)
+5. Loads **memory/scratch.md** if it has content
 
-Total harness overhead is typically ~1,000–3,000 tokens depending on how many primitives you have.
+Full skill bodies are loaded only when the model calls `activate_skill`. This keeps context predictable regardless of how many skills you have.
+
+Total harness overhead is typically ~1,000–3,000 tokens depending on how many rules and skills you have.
 
 ## Environment variables
 
@@ -638,7 +643,7 @@ harness doctor --check         # see what would change
 harness doctor --migrate       # apply the migration
 ```
 
-This handles renaming `CORE.md` → `IDENTITY.md`, deleting `SYSTEM.md` (now infrastructure docs), moving `state.md` → `memory/state.md`, restructuring flat skills into bundles, and rewriting frontmatter to the strict Agent Skills shape. The migration is idempotent.
+This handles renaming `CORE.md` → `IDENTITY.md`, deleting `SYSTEM.md` (now infrastructure docs), moving `state.md` → `memory/state.md`, restructuring flat skills into bundles, rewriting frontmatter to the strict Agent Skills shape, and migrating the old 7-primitive directories (instincts, playbooks, workflows, tools, agents) into the 2-primitive shape (skills + rules). The migration is idempotent.
 
 ## Philosophy
 
@@ -647,7 +652,7 @@ This handles renaming `CORE.md` → `IDENTITY.md`, deleting `SYSTEM.md` (now inf
 - **You shouldn't need to write code to build a capable agent.** But you can.
 - **Progressive disclosure.** Load what you need, at the level you need.
 - **Durability isn't optional.** Long runs fail. Checkpoint everything.
-- **Agents learn.** Instincts evolve. Sessions become journals.
+- **Agents learn.** Rules evolve. Sessions become journals.
 - **Infrastructure does bookkeeping.** The agent does thinking.
 
 ## License

@@ -81,6 +81,55 @@ harness doctor --migrate -d <harness-dir>
 
 The migration is idempotent and reversible via git.
 
+## Lifecycle-triggered skills
+
+A skill can hook into the AI SDK lifecycle by setting `metadata.harness-trigger`:
+
+```yaml
+---
+name: inject-current-state
+description: Adds the agent's current goals to the system prompt.
+metadata:
+  harness-trigger: prepare-call
+---
+```
+
+The skill MUST have a script in `scripts/run.sh` (or `.py`/`.ts`/`.js`). The harness invokes it with the trigger name + bundle directory as argv and a JSON payload on stdin. The script returns JSON on stdout matching the contract defined in [docs/specs/2026-04-30-skill-content-rewrite-design.md](specs/2026-04-30-skill-content-rewrite-design.md) §4.1.
+
+Lifecycle skills are NOT in the model-invokable catalog — the harness fires them, not the model.
+
+## Scheduled skills
+
+A skill with `metadata.harness-schedule: <cron>` is invoked by the harness scheduler:
+
+```yaml
+---
+name: morning-brief
+description: Synthesize today's plan from journal and calendar.
+metadata:
+  harness-schedule: "0 7 * * *"
+---
+Body.
+```
+
+Scheduled skills are NOT in the model-invokable catalog. When the cron fires, the harness constructs an `agent.generate` call with the skill's body added to the system prompt.
+
+## Subagent skills
+
+A skill with `metadata.harness-trigger: subagent` is model-invokable but runs in an isolated session:
+
+```yaml
+---
+name: summarizer
+description: Summarize a long text into 3 bullet points.
+metadata:
+  harness-trigger: subagent
+---
+You are a summarization agent. Return exactly 3 bullet points capturing the key points of the input.
+```
+
+When the model invokes the skill via `activate_skill`, the harness spawns a fresh `agent.generate` with the skill's body as the system prompt and the args as the user prompt. The subagent's final text is returned to the parent.
+
 ## See also
 
 - [Agent Skills specification](https://agentskills.io/specification)
