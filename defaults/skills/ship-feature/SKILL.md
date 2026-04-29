@@ -1,18 +1,12 @@
 ---
-id: ship-feature
-tags: [playbook, development, shipping]
-author: human
-status: active
-related:
-  - read-before-edit
-  - search-before-create
+name: ship-feature
+description: 'Ship a feature — understand, research, plan, build, verify, deliver.'
+metadata:
+  harness-tags: 'playbook,development,shipping'
+  harness-status: active
+  harness-author: human
+  harness-related: 'read-before-edit,search-before-create'
 ---
-
-<!-- L0: Ship a feature — understand, research, plan, build, verify, deliver. -->
-<!-- L1: Adaptive workflow for shipping features: understand the ask fully before starting ->
-     research existing patterns -> plan approach -> build incrementally (one file at a time) ->
-     write tests alongside -> verify everything works -> deliver with context. -->
-
 # Playbook: Ship Feature
 
 ## Steps (Adapt as Needed)

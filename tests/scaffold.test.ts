@@ -70,11 +70,11 @@ describe('harness init (scaffolding)', () => {
 
     const expectedPrimitives = [
       'rules/operations.md',
-      'instincts/lead-with-answer.md',
-      'instincts/read-before-edit.md',
-      'instincts/search-before-create.md',
+      'rules/lead-with-answer.md',
+      'rules/read-before-edit.md',
+      'rules/search-before-create.md',
       'skills/research/SKILL.md',
-      'playbooks/ship-feature.md',
+      'skills/ship-feature/SKILL.md',
     ];
 
     for (const file of expectedPrimitives) {
@@ -115,15 +115,14 @@ describe('harness init (scaffolding)', () => {
   it('should create valid YAML frontmatter in all primitives', () => {
     scaffoldHarness(agentDir, 'test-agent');
 
-    const primitives = [
+    const flatPrimitives = [
       'rules/operations.md',
-      'instincts/lead-with-answer.md',
-      'instincts/read-before-edit.md',
-      'instincts/search-before-create.md',
-      'playbooks/ship-feature.md',
+      'rules/lead-with-answer.md',
+      'rules/read-before-edit.md',
+      'rules/search-before-create.md',
     ];
 
-    for (const file of primitives) {
+    for (const file of flatPrimitives) {
       const content = readFileSync(join(agentDir, file), 'utf-8');
 
       // Should start with frontmatter
@@ -142,6 +141,11 @@ describe('harness init (scaffolding)', () => {
     expect(skillContent).toContain('harness-tags:');
     expect(skillContent).toContain('harness-status:');
     expect(skillContent).toContain('harness-author:');
+
+    // ship-feature is now a skill bundle
+    const shipFeatureContent = readFileSync(join(agentDir, 'skills/ship-feature/SKILL.md'), 'utf-8');
+    expect(shipFeatureContent.startsWith('---\n'), 'skills/ship-feature/SKILL.md should have frontmatter').toBe(true);
+    expect(shipFeatureContent).toContain('harness-tags:');
   });
 
   it('should create .gitignore that excludes ephemeral files', () => {
@@ -173,17 +177,17 @@ describe('harness init (scaffolding)', () => {
     const ruleContent = readFileSync(join(agentDir, 'rules/operations.md'), 'utf-8');
     expect(ruleContent).toContain('author: human');
 
-    // Instincts should be agent-authored
-    const instinctContent = readFileSync(join(agentDir, 'instincts/lead-with-answer.md'), 'utf-8');
-    expect(instinctContent).toContain('author: agent');
+    // Former instincts (now in rules/) are agent-authored
+    const formerInstinctContent = readFileSync(join(agentDir, 'rules/lead-with-answer.md'), 'utf-8');
+    expect(formerInstinctContent).toContain('author: agent');
 
     // Skills use bundle format — author is in metadata.harness-author
     const skillContent = readFileSync(join(agentDir, 'skills/research/SKILL.md'), 'utf-8');
     expect(skillContent).toContain('harness-author: human');
 
-    // Playbooks can be mixed, but default should be human
-    const playbookContent = readFileSync(join(agentDir, 'playbooks/ship-feature.md'), 'utf-8');
-    expect(playbookContent).toContain('author: human');
+    // Former playbooks (now in skills/) have author in metadata.harness-author
+    const shipFeatureContent = readFileSync(join(agentDir, 'skills/ship-feature/SKILL.md'), 'utf-8');
+    expect(shipFeatureContent).toContain('harness-author: human');
   });
 
   it('should create empty scratch.md', () => {
@@ -332,11 +336,10 @@ describe('harness init (scaffolding)', () => {
     it('should handle empty directories', () => {
       scaffoldHarness(agentDir, 'empty-agent');
 
-      // Defaults now ship with at least one workflow and one tool example,
-      // so these sections should list primitives rather than being empty.
+      // After the 2-primitive collapse, daily-reflection and example-web-search
+      // are now skills, not workflows/tools. The skills/ section should list them.
       const systemMd = generateSystemMd(agentDir, 'empty-agent');
-      expect(systemMd).toContain('`workflows/`');
-      expect(systemMd).toContain('`tools/`');
+      expect(systemMd).toContain('`skills/`');
       expect(systemMd).toContain('daily-reflection');
       expect(systemMd).toContain('example-web-search');
     });

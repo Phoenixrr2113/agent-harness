@@ -1,19 +1,15 @@
 ---
-id: ask-gemini
-tags: [tool, delegation, cli, gemini, google]
-author: human
-status: draft
-related:
-  - research
-  - ask-claude
-  - ask-codex
+name: ask-gemini
+description: >-
+  Delegate bounded subtasks to the user's local `gemini` CLI. Runs on their
+  Gemini subscription instead of this harness's API budget.
+metadata:
+  harness-tags: 'tool,delegation,cli,gemini,google'
+  harness-status: draft
+  harness-author: human
+  harness-related: 'research,ask-claude,ask-codex'
+  harness-script-source: auto-generated-from-tools
 ---
-
-<!-- L0: Delegate bounded subtasks to the user's local `gemini` CLI. Runs on their Gemini subscription instead of this harness's API budget. -->
-<!-- L1: When a task is text-in-text-out, shell out to `gemini -p "..."` (non-interactive mode) and
-     capture stdout. The subagent runs its own tool loop internally and returns a final report.
-     Especially useful when the task benefits from Gemini's long context window. -->
-
 # Tool: ask-gemini
 
 Delegate a bounded subtask to the user's locally-installed Google `gemini` CLI. The subagent runs
@@ -114,3 +110,7 @@ Treat the captured stdout as if it came from a subagent you spawned.
 - If `gemini` isn't installed, don't fall back silently — tell the user what's missing.
 
 Related: [research], [ask-claude], [ask-codex]
+
+## Available scripts
+
+- `scripts/call.sh` — Auto-generated from this tool's Operations section. Review before relying on it.

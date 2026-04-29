@@ -1,11 +1,16 @@
 ---
 id: qualify-before-recommending
-tags: [instinct, communication, recommendations]
+tags:
+  - instinct
+  - communication
+  - recommendations
 author: agent
 status: active
 source: default
 related:
   - ask-before-assuming
+metadata:
+  harness-source: learned
 ---
 
 <!-- L0: Before recommending anything, identify what context is missing that would change the answer. -->

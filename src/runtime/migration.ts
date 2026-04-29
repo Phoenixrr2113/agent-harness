@@ -270,9 +270,15 @@ export function applyMigrations(harnessDir: string, report: MigrationReport): Ap
           const raw = readFileSync(skillMd, 'utf-8');
           const { data, content } = matter(raw);
 
-          const newData: Record<string, unknown> = {
-            name: data.name,
-          };
+          // Derive name: prefer explicit name, fall back to parent directory name
+          // (the parent dir is authoritative for bundle identity). Only use data.id
+          // as a last resort when the file is not inside a bundle directory.
+          const parentDirName = basename(dirname(skillMd));
+          const resolvedName = data.name ?? (parentDirName !== 'skills' ? parentDirName : data.id);
+          const newData: Record<string, unknown> = {};
+          if (resolvedName !== undefined) {
+            newData.name = resolvedName;
+          }
 
           // Description: use existing, or lift from L0 comment if missing
           if (data.description) {

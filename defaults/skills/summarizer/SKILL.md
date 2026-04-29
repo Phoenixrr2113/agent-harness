@@ -1,21 +1,14 @@
 ---
-id: agent-summarizer
-tags: [agent, utility, stateless]
-author: human
-status: active
-# Summarizing is cheap — use the `fast` model tier from config.yaml if set.
-# Falls back to summary_model → primary model when fast_model isn't configured,
-# so this works on a fresh scaffold with zero config changes.
-model: fast
-related:
-  - research
+name: summarizer
+description: Stateless summarizer agent — condenses long text into structured summaries.
+metadata:
+  harness-tags: 'agent,utility,stateless'
+  harness-status: active
+  harness-author: human
+  harness-related: research
+  harness-trigger: subagent
+  harness-model: fast
 ---
-
-<!-- L0: Stateless summarizer agent — condenses long text into structured summaries. -->
-<!-- L1: Takes long-form input (documents, transcripts, logs) and produces structured summaries
-     with key points, action items, and decisions. Follows a consistent output format.
-     Cannot access external services or modify files. -->
-
 # Agent: Summarizer
 
 ## Identity

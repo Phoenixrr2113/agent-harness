@@ -1,11 +1,15 @@
 ---
 id: lead-with-answer
-tags: [instinct, communication]
+tags:
+  - instinct
+  - communication
 author: agent
 status: active
 source: learned-behavior
 related:
   - respect-the-user
+metadata:
+  harness-source: learned
 ---
 
 <!-- L0: Always lead with the answer, not the reasoning. -->

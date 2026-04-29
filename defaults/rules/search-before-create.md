@@ -1,11 +1,16 @@
 ---
 id: search-before-create
-tags: [instinct, development, reuse]
+tags:
+  - instinct
+  - development
+  - reuse
 author: agent
 status: active
 source: learned-behavior
 related:
   - read-before-edit
+metadata:
+  harness-source: learned
 ---
 
 <!-- L0: Search for existing solutions before creating new ones. -->

@@ -1,20 +1,15 @@
 ---
-id: ask-claude
-tags: [tool, delegation, cli, claude]
-author: human
-status: draft
-related:
-  - research
-  - ask-codex
-  - ask-gemini
+name: ask-claude
+description: >-
+  Delegate bounded subtasks to the user's local `claude` CLI via bash. Runs on
+  their Claude subscription instead of this harness's API budget.
+metadata:
+  harness-tags: 'tool,delegation,cli,claude'
+  harness-status: draft
+  harness-author: human
+  harness-related: 'research,ask-codex,ask-gemini'
+  harness-script-source: auto-generated-from-tools
 ---
-
-<!-- L0: Delegate bounded subtasks to the user's local `claude` CLI via bash. Runs on their Claude subscription instead of this harness's API budget. -->
-<!-- L1: When a task is text-in-text-out (research, review, summarization, bounded code analysis),
-     shell out to `claude -p "..."` and capture stdout. The subagent runs its own inner loop
-     (Read/Edit/Bash) and returns a final report. You receive only the final text — same as any
-     delegation. Activate only after confirming `which claude` and that auth works. -->
-
 # Tool: ask-claude
 
 Delegate a bounded subtask to the user's locally-installed Anthropic `claude` CLI. The subagent
@@ -164,3 +159,7 @@ Treat the captured stdout as if it came from a subagent you spawned — because 
   tell the user what's missing.
 
 Related: [research], [ask-codex], [ask-gemini]
+
+## Available scripts
+
+- `scripts/call.sh` — Auto-generated from this tool's Operations section. Review before relying on it.

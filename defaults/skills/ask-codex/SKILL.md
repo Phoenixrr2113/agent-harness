@@ -1,19 +1,15 @@
 ---
-id: ask-codex
-tags: [tool, delegation, cli, codex, openai]
-author: human
-status: draft
-related:
-  - research
-  - ask-claude
-  - ask-gemini
+name: ask-codex
+description: >-
+  Delegate bounded subtasks to the user's local `codex` CLI (OpenAI). Runs on
+  their ChatGPT subscription instead of this harness's API budget.
+metadata:
+  harness-tags: 'tool,delegation,cli,codex,openai'
+  harness-status: draft
+  harness-author: human
+  harness-related: 'research,ask-claude,ask-gemini'
+  harness-script-source: auto-generated-from-tools
 ---
-
-<!-- L0: Delegate bounded subtasks to the user's local `codex` CLI (OpenAI). Runs on their ChatGPT subscription instead of this harness's API budget. -->
-<!-- L1: When a task is text-in-text-out, shell out to `codex exec "..."` and capture stdout.
-     The subagent runs its own tool loop internally and returns a final report. You receive only
-     the final text. Activate only after confirming `which codex` and that `codex exec "hi"` works. -->
-
 # Tool: ask-codex
 
 Delegate a bounded subtask to the user's locally-installed OpenAI `codex` CLI. The subagent runs
@@ -145,3 +141,7 @@ Treat the captured stdout as if it came from a subagent you spawned.
   install it or use `ask-claude` / `ask-gemini` instead.
 
 Related: [research], [ask-claude], [ask-gemini]
+
+## Available scripts
+
+- `scripts/call.sh` — Auto-generated from this tool's Operations section. Review before relying on it.

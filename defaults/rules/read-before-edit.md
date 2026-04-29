@@ -1,11 +1,15 @@
 ---
 id: read-before-edit
-tags: [instinct, development]
+tags:
+  - instinct
+  - development
 author: agent
 status: active
 source: learned-behavior
 related:
   - search-before-create
+metadata:
+  harness-source: learned
 ---
 
 <!-- L0: Always read a file before editing it. -->

@@ -1,16 +1,15 @@
 ---
-id: example-web-search
-tags: [tool, example, web-search]
-author: human
-status: draft
-related:
-  - research
+name: example-web-search
+description: >-
+  Example HTTP tool definition for a fictional web search API. Copy and adapt
+  for real services.
+metadata:
+  harness-tags: 'tool,example,web-search'
+  harness-status: draft
+  harness-author: human
+  harness-related: research
+  harness-script-source: auto-generated-from-tools
 ---
-
-<!-- L0: Example HTTP tool definition for a fictional web search API. Copy and adapt for real services. -->
-<!-- L1: Shows the shape of a markdown tool spec: auth via environment variable, a single GET operation
-     with typed parameters, and a usage example. Replace the fictional endpoint with a real one. -->
-
 # Tool: Example Web Search (template)
 
 This is a **template** tool definition. Its status is `example`, so validators and loaders
@@ -56,3 +55,7 @@ curl -H "Authorization: Bearer $WEB_SEARCH_API_KEY" \
   before marking the tool `active`.
 
 Related: [research]
+
+## Available scripts
+
+- `scripts/call.sh` — Auto-generated from this tool's Operations section. Review before relying on it.

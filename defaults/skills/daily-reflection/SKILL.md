@@ -1,18 +1,14 @@
 ---
-id: daily-reflection
-tags: [workflow, scheduled, reflection]
-author: human
-status: active
-related:
-  - research
-  - respect-the-user
+name: daily-reflection
+description: >-
+  Scheduled end-of-day reflection. Appends a short summary of the day's activity
+  to memory/scratch.md.
+metadata:
+  harness-tags: 'workflow,scheduled,reflection'
+  harness-status: active
+  harness-author: human
+  harness-related: 'research,respect-the-user'
 ---
-
-<!-- L0: Scheduled end-of-day reflection. Appends a short summary of the day's activity to memory/scratch.md. -->
-<!-- L1: Runs daily at 18:00 local via cron. The agent reads recent journal entries, produces a 3-5 line
-     reflection (what was done, what was learned, what to revisit), and appends it to memory/scratch.md
-     under a dated heading. See [research] for information-gathering patterns. -->
-
 # Workflow: Daily Reflection
 
 ## Schedule

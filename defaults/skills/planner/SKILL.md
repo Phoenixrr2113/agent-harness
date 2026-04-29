@@ -1,20 +1,17 @@
 ---
-id: planner
-tags: [agent, planning, utility, stateless]
-created: 2026-04-21
-updated: 2026-04-21
-author: human
-status: active
-model: primary
-description: "Decomposes an ambiguous task into a bounded, ordered plan. Use when the request is open-ended, multi-step, or involves several files/subsystems."
+name: planner
+description: >-
+  Decomposes an ambiguous task into a bounded, ordered plan. Use when the
+  request is open-ended, multi-step, or involves several files/subsystems.
+metadata:
+  harness-tags: 'agent,planning,utility,stateless'
+  harness-status: active
+  harness-author: human
+  harness-created: '2026-04-21'
+  harness-updated: '2026-04-21'
+  harness-trigger: subagent
+  harness-model: primary
 ---
-
-<!-- L0: Stateless planner — turns a request into a bounded, ordered plan. -->
-<!-- L1: Reads an ambiguous or multi-step request and produces a short, concrete plan:
-     goal, constraints, ordered steps, acceptance checks, and risks. Does not execute
-     — planning only. Best used before touching code on any task that isn't obviously
-     scoped. -->
-
 # Agent: Planner
 
 ## Identity
