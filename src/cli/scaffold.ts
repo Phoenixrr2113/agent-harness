@@ -443,3 +443,62 @@ export function listTemplates(): string[] {
     }
   });
 }
+
+export interface DetectedProvider {
+  provider: 'claude' | 'codex' | 'cursor' | 'copilot' | 'gemini' | 'agents';
+  evidencePath: string;
+}
+
+export function detectExistingProviders(projectRoot: string): DetectedProvider[] {
+  const results: DetectedProvider[] = [];
+  const checks: Array<[string, DetectedProvider['provider']]> = [
+    ['.claude', 'claude'],
+    ['.codex', 'codex'],
+    ['.cursor', 'cursor'],
+    ['.gemini', 'gemini'],
+    ['.agents', 'agents'],
+  ];
+  for (const [rel, provider] of checks) {
+    if (existsSync(join(projectRoot, rel))) {
+      results.push({ provider, evidencePath: join(projectRoot, rel) });
+    }
+  }
+  if (existsSync(join(projectRoot, '.github', 'copilot-instructions.md'))) {
+    results.push({ provider: 'copilot', evidencePath: join(projectRoot, '.github', 'copilot-instructions.md') });
+  } else if (existsSync(join(projectRoot, '.github', 'instructions'))) {
+    results.push({ provider: 'copilot', evidencePath: join(projectRoot, '.github', 'instructions') });
+  }
+  // Single-file conventions — only register if not already detected from a directory
+  for (const file of ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md']) {
+    if (existsSync(join(projectRoot, file))) {
+      const provider: DetectedProvider['provider'] =
+        file === 'CLAUDE.md' ? 'claude' :
+        file === 'GEMINI.md' ? 'gemini' : 'agents';
+      if (!results.find((r) => r.provider === provider)) {
+        results.push({ provider, evidencePath: join(projectRoot, file) });
+      }
+    }
+  }
+  return results;
+}
+
+export interface SubdirectoryDecision {
+  useSubdirectory: boolean;
+  reason: string;
+  subdirName: string;
+}
+
+/**
+ * If the project root has any pre-existing harness-relevant single files
+ * (AGENTS.md, CLAUDE.md, GEMINI.md), the harness should scaffold into a
+ * subdirectory rather than overwrite the root.
+ */
+export function decideScaffoldLocation(projectRoot: string): SubdirectoryDecision {
+  const sentinels = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md'];
+  for (const f of sentinels) {
+    if (existsSync(join(projectRoot, f))) {
+      return { useSubdirectory: true, reason: `${f} already present`, subdirName: '.harness' };
+    }
+  }
+  return { useSubdirectory: false, reason: 'no existing harness sentinels', subdirName: '' };
+}
