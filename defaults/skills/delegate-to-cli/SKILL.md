@@ -1,98 +1,55 @@
 ---
 name: delegate-to-cli
-description: >-
-  Delegate bounded subtasks to local CLI agents (claude/codex/gemini) via the
-  shell MCP to save API tokens and context. Requires the matching
-  permission-mode flag for the work type.
+description: |
+  Delegates bounded subtasks (text-in/text-out, large-token, no harness MCPs needed)
+  to a local CLI agent (claude/codex/gemini) via scripts/delegate.sh. Use when the
+  task is large enough to warrant a subprocess but doesn't need the harness's own
+  primitives. Returns the subagent's final text plus structured error info.
 metadata:
   harness-tags: skill,delegation,cli
-  harness-status: draft
+  harness-status: active
   harness-author: human
   harness-related: ask-claude,ask-codex,ask-gemini,research
 ---
-# Skill: Delegate bounded subtasks to CLI agents
+# delegate-to-cli
 
-Use a local CLI agent (`claude`, `codex`, `gemini`) as a subprocess subagent when the work is
-bounded and text-in-text-out. The subagent runs on the user's CLI subscription, reads files
-itself, does its own tool-use internally, and returns a final text answer. The harness primary
-consumes that text the same way it consumes any delegation.
+## When to use
 
-**Prerequisite**: the `ask-claude`, `ask-codex`, or `ask-gemini` tool primitive is activated
-(`status: active`) and the shell MCP is connected. If none are active, don't delegate — just do
-the work yourself or tell the user to opt in during `harness init`.
+Reach for this skill when **all four** are true:
 
-## When to delegate
+1. **Bounded** — clear start, clear end, output is text or a verifiable file change
+2. **Text-in/text-out** — no need for tool-call structure back to the parent
+3. **Large in tokens** — would burn the parent's context if done inline
+4. **Doesn't need this harness's own primitives or MCP servers**
 
-Reach for CLI delegation when **all four** are true:
+## Available scripts
 
-1. The task is **bounded** — has a clear start, clear end, and the answer is either text or a file
-   change you can verify afterward.
-2. The task is **text-in-text-out** — no need for structured tool-call routing back through you.
-3. The task is **large in tokens** — reading many files, summarizing a long doc, or a multi-file
-   refactor. (If it's a 2-line change, just do it yourself.)
-4. The task **doesn't need this harness's primitives or MCP servers** — the subagent can't see
-   them unless you pass `--mcp-config` explicitly.
+- `scripts/delegate.sh <cli> <mode> <prompt>` — Run a bounded subtask via a local CLI agent and return its result. CLI: `claude` | `codex` | `gemini`. Mode: `read` | `edit`.
+- `scripts/verify-cli.sh <cli>` — Check the CLI binary is on PATH and meets the minimum version. Run once if delegate fails with `CLI_NOT_FOUND` or `CLI_VERSION_TOO_OLD`.
 
-## Which CLI for which task
+## Workflow
 
-- **`ask-claude`** — default for most delegation. Strong at code review, refactors, long-doc
-  summarization, bounded analysis. Use this unless you have a specific reason not to.
-- **`ask-codex`** — reach for this when the task benefits from an OpenAI-trained model's
-  strengths, or when you want an independent second opinion that differs from Claude's approach.
-- **`ask-gemini`** — reach for this when the task genuinely needs Gemini's long context window
-  (summarizing a single file with tens of thousands of lines, for example), or when the user
-  prefers a Google model.
+1. Verify the CLI is available (first use): `scripts/verify-cli.sh claude`
+2. Delegate: `scripts/delegate.sh claude read "Summarize the README"`
+3. Read the JSON result. On `status: ok`, the subagent's output is in `result.output`.
+4. On `status: error`, follow `next_steps`. Common cases listed in `references/failure-modes.md`.
 
-If the primary CLI fails, fall back to a different CLI before giving up.
+## Gotchas
 
-## Pick the permission mode
+- **Permission mode is the #1 source of silent hangs.** `scripts/delegate.sh` requires `<mode>` to be `read` (analysis-only) or `edit` (file modification). The script maps these to the correct CLI permission flags. If you bypass the script and call the CLI directly without the right flag for an edit task, the subprocess hangs forever — see `references/permission-flags.md`.
+- **CLI invocation may fall outside the CLI's subscription TOS.** The user opted in during `harness init` if delegation is enabled.
+- **Do not fall back silently on CLI_NOT_FOUND.** Tell the user what is missing so they can install it.
 
-This is the step most delegations get wrong. Every CLI gates write operations behind approvals
-that there's no UI to satisfy in a non-TTY subprocess. Pick the flag up front to match the task:
+## Failure modes
 
-| Task shape | claude | codex | gemini |
-|---|---|---|---|
-| **Read-only** (analysis, summary, review) | *(no flag)* — default blocks edits | `-s read-only` *(default)* | *(no flag)* |
-| **In-place edits** (modify files on disk) | `--permission-mode bypassPermissions` | `--dangerously-bypass-approvals-and-sandbox` | *(no flag — gemini's non-interactive mode is read-leaning; if edits are needed, verify with its `--help` first)* |
+If `scripts/delegate.sh` returns `status: error`, read `error.code`:
 
-**If you omit the edit flag on an edit task, the subprocess will appear to hang.** No error, just
-silence. A 20-minute `read_process_output` loop returning zero lines means the subagent is waiting
-for an approval that will never come. `force_terminate` and retry with the correct flag.
+- `CLI_NOT_FOUND` — binary missing; tell the user to install it.
+- `CLI_VERSION_TOO_OLD` — see `references/failure-modes.md` for minimum versions and upgrade paths.
+- `INVALID_INPUT` — bad `<cli>` or `<mode>` argument; re-invoke with correct values.
+- `PERMISSION_FLAG_MISSING` — subprocess hung; re-invoke with `edit` mode instead of `read`.
+- `RATE_LIMITED` — provider returned 429; back off and retry after a delay.
+- `SUBPROCESS_TIMEOUT` — run exceeded the wall-clock limit; increase or split the task.
+- `SUBPROCESS_FAILED` — non-zero exit not matching the above; check `error.evidence` for raw output.
 
-## Orchestration pattern
-
-Standard loop — same every time:
-
-1. **Verify the CLI works** (first use only) — `start_process` with `<cli> --version` and check
-   the output. For `claude`, confirm ≥ 2.1 (earlier versions have a broken `-p` mode).
-2. **Launch** — `start_process` with the full command including the permission flag. Pick a
-   generous `timeout_ms` (5+ minutes for large tasks).
-3. **Poll** — `read_process_output` on the returned PID repeatedly until the process exits or you
-   hit a reasonable max-polls ceiling.
-4. **Handle failure** — if the process is still running after enough polls with zero new output,
-   `force_terminate` and either retry with a different permission mode or escalate to the user.
-5. **Verify** — if the subagent was asked to write files, confirm the disk changes match
-   expectations before reporting success to the user. `start_process` with `git diff <path>` is a
-   cheap check.
-
-## When NOT to delegate
-
-- **Multi-turn interactive work** — each CLI invocation is a fresh session. Passing a session-id
-  across turns is fragile and fails in subtle ways.
-- **Work that needs tool-call structure back to the primary** — the CLI absorbs its own tool use.
-  You only see the final text.
-- **Tasks smaller than the delegation overhead** — a single-line edit is cheaper to do yourself.
-- **When the specific CLI you're reaching for is known-unreliable for this task shape** — e.g.
-  codex with `--full-auto` on file-editing tasks has been observed to hang silently.
-
-## Failure modes to watch for
-
-- **Silent stall** — almost always the wrong permission mode for the task. Force-terminate and
-  retry with the correct flag.
-- **"Execution error" fast return from `claude -p`** — version mismatch. User has an older binary
-  on PATH. Check `claude --version` and escalate if < 2.1.
-- **Rate limits** — CLI subscriptions have per-minute and daily caps. Heavy parallel delegation
-  hits them. Back off and serialize if you see 429-like errors.
-- **Missing CLI** — don't fall back silently. Tell the user what's missing so they can install it.
-
-Related: [ask-claude], [ask-codex], [ask-gemini], [research]
+For detailed recovery hints on each code, load `references/failure-modes.md`.
