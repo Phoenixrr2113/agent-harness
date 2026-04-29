@@ -1,5 +1,5 @@
-import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { join, dirname } from 'path';
 import type { AgentState } from '../core/types.js';
 import { withFileLockSync } from './file-lock.js';
 
@@ -11,19 +11,39 @@ const DEFAULT_STATE: AgentState = {
   unfinished_business: [],
 };
 
-export function loadState(harnessDir: string): AgentState {
-  const statePath = join(harnessDir, 'state.md');
+function canonicalStatePath(harnessDir: string): string {
+  return join(harnessDir, 'memory', 'state.md');
+}
 
-  if (!existsSync(statePath)) {
+function legacyStatePath(harnessDir: string): string {
+  return join(harnessDir, 'state.md');
+}
+
+export function loadState(harnessDir: string): AgentState {
+  const newPath = canonicalStatePath(harnessDir);
+  const oldPath = legacyStatePath(harnessDir);
+
+  let resolvedPath: string | null = null;
+  if (existsSync(newPath)) {
+    resolvedPath = newPath;
+  } else if (existsSync(oldPath)) {
+    resolvedPath = oldPath;
+    process.stderr.write(
+      '[deprecation] state.md at top level is deprecated. Move to memory/state.md or run `harness doctor --migrate`.\n',
+    );
+  }
+
+  if (!resolvedPath) {
     return { ...DEFAULT_STATE };
   }
 
-  const content = readFileSync(statePath, 'utf-8');
+  const content = readFileSync(resolvedPath, 'utf-8');
   return parseStateMd(content);
 }
 
 export function saveState(harnessDir: string, state: AgentState): void {
-  const statePath = join(harnessDir, 'state.md');
+  const statePath = canonicalStatePath(harnessDir);
+  mkdirSync(dirname(statePath), { recursive: true });
   const content = renderStateMd(state);
   withFileLockSync(harnessDir, statePath, () => {
     writeFileSync(statePath, content, 'utf-8');

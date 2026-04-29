@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { loadState, saveState } from '../src/runtime/state.js';
@@ -118,7 +118,7 @@ active
 
     saveState(testDir, state);
 
-    const content = readFileSync(join(testDir, 'state.md'), 'utf-8');
+    const content = readFileSync(join(testDir, 'memory', 'state.md'), 'utf-8');
 
     expect(content).toContain('## Mode');
     expect(content).toContain('working');
@@ -249,7 +249,7 @@ working
     };
 
     saveState(testDir, emptyState);
-    const content = readFileSync(join(testDir, 'state.md'), 'utf-8');
+    const content = readFileSync(join(testDir, 'memory', 'state.md'), 'utf-8');
 
     // Should have all sections even when empty
     expect(content).toContain('## Mode');
@@ -282,5 +282,67 @@ learning
 
     expect(state.mode).toBe('learning');
     expect(state.goals).toEqual([]);
+  });
+
+  describe('memory/state.md location', () => {
+    it('reads from memory/state.md when present', () => {
+      mkdirSync(join(testDir, 'memory'), { recursive: true });
+      writeFileSync(
+        join(testDir, 'memory', 'state.md'),
+        `# Agent State
+
+## Mode
+idle
+
+## Goals
+
+## Active Workflows
+
+## Last Interaction
+2026-04-28
+
+## Unfinished Business
+`,
+        'utf-8',
+      );
+
+      const state = loadState(testDir);
+      expect(state.mode).toBe('idle');
+    });
+
+    it('falls back to top-level state.md (deprecation grace)', () => {
+      writeFileSync(
+        join(testDir, 'state.md'),
+        `# Agent State
+
+## Mode
+active
+
+## Goals
+
+## Active Workflows
+
+## Last Interaction
+2026-04-28
+
+## Unfinished Business
+`,
+        'utf-8',
+      );
+
+      const state = loadState(testDir);
+      expect(state.mode).toBe('active');
+    });
+
+    it('saveState writes to memory/state.md (creating directory)', () => {
+      saveState(testDir, {
+        mode: 'active',
+        goals: [],
+        active_workflows: [],
+        last_interaction: '2026-04-28',
+        unfinished_business: [],
+      });
+      expect(existsSync(join(testDir, 'memory', 'state.md'))).toBe(true);
+    });
   });
 });
