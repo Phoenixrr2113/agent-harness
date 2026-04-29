@@ -1486,10 +1486,37 @@ program
   .option('--check', 'report findings only, do not modify files', false)
   .option('--migrate', 'apply detected migrations', false)
   .option('--fix', 'apply auto-fixable lints (e.g., chmod +x scripts)', false)
-  .action(async (opts: { dir: string; check: boolean; migrate: boolean; fix: boolean }) => {
+  .option('--check-drift', 'Also check for drift across configured export targets', false)
+  .action(async (opts: { dir: string; check: boolean; migrate: boolean; fix: boolean; checkDrift: boolean }) => {
     const { checkMigrations, applyMigrations } = await import('../runtime/migration.js');
     const { runLints, applyFixes } = await import('../runtime/doctor.js');
     const dir = resolve(opts.dir);
+
+    async function reportDriftIfRequested(): Promise<void> {
+      if (!opts.checkDrift) return;
+      const { runDrift } = await import('../runtime/export/runner.js');
+      await import('../runtime/export/index.js');
+      const { loadConfig } = await import('../core/config.js');
+      const config = loadConfig(dir);
+      const targets = (config as { export?: { targets?: Array<{ provider: string; path: string }> } }).export?.targets ?? [];
+      if (targets.length === 0) {
+        console.log('\nNo export targets configured — skipping drift check.');
+        return;
+      }
+      console.log('\nDrift check:');
+      for (const target of targets) {
+        const driftReports = await runDrift(dir, [target.provider as never], target.path);
+        const findings = driftReports[0].findings;
+        if (findings.length === 0) {
+          console.log(`  ${target.provider}: clean`);
+        } else {
+          console.log(`  ${target.provider}:`);
+          for (const f of findings) {
+            console.log(`    ${f.kind}: ${f.path} — ${f.detail}`);
+          }
+        }
+      }
+    }
 
     // --check, --migrate, or --fix: structured CI-friendly flow
     if (opts.check || opts.migrate || opts.fix) {
@@ -1555,6 +1582,8 @@ program
         console.log('Harness is clean -- no migrations needed and no lint issues.');
       }
 
+      await reportDriftIfRequested();
+
       process.exit(exitCode);
     }
 
@@ -1619,6 +1648,8 @@ program
       }
       console.log(`\nRun 'harness doctor --fix' to apply auto-fixable lints.\n`);
     }
+
+    await reportDriftIfRequested();
 
     if (result.errors.length > 0) {
       process.exit(1);
