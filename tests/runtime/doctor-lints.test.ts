@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'fs';
+import { mkdtempSync, writeFileSync, mkdirSync, chmodSync, statSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { skillLints } from '../../src/runtime/lints/skill-lints.js';
+import { scriptLints } from '../../src/runtime/lints/script-lints.js';
 import { loadAllPrimitives } from '../../src/primitives/loader.js';
 
 function loadFirstSkill(harnessDir: string) {
@@ -70,5 +71,63 @@ describe('skillLints', () => {
     const skill = loadFirstSkill(dir);
     const results = skillLints.requiredSections(skill, bundleDir);
     expect(results.some((r) => r.severity === 'warn')).toBe(true);
+  });
+});
+
+describe('scriptLints', () => {
+  it('shebang: errors when script lacks shebang', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lint-'));
+    const path = join(dir, 'no-shebang.sh');
+    writeFileSync(path, 'echo hello\n', 'utf-8');
+    const results = await scriptLints.shebang(path);
+    expect(results.find((r) => r.code === 'MISSING_SHEBANG')).toBeTruthy();
+  });
+
+  it('shebang: passes when script starts with #!', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lint-'));
+    const path = join(dir, 'has-shebang.sh');
+    writeFileSync(path, '#!/usr/bin/env bash\necho hello\n', 'utf-8');
+    const results = await scriptLints.shebang(path);
+    expect(results).toHaveLength(0);
+  });
+
+  it('executable: errors when script lacks user-execute bit', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lint-'));
+    const path = join(dir, 'not-exec.sh');
+    writeFileSync(path, '#!/usr/bin/env bash\necho hi\n', 'utf-8');
+    chmodSync(path, 0o644);
+    const results = await scriptLints.executable(path);
+    expect(results.find((r) => r.code === 'NOT_EXECUTABLE')).toBeTruthy();
+    expect(results[0].fixable).toBe(true);
+  });
+
+  it('helpSupported: errors when --help fails OR lacks Usage:/Exit codes:', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lint-'));
+    const path = join(dir, 'no-help.sh');
+    writeFileSync(path, '#!/usr/bin/env bash\necho hi\n', 'utf-8');
+    chmodSync(path, 0o755);
+    const results = await scriptLints.helpSupported(path);
+    expect(results.find((r) => r.code === 'HELP_NOT_SUPPORTED' || r.code === 'HELP_INCOMPLETE')).toBeTruthy();
+  }, 10000);
+
+  it('helpSupported: passes when --help has Usage: and Exit codes:', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lint-'));
+    const path = join(dir, 'has-help.sh');
+    writeFileSync(
+      path,
+      `#!/usr/bin/env bash\nif [ "\${1:-}" = "--help" ]; then\n  cat <<'EOF'\nUsage: this-script <args>\n\nDoes a thing.\n\nExit codes:\n  0 OK\n  1 error\nEOF\n  exit 0\nfi\n`,
+      'utf-8'
+    );
+    chmodSync(path, 0o755);
+    const results = await scriptLints.helpSupported(path);
+    expect(results).toHaveLength(0);
+  }, 10000);
+
+  it('noInteractive: warns when script source contains read -p / read -r', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lint-'));
+    const path = join(dir, 'interactive.sh');
+    writeFileSync(path, '#!/usr/bin/env bash\nread -p "Enter name: " name\necho "Hi $name"\n', 'utf-8');
+    const results = await scriptLints.noInteractive(path);
+    expect(results.find((r) => r.severity === 'warn')).toBeTruthy();
   });
 });
