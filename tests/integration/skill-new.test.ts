@@ -66,3 +66,42 @@ describe('harness skill new', () => {
     expect(doctor.status).toBe(0);
   });
 });
+
+describe('harness skill validate', () => {
+  it('passes a clean skill', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'skill-validate-'));
+    const harnessDir = makeMinimalHarness(dir);
+    spawnSync('node', [HARNESS_BIN, 'skill', 'new', 'my-test', '-d', harnessDir], {
+      encoding: 'utf-8',
+    });
+    const result = spawnSync(
+      'node',
+      [HARNESS_BIN, 'skill', 'validate', 'my-test', '-d', harnessDir],
+      { encoding: 'utf-8' },
+    );
+    expect(result.status).toBe(0);
+  });
+
+  it('reports lint errors on a deliberately bad skill', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'skill-validate-'));
+    const harnessDir = makeMinimalHarness(dir);
+    // Hand-create a bad skill: short description, no sections, and references a
+    // non-existent script (triggers REFERENCED_FILE_MISSING, which is error severity)
+    const bundleDir = join(harnessDir, 'skills', 'bad-skill');
+    mkdirSync(bundleDir, { recursive: true });
+    writeFileSync(
+      join(bundleDir, 'SKILL.md'),
+      '---\nname: bad-skill\ndescription: Bad.\n---\nRun scripts/does-not-exist.sh to do things.',
+      'utf-8',
+    );
+    const result = spawnSync(
+      'node',
+      [HARNESS_BIN, 'skill', 'validate', 'bad-skill', '-d', harnessDir],
+      { encoding: 'utf-8' },
+    );
+    expect(result.status).not.toBe(0);
+    expect(result.stdout + result.stderr).toMatch(
+      /DESCRIPTION_TOO_SHORT|MISSING_RECOMMENDED_SECTIONS|REFERENCED_FILE_MISSING/,
+    );
+  });
+});

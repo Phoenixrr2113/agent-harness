@@ -3177,6 +3177,27 @@ skillCmd
     );
   });
 
+skillCmd
+  .command('validate <name>')
+  .description('Run lints on a single skill')
+  .option('-d, --dir <path>', 'harness directory', process.cwd())
+  .action(async (name: string, opts: { dir: string }) => {
+    const { runLints } = await import('../runtime/doctor.js');
+    const harnessDir = resolve(opts.dir);
+    const all = await runLints(harnessDir);
+    const filtered = all.filter((r) => r.path.includes(`/skills/${name}/`));
+    if (filtered.length === 0) {
+      console.log(`Skill "${name}" — clean.`);
+      process.exit(0);
+    }
+    console.log(`Skill "${name}" — ${filtered.length} lint finding(s):`);
+    for (const r of filtered) {
+      const icon = r.severity === 'error' ? 'E' : r.severity === 'warn' ? 'W' : 'I';
+      console.log(`  [${icon}] ${r.code}: ${r.message}`);
+    }
+    process.exit(filtered.some((r) => r.severity === 'error') ? 1 : 0);
+  });
+
 // --- AGENTS (DEPRECATED — sub-agent primitives have been removed) ---
 program
   .command('agents')
