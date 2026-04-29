@@ -39,3 +39,13 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================
+Vendored skills (defaults/skills/{brainstorming,writing-plans,executing-plans,dispatching-parallel-agents}/)
+
+Source: https://github.com/obra/superpowers
+Commit: 6efe32c9e2dd002d0c394e861e0529675d1ab32e
+License: MIT
+Copyright (c) 2025 Jesse Vincent
+License source: https://github.com/obra/superpowers/blob/6efe32c9e2dd002d0c394e861e0529675d1ab32e/LICENSE
+================================================================
