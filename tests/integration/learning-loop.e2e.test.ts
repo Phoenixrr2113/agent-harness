@@ -249,11 +249,15 @@ describe('learning loop end-to-end (Ollama)', () => {
   it('proposes and installs an instinct from the journal', async () => {
     if (skipReason) return;
 
-    // Count instincts BEFORE installing — baseline is 4 from defaults
+    // Count instincts BEFORE installing. Post primitive-collapse (spec #2),
+    // defaults/ no longer ships instinct files, so the directory may not
+    // exist yet. The behavioral assertion (count increases after install)
+    // is what matters, not the absolute baseline.
     const instinctsDir = join(harnessDir, 'instincts');
-    const before = readdirSync(instinctsDir).filter((f) => f.endsWith('.md'));
+    const before = existsSync(instinctsDir)
+      ? readdirSync(instinctsDir).filter((f) => f.endsWith('.md'))
+      : [];
     const beforeCount = before.length;
-    expect(beforeCount).toBeGreaterThanOrEqual(4);
 
     const result = runHarness(['learn', '--install', '-d', harnessDir], { timeout: 90_000 });
     expect(result.exitCode, `stderr: ${result.stderr}`).toBe(0);
