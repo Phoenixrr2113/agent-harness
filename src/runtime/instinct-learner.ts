@@ -148,7 +148,19 @@ export async function learnFromSessions(
   autoInstall: boolean = false,
   apiKey?: string,
 ): Promise<LearnResult> {
-  const candidates = await proposeInstincts(harnessDir, undefined, apiKey);
+  // D13: prefer the journal's already-extracted instinct candidates over a
+  // fresh LLM pass. `harness journal` synthesizes a structured markdown with
+  // a `## Instinct Candidates` section — the user has already seen those
+  // candidates and re-running the LLM here is wasted inference (and
+  // non-deterministic; small models often return "NONE" while the journal
+  // has 3+ candidates).
+  let candidates = harvestInstincts(harnessDir, {}).candidates;
+
+  // Fall back to fresh LLM proposal if the journal didn't surface any
+  // (no journal yet, or the synthesizer left the section empty).
+  if (candidates.length === 0) {
+    candidates = await proposeInstincts(harnessDir, undefined, apiKey);
+  }
 
   // Persist candidates so `harness rules promote <id>` can look them up later
   const candidatesPath = join(harnessDir, 'memory', 'instinct-candidates.json');
@@ -237,10 +249,16 @@ export function harvestInstincts(
     const sectionMatch = content.match(/## Instinct Candidates\n([\s\S]*?)(?=\n## |\n*$)/);
     if (!sectionMatch) continue;
 
+    // D14+D15: tolerate malformed bullets the synthesis LLM sometimes emits.
+    // The intended format is `- INSTINCT: <behavior>` but qwen3-class models
+    // produce `- - INSTINCT: ...` (double-dash) often enough to break harvest.
+    // Strip any sequence of leading "- " bullets, then require INSTINCT: prefix.
     const lines = sectionMatch[1]
       .split('\n')
       .filter((l) => l.startsWith('- '))
-      .map((l) => l.slice(2).trim().replace(/^INSTINCT:\s*/i, ''));
+      .map((l) => l.replace(/^(?:-\s+)+/, '').trim()) // collapse "- - INSTINCT" → "INSTINCT"
+      .map((l) => l.replace(/^INSTINCT:\s*/i, ''))
+      .filter((l) => l.length > 0);
 
     const dateMatch = file.match(/^(\d{4}-\d{2}-\d{2})/);
     const journalDate = dateMatch ? dateMatch[1] : 'unknown';

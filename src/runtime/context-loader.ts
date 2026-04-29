@@ -45,6 +45,13 @@ export function loadIdentity(harnessDir: string): IdentityLoadResult {
     return { content: readFileSync(corePath, 'utf-8'), source: 'CORE.md' };
   }
 
+  // Neither IDENTITY.md nor CORE.md exists. The agent will operate with no
+  // identity grounding, which is rarely what the user wants — surface this
+  // loudly. (D11)
+  console.error(
+    `[warning] No IDENTITY.md found at ${harnessDir}. The agent will boot with an empty identity. ` +
+    `Create IDENTITY.md (or run \`harness init\` to scaffold one) before relying on this harness.`,
+  );
   return { content: '', source: 'none' };
 }
 

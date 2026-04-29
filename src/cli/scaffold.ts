@@ -1,7 +1,30 @@
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, statSync } from 'fs';
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, statSync, chmodSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { writeDefaultConfig } from '../core/config.js';
+
+/**
+ * D3: npm tarballs don't preserve POSIX exec bits reliably across all install
+ * paths, so scripts copied into a fresh harness need their +x bit set
+ * explicitly. Files inside a `scripts/` subdirectory with an executable
+ * extension or a shebang line are chmodded to 0o755 during scaffold.
+ */
+const EXECUTABLE_EXTENSIONS = ['.sh', '.py', '.js', '.ts', '.rb', '.pl', '.bash', '.zsh', '.fish'];
+
+function shouldBeExecutable(srcPath: string, entry: string, parentDir: string): boolean {
+  // Only consider files inside a `scripts/` directory at any depth
+  if (parentDir !== 'scripts') return false;
+  const ext = entry.includes('.') ? entry.slice(entry.lastIndexOf('.')).toLowerCase() : '';
+  if (EXECUTABLE_EXTENSIONS.includes(ext)) return true;
+  // Files without recognized extensions but with a shebang are also executables
+  try {
+    const head = readFileSync(srcPath, 'utf-8').slice(0, 256);
+    if (head.startsWith('#!')) return true;
+  } catch {
+    // unreadable — leave as-is
+  }
+  return false;
+}
 
 const DIRECTORIES = [
   'rules',
@@ -51,6 +74,7 @@ function applyTemplate(content: string, vars: TemplateVars): string {
  */
 function copyDirRecursive(srcDir: string, destDir: string, vars: TemplateVars): void {
   mkdirSync(destDir, { recursive: true });
+  const parentName = destDir.split('/').pop() ?? '';
   for (const entry of readdirSync(srcDir)) {
     const srcPath = join(srcDir, entry);
     const destPath = join(destDir, entry);
@@ -61,6 +85,11 @@ function copyDirRecursive(srcDir: string, destDir: string, vars: TemplateVars): 
       writeFileSync(destPath, applyTemplate(content, vars), 'utf-8');
     } else {
       writeFileSync(destPath, readFileSync(srcPath));
+      // D3: scripts/ executables need +x set during scaffold (npm tarballs
+      // strip exec bits in some install paths).
+      if (shouldBeExecutable(srcPath, entry, parentName)) {
+        chmodSync(destPath, 0o755);
+      }
     }
   }
 }
@@ -120,14 +149,33 @@ export interface ScaffoldOptions {
 }
 
 export function scaffoldHarness(targetDir: string, agentName: string, options?: ScaffoldOptions): void {
+  // D2: allow scaffolding into an existing directory if it's empty OR doesn't
+  // already contain a harness. Block only when there's a real conflict (an
+  // existing harness signaled by IDENTITY.md/CORE.md/config.yaml/SKILL.md).
   if (existsSync(targetDir)) {
-    throw new Error(`Directory already exists: ${targetDir}`);
+    const stats = statSync(targetDir);
+    if (!stats.isDirectory()) {
+      throw new Error(`Cannot scaffold into ${targetDir}: path exists but is not a directory.`);
+    }
+    const harnessSignals = ['IDENTITY.md', 'CORE.md', 'config.yaml'];
+    const found = harnessSignals.filter((f) => existsSync(join(targetDir, f)));
+    if (found.length > 0) {
+      throw new Error(
+        `${targetDir} already contains a harness (found ${found.join(', ')}). Pick a different directory or remove the existing files first.`,
+      );
+    }
+    // Existing but non-harness directory — allow. Log entries that will be
+    // adjacent to the new scaffold so the user knows what's there.
+    const entries = readdirSync(targetDir).filter((e) => !e.startsWith('.'));
+    if (entries.length > 0) {
+      console.error(`[init] Scaffolding into existing directory ${targetDir}; existing entries kept: ${entries.join(', ')}`);
+    }
   }
 
   const template = options?.template ?? 'base';
   const vars: TemplateVars = { agentName, purpose: options?.purpose };
 
-  // Create directory structure
+  // Create directory structure (mkdir -p is idempotent)
   mkdirSync(targetDir, { recursive: true });
   for (const dir of DIRECTORIES) {
     mkdirSync(join(targetDir, dir), { recursive: true });

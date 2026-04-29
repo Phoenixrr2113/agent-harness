@@ -204,7 +204,7 @@ export function composeTriggerHandlers(harnessDir: string): ComposedHandlers {
           throw new Error(`prepare-call aborted by ${skill.name}: ${r.error.message}`);
         }
         if (r.status === 'error') {
-          process.stderr.write(`[triggers] prepare-call error in ${skill.name}: ${r.error?.message ?? 'unknown'}\n`);
+          process.stderr.write(`[triggers] prepare-call error in ${skill.name} (${join(skill.bundleDir, 'scripts')}): ${r.error?.message ?? 'unknown'}\n`);
           // proceed with unmodified settings
           continue;
         }
@@ -230,7 +230,7 @@ export function composeTriggerHandlers(harnessDir: string): ComposedHandlers {
           throw new Error(`prepare-step aborted by ${skill.name}: ${r.error.message}`);
         }
         if (r.status === 'error') {
-          process.stderr.write(`[triggers] prepare-step error in ${skill.name}: ${r.error?.message ?? 'unknown'}\n`);
+          process.stderr.write(`[triggers] prepare-step error in ${skill.name} (${join(skill.bundleDir, 'scripts')}): ${r.error?.message ?? 'unknown'}\n`);
           continue;
         }
         merged = mergeSettings(merged, r);
@@ -251,7 +251,7 @@ export function composeTriggerHandlers(harnessDir: string): ComposedHandlers {
           payload: { stepResult },
         });
         if (r.status === 'error') {
-          process.stderr.write(`[triggers] step-finish error in ${skill.name}: ${r.error?.message ?? 'unknown'}\n`);
+          process.stderr.write(`[triggers] step-finish error in ${skill.name} (${join(skill.bundleDir, 'scripts')}): ${r.error?.message ?? 'unknown'}\n`);
         }
         // step-finish is observation-only; result is ignored
       }
@@ -270,7 +270,7 @@ export function composeTriggerHandlers(harnessDir: string): ComposedHandlers {
           payload: { runResult },
         });
         if (r.status === 'error') {
-          process.stderr.write(`[triggers] run-finish error in ${skill.name}: ${r.error?.message ?? 'unknown'}\n`);
+          process.stderr.write(`[triggers] run-finish error in ${skill.name} (${join(skill.bundleDir, 'scripts')}): ${r.error?.message ?? 'unknown'}\n`);
         }
       }
     };

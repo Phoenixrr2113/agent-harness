@@ -28,6 +28,31 @@ export interface MigrationReport {
 }
 
 /**
+ * D1: Derive a skill description from a legacy playbook's body when the
+ * frontmatter doesn't carry one. We look for the first H1 heading or first
+ * non-trivial prose line; if neither is present, we synthesize a placeholder
+ * that explicitly flags the file for manual review (so it's discoverable
+ * via search and `harness doctor --check`).
+ */
+export function derivePlaybookDescription(name: string, body: string): string {
+  const lines = body.split('\n').map((l) => l.trim()).filter(Boolean);
+  // Try first H1 — playbooks often led with `# Playbook: <topic>`
+  for (const line of lines) {
+    if (line.startsWith('# ')) {
+      const heading = line.slice(2).trim();
+      if (heading.length >= 10) return `${heading} (migrated from legacy playbook). Use when you need ${name}-related guidance.`;
+    }
+  }
+  // Try first prose line that isn't a heading or a comment
+  for (const line of lines) {
+    if (line.startsWith('#') || line.startsWith('<!--') || line.startsWith('---')) continue;
+    if (line.length >= 20) return `${line.slice(0, 200).trim()} (migrated from legacy playbook ${name}).`;
+  }
+  // Fallback placeholder — explicitly invalid-looking so the user notices
+  return `[TODO: review and rewrite] migrated from legacy playbook ${name}; original had no description. Use this skill when working on ${name}-related tasks.`;
+}
+
+/**
  * Convert a value from gray-matter frontmatter to a date string.
  * gray-matter (via js-yaml) automatically parses bare YAML dates (e.g.
  * `2026-01-15`) into JavaScript Date objects. We want to preserve the
@@ -370,8 +395,18 @@ export function applyMigrations(harnessDir: string, report: MigrationReport): Ap
             skipped.push({ ...finding, reason: `skills/${baseName}/ exists; playbook left in place` });
             break;
           }
+          // D1: legacy playbooks usually lack `description` (it wasn't required).
+          // The Agent Skills strict schema requires 1+ char description, so we
+          // derive one from the body. Falls back to a placeholder that flags
+          // the file for manual review.
+          const raw = readFileSync(flatPath, 'utf-8');
+          const { data, content } = matter(raw);
+          if (!data.description || String(data.description).trim().length === 0) {
+            data.description = derivePlaybookDescription(baseName, content);
+          }
           mkdirSync(newBundleDir, { recursive: true });
-          renameSync(flatPath, join(newBundleDir, 'SKILL.md'));
+          writeFileSync(join(newBundleDir, 'SKILL.md'), matter.stringify(content, data), 'utf-8');
+          unlinkSync(flatPath);
           applied.push(finding);
           break;
         }
