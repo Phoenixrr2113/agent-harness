@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, existsSync, readdirSync, readFileSync, rmSync } from 'fs';
+import { mkdtempSync, existsSync, readdirSync, readFileSync, rmSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { scaffoldHarness, listTemplates, generateCoreMd, generateSystemMd } from '../src/cli/scaffold.js';
@@ -167,12 +167,32 @@ describe('harness init (scaffolding)', () => {
     expect(gitignoreContent).toContain('!memory/journal/.gitkeep');
   });
 
-  it('should throw error if directory already exists', () => {
+  it('should throw error if target already contains a harness', () => {
     scaffoldHarness(agentDir, 'test-agent');
 
     expect(() => {
       scaffoldHarness(agentDir, 'test-agent');
-    }).toThrow('Directory already exists');
+    }).toThrow(/already contains a harness/);
+  });
+
+  it('D2: should scaffold into an empty existing directory without erroring', () => {
+    // mkdir foo && cd foo && harness init . — common real-world pattern
+    mkdirSync(agentDir, { recursive: true });
+    expect(() => scaffoldHarness(agentDir, 'test-agent')).not.toThrow();
+    expect(existsSync(join(agentDir, 'IDENTITY.md'))).toBe(true);
+  });
+
+  it('D2: should scaffold into an existing dir with non-harness files (preserves them)', () => {
+    mkdirSync(agentDir, { recursive: true });
+    // Use files the scaffold itself does NOT write (it writes README.md, .gitignore, etc.)
+    writeFileSync(join(agentDir, 'src.ts'), 'console.log(1);');
+    writeFileSync(join(agentDir, 'tsconfig.json'), '{}');
+    expect(() => scaffoldHarness(agentDir, 'test-agent')).not.toThrow();
+    // Pre-existing files outside the scaffold's footprint are preserved
+    expect(readFileSync(join(agentDir, 'src.ts'), 'utf-8')).toBe('console.log(1);');
+    expect(existsSync(join(agentDir, 'tsconfig.json'))).toBe(true);
+    // Harness scaffolded alongside
+    expect(existsSync(join(agentDir, 'IDENTITY.md'))).toBe(true);
   });
 
   it('should set correct author for different primitive types', () => {

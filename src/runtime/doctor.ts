@@ -1,9 +1,30 @@
-import { readdirSync, existsSync, statSync, chmodSync } from 'fs';
+import { readdirSync, existsSync, statSync, chmodSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { loadAllPrimitives } from '../primitives/loader.js';
 import { ALL_SKILL_LINTS } from './lints/skill-lints.js';
 import { ALL_SCRIPT_LINTS } from './lints/script-lints.js';
 import type { LintResult } from './lint-types.js';
+
+/**
+ * D4: distinguish actual scripts from templates/assets that happen to live in
+ * a `scripts/` directory. Files with executable extensions or a shebang line
+ * are scripts; everything else (HTML, JSON, YAML, plain MD, raw data) is a
+ * support resource the runtime won't try to spawn.
+ */
+const SCRIPT_EXTENSIONS = ['.sh', '.py', '.js', '.ts', '.rb', '.pl', '.bash', '.zsh', '.fish'];
+
+function isScriptFile(scriptPath: string, entry: string): boolean {
+  const ext = entry.includes('.') ? entry.slice(entry.lastIndexOf('.')).toLowerCase() : '';
+  if (SCRIPT_EXTENSIONS.includes(ext)) return true;
+  // Files without recognized extensions but with a shebang are also scripts
+  try {
+    const head = readFileSync(scriptPath, 'utf-8').slice(0, 256);
+    if (head.startsWith('#!')) return true;
+  } catch {
+    // unreadable — treat as non-script
+  }
+  return false;
+}
 
 /**
  * Run all skill and script lints against every skill bundle in harnessDir.
@@ -33,6 +54,10 @@ export async function runLints(harnessDir: string): Promise<LintResult[]> {
       for (const entry of readdirSync(scriptsDir)) {
         const scriptPath = join(scriptsDir, entry);
         if (!statSync(scriptPath).isFile()) continue;
+        // D4: only lint files that look like scripts. Templates and assets
+        // (HTML, JSON, YAML, MD, plain data) get a free pass even if they
+        // happen to live in scripts/.
+        if (!isScriptFile(scriptPath, entry)) continue;
         for (const lint of ALL_SCRIPT_LINTS) {
           all.push(...(await lint(scriptPath)));
         }

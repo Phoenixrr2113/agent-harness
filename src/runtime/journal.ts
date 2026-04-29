@@ -91,7 +91,10 @@ Write a journal entry with these EXACT sections (use the exact headers shown):
 Bullet points (starting with "- ") of patterns, recurring themes, or notable observations.
 
 ## Instinct Candidates
-Bullet points (starting with "- INSTINCT: ") of behaviors that should become reflexive rules.
+Bullet points of behaviors that should become reflexive rules.
+Format each bullet EXACTLY as: "- INSTINCT: <one-sentence behavior>"
+Do NOT add extra dashes (write "- INSTINCT:" not "- - INSTINCT:").
+Do NOT add bullet sub-points.
 
 ## Knowledge Updates
 Bullet points (starting with "- ") of new facts, corrections, or learnings that should be remembered.`;
@@ -159,7 +162,9 @@ export function parseJournalSynthesis(text: string): JournalSynthesis {
     return content
       .split('\n')
       .filter((line) => line.startsWith('- '))
-      .map((line) => line.slice(2).trim())
+      // D14+D15: tolerate the "- - INSTINCT:" double-dash output some models
+      // produce by collapsing any sequence of leading "- " into a single strip.
+      .map((line) => line.replace(/^(?:-\s+)+/, '').trim())
       .filter(Boolean);
   };
 

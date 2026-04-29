@@ -260,7 +260,13 @@ export function startServe(options: ServeOptions): ServeResult {
         prompt: body.prompt,
         error: message,
       });
-      return c.json({ error: message }, 500);
+      // D9: when the underlying provider is missing an API key, surface the
+      // local-Ollama fallback hint the init command already prints. Without
+      // this, REST API users are left with a raw provider error.
+      const hint = /No API key found for provider/i.test(message)
+        ? `${message} | Tip: switch to a free local model with \`harness config set model.provider ollama && harness config set model.id qwen3:1.7b\` (requires Ollama installed).`
+        : message;
+      return c.json({ error: hint }, 500);
     }
   });
 

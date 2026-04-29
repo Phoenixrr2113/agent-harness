@@ -957,6 +957,13 @@ program
       console.log(`Model: ${config.model.id}`);
       console.log(`State: ${state.mode}`);
       console.log(`Last interaction: ${state.last_interaction}`);
+
+      // D11: surface missing IDENTITY.md prominently in `harness info` output
+      const identityPath = join(dir, 'IDENTITY.md');
+      const corePath = join(dir, 'CORE.md');
+      if (!existsSync(identityPath) && !existsSync(corePath)) {
+        console.log(`\n⚠ IDENTITY.md is missing — agent will run with no identity grounding. Create one at ${identityPath}.`);
+      }
       console.log(`\nContext budget:`);
       console.log(`  Max tokens: ${ctx.budget.max_tokens}`);
       console.log(`  Used: ~${ctx.budget.used_tokens}`);
@@ -1015,21 +1022,19 @@ program
 // --- DEV (watch mode + scheduler) ---
 program
   .command('dev')
-  .description('Start dev mode — watches for file changes, rebuilds indexes, runs scheduled workflows, serves dashboard')
+  .description('Start dev mode — watches for file changes, rebuilds indexes, runs scheduled workflows. Use --web to also start the dashboard.')
   .option('-d, --dir <path>', 'Harness directory', '.')
   .option('-k, --api-key <key>', 'API key override (default: from environment)')
   .option('--no-schedule', 'Disable workflow scheduler')
   .option('--no-auto-process', 'Disable auto-processing of primitives on save')
-  .option('--no-web', 'Disable web dashboard server')
-  .option('-p, --port <number>', 'Web dashboard port', '3000')
+  .option('--web', 'Also start the web dashboard server (off by default)', false)
+  .option('-p, --port <number>', 'Web dashboard port (only used with --web)', '8080')
   .action(async (opts: { dir: string; apiKey?: string; schedule: boolean; autoProcess: boolean; web: boolean; port: string }) => {
     const { loadConfig } = await import('../core/config.js');
     const { rebuildAllIndexes } = await import('../runtime/indexer.js');
     const { createWatcher } = await import('../runtime/watcher.js');
     const { Scheduler } = await import('../runtime/scheduler.js');
     const { autoProcessAll } = await import('../runtime/auto-processor.js');
-    const { generateSystemMd } = await import('../cli/scaffold.js');
-    const { writeFileSync } = await import('fs');
     const dir = resolve(opts.dir);
     loadEnvFromDir(dir);
 
@@ -1051,11 +1056,8 @@ program
       }
     }
 
-    // Regenerate SYSTEM.md from current directory structure
-    const systemPath = join(dir, 'SYSTEM.md');
-    const newSystem = generateSystemMd(dir, config.agent.name);
-    writeFileSync(systemPath, newSystem, 'utf-8');
-    console.log(`[dev] SYSTEM.md regenerated from directory structure`);
+    // D5: do NOT regenerate SYSTEM.md — that file was deleted as legacy
+    // infrastructure documentation in spec #1 and should stay deleted.
 
     // Initial index build
     const extDirs = config.extensions?.directories ?? [];
@@ -3894,11 +3896,14 @@ mcpCmd
   });
 
 mcpCmd
-  .command('test')
-  .description('Test MCP server connections and list available tools')
+  .command('test [name]')
+  .description('Test MCP server connections and list available tools. Optionally pass a server name as a positional arg or via --server.')
   .option('-d, --dir <path>', 'Harness directory', '.')
-  .option('-s, --server <name>', 'Test only a specific server')
-  .action(async (opts: { dir: string; server?: string }) => {
+  .option('-s, --server <name>', 'Test only a specific server (alias for the positional <name>)')
+  .action(async (name: string | undefined, opts: { dir: string; server?: string }) => {
+    // D10: accept both positional <name> and --server <name>. Positional wins
+    // if both given; --server kept for backward compat.
+    if (name && !opts.server) opts.server = name;
     const { loadConfig } = await import('../core/config.js');
     const { createMcpManager } = await import('../runtime/mcp.js');
     const dir = resolve(opts.dir);
