@@ -79,7 +79,7 @@ Just body content.
       expect(doc.body).toContain('# Document Without Summaries');
     });
 
-    it('should create fallback id from filename if invalid', () => {
+    it('throws when frontmatter is invalid (no silent fallback in strict mode)', () => {
       const testFile = join(testDir, 'fallback-doc.md');
       writeFileSync(
         testFile,
@@ -89,10 +89,8 @@ This document has no frontmatter.
 `
       );
 
-      const doc = parseHarnessDocument(testFile);
-
-      expect(doc.id).toBe('fallback-doc');
-      expect(doc.body).toContain('# No Frontmatter');
+      // Strict mode: missing id/name throws instead of silently falling back.
+      expect(() => parseHarnessDocument(testFile)).toThrow();
     });
 
     it('should handle Date objects in frontmatter', () => {
@@ -173,30 +171,31 @@ Content 2`
     });
 
     it('should skip files starting with underscore', () => {
-      const skillsDir = join(testDir, 'skills');
-      mkdirSync(skillsDir);
+      // Use rules (non-skill) so flat .md files are supported
+      const rulesDir = join(testDir, 'rules');
+      mkdirSync(rulesDir);
 
       writeFileSync(
-        join(skillsDir, 'skill1.md'),
+        join(rulesDir, 'rule1.md'),
         `---
-id: skill1
+id: rule1
 status: active
 ---
 Content`
       );
 
       writeFileSync(
-        join(skillsDir, '_index.md'),
+        join(rulesDir, '_index.md'),
         `---
 id: index
 ---
 Index content`
       );
 
-      const docs = loadDirectory(skillsDir);
+      const docs = loadDirectory(rulesDir);
 
       expect(docs).toHaveLength(1);
-      expect(docs[0].id).toBe('skill1');
+      expect(docs[0].id).toBe('rule1');
     });
 
     it('should skip hidden files', () => {
@@ -293,10 +292,11 @@ Tool content`
 
   describe('loadAllPrimitives', () => {
     it('should load all primitive directories', () => {
-      // Create all primitive directories with sample files
-      const primitiveTypes = ['rules', 'instincts', 'skills', 'playbooks', 'workflows', 'tools', 'agents'];
-
-      for (const type of primitiveTypes) {
+      // Create all primitive directories with sample files.
+      // Skills must be bundles (Agent Skills spec) — use SKILL.md entry.
+      // Other kinds support flat .md files.
+      const flatTypes = ['rules', 'instincts', 'playbooks', 'workflows', 'tools', 'agents'];
+      for (const type of flatTypes) {
         const dir = join(testDir, type);
         mkdirSync(dir);
         writeFileSync(
@@ -308,9 +308,23 @@ status: active
 Content for ${type}`
         );
       }
+      // Skills must be a bundle directory
+      const skillsDir = join(testDir, 'skills');
+      const skillBundle = join(skillsDir, 'skills-1');
+      mkdirSync(skillBundle, { recursive: true });
+      writeFileSync(
+        join(skillBundle, 'SKILL.md'),
+        `---
+name: skills-1
+description: A test skill.
+status: active
+---
+Content for skills`
+      );
 
       const primitives = loadAllPrimitives(testDir);
 
+      const primitiveTypes = ['rules', 'instincts', 'skills', 'playbooks', 'workflows', 'tools', 'agents'];
       expect(primitives.size).toBe(7);
       for (const type of primitiveTypes) {
         expect(primitives.has(type)).toBe(true);
@@ -475,7 +489,7 @@ Multiple paragraphs and sections.
   });
 
   describe('loadDirectoryWithErrors', () => {
-    it('should still load valid files alongside resilient parsing', () => {
+    it('should still load valid files alongside strict parsing (invalid files produce errors)', () => {
       const rulesDir = join(testDir, 'rules');
       mkdirSync(rulesDir);
 
@@ -488,16 +502,15 @@ status: active
 Good content`,
       );
 
-      // gray-matter is resilient and can parse most content without throwing.
-      // The key behavior: loadDirectoryWithErrors never throws and always returns valid docs.
+      // Strict mode: files without id/name fail schema validation and produce errors.
       writeFileSync(join(rulesDir, 'other.md'), 'No frontmatter at all');
 
       const result = loadDirectoryWithErrors(rulesDir);
 
-      // Both files should parse (gray-matter creates fallback frontmatter)
+      // The valid file loads; the invalid file produces an error.
       expect(result.docs.some((d) => d.id === 'good')).toBe(true);
-      // No errors because gray-matter is resilient
-      expect(result.errors).toHaveLength(0);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].path).toContain('other.md');
     });
 
     it('should return empty errors for valid directory', () => {
@@ -665,7 +678,8 @@ status: active
       expect(result.errors[0].error).toContain('Bundling is not supported for "instincts"');
     });
 
-    it('keeps flat .md files working alongside bundled dirs in the same kind', () => {
+    it('flat .md files in skills/ are rejected as errors; bundles still load', () => {
+      // Per Agent Skills spec, skills MUST be bundles. Flat files in skills/ are errors.
       const skillsDir = join(testDir, 'skills');
       mkdirSync(skillsDir);
       writeFileSync(
@@ -692,15 +706,14 @@ status: active
 `,
       );
 
-      const docs = loadDirectory(skillsDir).sort((a, b) =>
-        a.id.localeCompare(b.id),
-      );
+      const result = loadDirectoryWithErrors(skillsDir);
 
-      expect(docs).toHaveLength(2);
-      expect(docs[0].id).toBe('bundled-skill');
-      expect(docs[0].bundleDir).toBe(bundleDir);
-      expect(docs[1].id).toBe('flat-skill');
-      expect(docs[1].bundleDir).toBeUndefined();
+      // Only the bundle loads; the flat file produces an error.
+      expect(result.docs).toHaveLength(1);
+      expect(result.docs[0].id).toBe('bundled-skill');
+      expect(result.docs[0].bundleDir).toBe(bundleDir);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].error).toMatch(/flat .* not supported/i);
     });
 
     it('skips hidden and _underscore bundle dirs silently', () => {

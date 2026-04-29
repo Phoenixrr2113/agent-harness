@@ -55,17 +55,8 @@ export function parseHarnessDocument(filePath: string, bundleDir?: string, kind?
     if (v instanceof Date) normalized[key] = v.toISOString().split('T')[0];
   }
 
-  let frontmatter: Frontmatter;
-  try {
-    frontmatter = FrontmatterSchema.parse(normalized);
-  } catch {
-    // Fall back to a minimal frontmatter using filename/dirname for id.
-    // (Strict-mode error reporting comes in Task 3.4.)
-    const fallbackId = bundleDir
-      ? basename(bundleDir)
-      : basename(filePath).replace(/\.md$/, '') || 'unknown';
-    frontmatter = FrontmatterSchema.parse({ id: fallbackId, name: fallbackId });
-  }
+  // Strict: schema parse failures throw and are reported by the caller.
+  const frontmatter: Frontmatter = FrontmatterSchema.parse(normalized);
 
   // Strip L0/L1 markers from body (kept for migration; no longer extracted as fields)
   const body = content
@@ -172,13 +163,28 @@ export function loadDirectoryWithErrors(dirPath: string): LoadResult {
           docs.push(doc);
         }
       } catch (err) {
-        errors.push({
-          path: entryFile,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        // Provide a more actionable error for skill bundles that fail schema validation.
+        // FrontmatterSchema requires id (derived from name), so a missing name field
+        // produces an error about "id" — translate it to mention "name" for authors.
+        const rawMessage = err instanceof Error ? err.message : String(err);
+        const message =
+          kind === 'skills' && rawMessage.includes('"id"')
+            ? `Invalid skill frontmatter in ${basename(entryFile)}: "name" is required (missing or invalid). Per Agent Skills spec, each skill MUST have a name field. Run \`harness doctor --migrate\` for help. Details: ${rawMessage}`
+            : rawMessage;
+        errors.push({ path: entryFile, error: message });
       }
     } else if (stats.isFile() && extname(entry) === '.md') {
-      // Flat primitive — single-file convention, backward compatible.
+      // Per Agent Skills spec, skills MUST be bundles. Flat .md files in skills/
+      // are an authoring error.
+      if (kind === 'skills') {
+        errors.push({
+          path: entryPath,
+          error: `Flat skill files are not supported per Agent Skills spec. Wrap as ${entry.replace('.md', '')}/SKILL.md. Run \`harness doctor --migrate\` to convert automatically.`,
+        });
+        continue;
+      }
+      // Flat primitives for non-skill kinds remain supported through this spec
+      // (collapsed in spec #2).
       try {
         const doc = parseHarnessDocument(entryPath, undefined, kind);
         if (doc.status !== 'archived' && doc.status !== 'deprecated') {

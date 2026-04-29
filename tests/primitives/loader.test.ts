@@ -5,6 +5,48 @@ import { tmpdir } from 'os';
 import type { HarnessDocument } from '../../src/core/types.js';
 import { loadDirectoryWithErrors } from '../../src/primitives/loader.js';
 
+describe('loadDirectoryWithErrors — strict mode reports errors', () => {
+  it('reports skills missing required name', () => {
+    const root = mkdtempSync(join(tmpdir(), 'loader-test-'));
+    const skillsDir = join(root, 'skills');
+    mkdirSync(skillsDir, { recursive: true });
+    const bundleDir = join(skillsDir, 'foo');
+    mkdirSync(bundleDir);
+    writeFileSync(
+      join(bundleDir, 'SKILL.md'),
+      `---
+description: No name field.
+---
+Body.`,
+      'utf-8'
+    );
+
+    const result = loadDirectoryWithErrors(skillsDir);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].error).toMatch(/name/i);
+    expect(result.docs).toHaveLength(0);
+  });
+
+  it('reports flat skill files as an error in strict mode', () => {
+    const root = mkdtempSync(join(tmpdir(), 'loader-test-'));
+    const skillsDir = join(root, 'skills');
+    mkdirSync(skillsDir, { recursive: true });
+    writeFileSync(
+      join(skillsDir, 'foo.md'),
+      `---
+name: foo
+description: A flat skill.
+---
+Body.`,
+      'utf-8'
+    );
+
+    const result = loadDirectoryWithErrors(skillsDir);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].error).toMatch(/flat .* not supported/i);
+  });
+});
+
 describe('HarnessDocument', () => {
   it('exposes normalized accessor fields', () => {
     const doc: HarnessDocument = {

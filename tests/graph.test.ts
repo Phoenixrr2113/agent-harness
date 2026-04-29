@@ -56,8 +56,9 @@ describe('graph', () => {
 
   it('should identify orphan nodes', () => {
     writeFileSync(join(TEST_DIR, 'rules', 'ops.md'), makePrimitive('ops', ['code-review']), 'utf-8');
-    writeFileSync(join(TEST_DIR, 'skills', 'code-review.md'), makePrimitive('code-review', ['ops']), 'utf-8');
-    writeFileSync(join(TEST_DIR, 'skills', 'research.md'), makePrimitive('research'), 'utf-8');
+    // Skills must be bundles — use instincts (flat-file kind) for these cross-kind reference tests
+    writeFileSync(join(TEST_DIR, 'instincts', 'code-review.md'), makePrimitive('code-review', ['ops']), 'utf-8');
+    writeFileSync(join(TEST_DIR, 'instincts', 'research.md'), makePrimitive('research'), 'utf-8');
 
     const graph = buildDependencyGraph(TEST_DIR);
     expect(graph.orphans).toHaveLength(1);

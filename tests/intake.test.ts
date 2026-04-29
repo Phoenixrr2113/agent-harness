@@ -263,19 +263,18 @@ This agent does something useful and meaningful for the system.
     expect(result.type).toBe('agent');
   });
 
-  it('should fallback id from filename when frontmatter id is missing', () => {
-    // parseHarnessDocument falls back to deriving id from filename,
-    // so evaluateCapability won't report "missing id" — the parser handles it.
+  it('reports invalid when frontmatter id/name is missing (strict mode, no silent fallback)', () => {
+    // Strict mode: missing id/name throws during parse, evaluateCapability returns valid: false.
     const filePath = writeTestFile('no-id.md', `---
 tags: [rule]
 ---
 # Rule: No ID
 
-This rule is missing an id field but the parser derives one from the filename.
+This rule is missing both id and name fields.
 `);
     const result = evaluateCapability(filePath);
-    expect(result.valid).toBe(true);
-    expect(result.type).toBe('rule');
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('parse') || e.includes('id') || e.includes('name'))).toBe(true);
   });
 
   it('should warn on missing L0/L1', () => {

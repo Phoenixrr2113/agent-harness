@@ -404,10 +404,13 @@ describe('intelligence', () => {
     });
 
     it('should NOT suggest topics already covered by skills', () => {
-      // Create a skill that covers "testing"
+      // Create a skill bundle that covers "testing"
+      // Skills must be bundles (Agent Skills spec); flat .md files in skills/ are errors.
+      const skillBundleDir = join(harnessDir, 'skills', 'testing-skill');
+      mkdirSync(skillBundleDir, { recursive: true });
       writeFileSync(
-        join(harnessDir, 'skills', 'testing-skill.md'),
-        '---\nid: testing-skill\ntags: [testing]\ncreated: 2024-01-01\nauthor: human\nstatus: active\nrelated: []\n---\n\n# Testing Skill',
+        join(skillBundleDir, 'SKILL.md'),
+        '---\nname: testing-skill\ndescription: A skill for testing.\nmetadata:\n  harness-tags: testing\n---\n\n# Testing Skill',
       );
 
       createSession('2024-01-01-t1', 'Write testing tests for testing', 'Wrote tests with testing.');
