@@ -199,20 +199,51 @@ export const FrontmatterSchema = z.preprocess((input) => {
 export type Frontmatter = z.infer<typeof FrontmatterSchema>;
 
 // --- Primitive Document ---
+/**
+ * Loaded primitive document with frontmatter parsed and harness-extension fields
+ * normalized to canonical accessors. Consumers read `doc.tags`, `doc.status`, etc.
+ * directly without needing to know whether the original frontmatter put those
+ * fields at the top level (non-skill primitives) or inside `metadata.harness-*`
+ * (skills, per Agent Skills spec compliance).
+ */
 export interface HarnessDocument {
   path: string;
-  frontmatter: Frontmatter;
-  l0: string;
-  l1: string;
+  /** Canonical identity. For skills, equals `name`. For flat non-skill files, derived from filename. */
+  id: string;
+  /** Spec-required for skills; optional for non-skill flat files (where it equals `id`). */
+  name: string;
+  /** Spec-required for skills; required by harness for non-skills as of this spec. */
+  description?: string;
+  license?: string;
+  compatibility?: string;
+  /** Parsed from the spec's space-separated string into an array. */
+  allowedTools: string[];
+  // Normalized harness extensions
+  tags: string[];
+  status: 'active' | 'archived' | 'deprecated' | 'draft';
+  author: 'human' | 'agent' | 'infrastructure';
+  created?: string;
+  updated?: string;
+  related: string[];
+  // Type-specific (workflows, agents) — undefined when not applicable
+  schedule?: string;
+  with?: string;
+  channel?: string;
+  duration_minutes?: number;
+  max_retries?: number;
+  retry_delay_ms?: number;
+  durable?: boolean;
+  model?: 'primary' | 'summary' | 'fast';
+  active_tools?: string[];
+  /** Harness-specific keys stripped of the `harness-` prefix; spec-aligned remainder. */
+  metadata?: Record<string, unknown>;
+  // Body & raw
   body: string;
   raw: string;
-  /**
-   * Absolute path to the primitive's bundle directory, if this doc is the
-   * entry-point of a multi-file bundle (e.g. `skills/my-skill/SKILL.md`).
-   * Undefined for flat single-file primitives. Consumers can list/read other
-   * files in this directory on demand — they are NOT auto-loaded into context.
-   */
+  /** Absolute path to the bundle directory if this doc is the entry-point of a multi-file bundle. */
   bundleDir?: string;
+  /** Original parsed frontmatter (spec-shape for skills, harness-shape for others). */
+  frontmatter: SkillFrontmatter | NonSkillFrontmatter | Frontmatter;
 }
 
 // --- Primitive Types ---
@@ -723,6 +754,7 @@ export interface IndexEntry {
   id: string;
   path: string;
   tags: string[];
+  /** One-line description/summary; populated from doc.description ?? doc.id. */
   l0: string;
   created: string;
   status: string;

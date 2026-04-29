@@ -27,7 +27,7 @@ export async function proposeInstincts(
 
   // Load existing instincts to avoid duplicates
   const existingInstincts = loadDirectory(join(harnessDir, 'instincts'));
-  const existingBehaviors = existingInstincts.map((d) => d.l0 || d.frontmatter.id).join('\n- ');
+  const existingBehaviors = existingInstincts.map((d) => d.description ?? d.id).join('\n- ');
 
   // Load recent sessions or journal
   let recentContext = '';
@@ -213,8 +213,8 @@ export function harvestInstincts(
   if (existsSync(instinctsDir)) {
     const docs = loadDirectory(instinctsDir);
     for (const doc of docs) {
-      existingIds.add(doc.frontmatter.id);
-      if (doc.l0) existingBehaviors.add(doc.l0.toLowerCase());
+      existingIds.add(doc.id);
+      if (doc.description) existingBehaviors.add(doc.description.toLowerCase());
     }
   }
 

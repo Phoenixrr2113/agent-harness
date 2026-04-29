@@ -109,8 +109,8 @@ export function autoPromoteInstincts(
   if (existsSync(instinctsDir)) {
     const docs = loadDirectory(instinctsDir);
     for (const doc of docs) {
-      existingIds.add(doc.frontmatter.id);
-      if (doc.l0) existingBehaviors.add(normalizeBehavior(doc.l0));
+      existingIds.add(doc.id);
+      if (doc.description) existingBehaviors.add(normalizeBehavior(doc.description));
     }
   }
 
@@ -313,13 +313,13 @@ export function detectContradictions(
           if (negation) {
             contradictions.push({
               primitiveA: {
-                id: rule.doc.frontmatter.id,
+                id: rule.doc.id,
                 path: relative(harnessDir, rule.doc.path),
                 type: 'rule',
                 text: rd.raw,
               },
               primitiveB: {
-                id: instinct.doc.frontmatter.id,
+                id: instinct.doc.id,
                 path: relative(harnessDir, instinct.doc.path),
                 type: 'instinct',
                 text: id.raw,
@@ -335,8 +335,8 @@ export function detectContradictions(
       const sharedTopics = rule.topics.filter((t) => instinct.topics.includes(t));
       if (sharedTopics.length > 0) {
         // Check if one says "always" and other says "never" about shared topic
-        const ruleText = (rule.doc.l0 + ' ' + rule.doc.body).toLowerCase();
-        const instinctText = (instinct.doc.l0 + ' ' + instinct.doc.body).toLowerCase();
+        const ruleText = ((rule.doc.description ?? '') + ' ' + rule.doc.body).toLowerCase();
+        const instinctText = ((instinct.doc.description ?? '') + ' ' + instinct.doc.body).toLowerCase();
 
         for (const topic of sharedTopics) {
           const ruleHasAlways = hasPositiveDirective(ruleText, topic);
@@ -348,22 +348,22 @@ export function detectContradictions(
             // Avoid duplicate if already caught by directive check
             const alreadyCaught = contradictions.some(
               (c) =>
-                c.primitiveA.id === rule.doc.frontmatter.id &&
-                c.primitiveB.id === instinct.doc.frontmatter.id,
+                c.primitiveA.id === rule.doc.id &&
+                c.primitiveB.id === instinct.doc.id,
             );
             if (!alreadyCaught) {
               contradictions.push({
                 primitiveA: {
-                  id: rule.doc.frontmatter.id,
+                  id: rule.doc.id,
                   path: relative(harnessDir, rule.doc.path),
                   type: 'rule',
-                  text: rule.doc.l0 || rule.doc.frontmatter.id,
+                  text: rule.doc.description ?? rule.doc.id,
                 },
                 primitiveB: {
-                  id: instinct.doc.frontmatter.id,
+                  id: instinct.doc.id,
                   path: relative(harnessDir, instinct.doc.path),
                   type: 'instinct',
-                  text: instinct.doc.l0 || instinct.doc.frontmatter.id,
+                  text: instinct.doc.description ?? instinct.doc.id,
                 },
                 reason: `Conflicting directives about "${topic}"`,
                 severity: 'medium',
@@ -399,7 +399,7 @@ interface Directive {
  */
 function extractDirectives(doc: HarnessDocument): Directive[] {
   const directives: Directive[] = [];
-  const text = (doc.l0 + '\n' + doc.body).trim();
+  const text = ((doc.description ?? '') + '\n' + doc.body).trim();
 
   // Process line by line
   for (const line of text.split('\n')) {
@@ -447,12 +447,12 @@ function extractTopics(doc: HarnessDocument): string[] {
   const topics: string[] = [];
 
   // Tags as topics
-  for (const tag of doc.frontmatter.tags) {
+  for (const tag of doc.tags) {
     topics.push(tag.toLowerCase());
   }
 
   // ID words as topics
-  const idParts = doc.frontmatter.id.split('-').filter((p) => p.length > 2);
+  const idParts = doc.id.split('-').filter((p) => p.length > 2);
   topics.push(...idParts.map((p) => p.toLowerCase()));
 
   return [...new Set(topics)];
@@ -524,13 +524,13 @@ function checkIntraGroupContradictions(
           if (negation) {
             contradictions.push({
               primitiveA: {
-                id: a.doc.frontmatter.id,
+                id: a.doc.id,
                 path: relative(harnessDir, a.doc.path),
                 type,
                 text: da.raw,
               },
               primitiveB: {
-                id: b.doc.frontmatter.id,
+                id: b.doc.id,
                 path: relative(harnessDir, b.doc.path),
                 type,
                 text: db.raw,
@@ -592,7 +592,7 @@ export function enrichSessions(
     if (!existsSync(fullPath)) continue;
     const { docs } = loadDirectoryWithErrors(fullPath);
     for (const doc of docs) {
-      primitiveIds.add(doc.frontmatter.id);
+      primitiveIds.add(doc.id);
     }
   }
 
@@ -793,11 +793,11 @@ export function suggestCapabilities(
     const docs = loadDirectory(dir);
     for (const doc of docs) {
       // Add ID parts as covered topics
-      for (const part of doc.frontmatter.id.split('-')) {
+      for (const part of doc.id.split('-')) {
         if (part.length > 2) coveredTopics.add(part.toLowerCase());
       }
       // Add tags as covered topics
-      for (const tag of doc.frontmatter.tags) {
+      for (const tag of doc.tags) {
         coveredTopics.add(tag.toLowerCase());
       }
     }

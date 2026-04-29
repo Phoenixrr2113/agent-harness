@@ -50,7 +50,7 @@ describe('scheduler durable dispatch', () => {
   it('routes durable:true workflow through durableRun (creates .workflow-data/runs entry)', async () => {
     seedHarness(dir, `---\nid: wf1\ndurable: true\n---\nDo the thing.\n`);
     const sched = new Scheduler({ harnessDir: dir });
-    const loadedDoc = { frontmatter: { id: 'wf1', durable: true, tags: [], related: [], author: 'human', status: 'active' }, body: 'Do the thing.', l0: '', l1: '', path: '', raw: '' };
+    const loadedDoc = { id: 'wf1', durable: true, tags: [], related: [], author: 'human', status: 'active', name: 'wf1', allowedTools: [], frontmatter: { id: 'wf1', durable: true, tags: [], related: [], author: 'human', status: 'active' }, body: 'Do the thing.', path: '', raw: '' };
     await sched.executeWorkflow(loadedDoc as never);
     expect(existsSync(runsDir(dir))).toBe(true);
     expect(readdirSync(runsDir(dir)).length).toBeGreaterThanOrEqual(1);
@@ -59,7 +59,7 @@ describe('scheduler durable dispatch', () => {
   it('routes non-durable workflow through agent.run (no .workflow-data written)', async () => {
     seedHarness(dir, `---\nid: wf1\n---\nDo the thing.\n`);
     const sched = new Scheduler({ harnessDir: dir });
-    const loadedDoc = { frontmatter: { id: 'wf1', tags: [], related: [], author: 'human', status: 'active' }, body: 'Do the thing.', l0: '', l1: '', path: '', raw: '' };
+    const loadedDoc = { id: 'wf1', tags: [], related: [], author: 'human', status: 'active', name: 'wf1', allowedTools: [], frontmatter: { id: 'wf1', tags: [], related: [], author: 'human', status: 'active' }, body: 'Do the thing.', path: '', raw: '' };
     await sched.executeWorkflow(loadedDoc as never);
     expect(existsSync(join(dir, '.workflow-data'))).toBe(false);
   });
@@ -67,7 +67,7 @@ describe('scheduler durable dispatch', () => {
   it('durable_default: true in config routes non-flagged workflow through durableRun', async () => {
     seedHarness(dir, `---\nid: wf1\n---\nDo the thing.\n`, `workflows:\n  durable_default: true\n`);
     const sched = new Scheduler({ harnessDir: dir });
-    const loadedDoc = { frontmatter: { id: 'wf1', tags: [], related: [], author: 'human', status: 'active' }, body: 'Do the thing.', l0: '', l1: '', path: '', raw: '' };
+    const loadedDoc = { id: 'wf1', tags: [], related: [], author: 'human', status: 'active', name: 'wf1', allowedTools: [], frontmatter: { id: 'wf1', tags: [], related: [], author: 'human', status: 'active' }, body: 'Do the thing.', path: '', raw: '' };
     await sched.executeWorkflow(loadedDoc as never);
     expect(existsSync(runsDir(dir))).toBe(true);
     expect(readdirSync(runsDir(dir)).length).toBeGreaterThanOrEqual(1);

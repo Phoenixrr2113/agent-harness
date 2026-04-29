@@ -54,7 +54,7 @@ describe('intelligence', () => {
   function createInstinct(id: string, content: string): void {
     writeFileSync(
       join(harnessDir, 'instincts', `${id}.md`),
-      `---\nid: ${id}\ntags: [test]\ncreated: 2024-01-01\nauthor: agent\nstatus: active\nrelated: []\n---\n\n<!-- L0: ${content.split('\n')[0]} -->\n\n${content}`,
+      `---\nid: ${id}\ntags: [test]\ncreated: 2024-01-01\nauthor: agent\nstatus: active\nrelated: []\ndescription: "${content.split('\n')[0]}"\n---\n\n${content}`,
     );
   }
 

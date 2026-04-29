@@ -27,7 +27,7 @@ export interface ToolDefinition {
 
 export interface ToolSummary {
   id: string;
-  l0: string;
+  description: string;
   tags: string[];
   status: string;
   authReady: boolean;
@@ -129,10 +129,10 @@ function extractGotchas(body: string): string[] {
  */
 export function parseToolDefinition(doc: HarnessDocument): ToolDefinition {
   return {
-    id: doc.frontmatter.id,
+    id: doc.id,
     doc,
-    tags: doc.frontmatter.tags,
-    status: doc.frontmatter.status,
+    tags: doc.tags,
+    status: doc.status,
     auth: extractAuth(doc.body),
     operations: extractOperations(doc.body),
     rateLimits: extractRateLimits(doc.body),
@@ -166,7 +166,7 @@ export function listToolSummaries(harnessDir: string): ToolSummary[] {
   const tools = loadTools(harnessDir);
   return tools.map((t) => ({
     id: t.id,
-    l0: t.doc.l0,
+    description: t.doc.description ?? t.doc.id,
     tags: t.tags,
     status: t.status,
     authReady: t.auth.length === 0 || t.auth.every((a) => a.present),

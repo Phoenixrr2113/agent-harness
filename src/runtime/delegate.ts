@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
-import { loadDirectory, estimateTokens, getAtLevel } from '../primitives/loader.js';
+import { loadDirectory, estimateTokens } from '../primitives/loader.js';
 import { loadConfig } from '../core/config.js';
 import { log } from '../core/logger.js';
 import {
@@ -25,8 +25,7 @@ export interface DelegationResult {
 
 export interface AgentInfo {
   id: string;
-  l0: string;
-  l1: string;
+  description: string;
   path: string;
   tags: string[];
   status: string;
@@ -49,11 +48,11 @@ export function findAgent(harnessDir: string, agentId: string): HarnessDocument 
   const agents = loadAgentDocs(harnessDir);
 
   // Exact id match
-  const byId = agents.find((a) => a.frontmatter.id === agentId);
+  const byId = agents.find((a) => a.id === agentId);
   if (byId) return byId;
 
   // Try with "agent-" prefix
-  const prefixed = agents.find((a) => a.frontmatter.id === `agent-${agentId}`);
+  const prefixed = agents.find((a) => a.id === `agent-${agentId}`);
   if (prefixed) return prefixed;
 
   // Filename match (e.g., "evaluator" matches "evaluator.md")
@@ -70,12 +69,11 @@ export function findAgent(harnessDir: string, agentId: string): HarnessDocument 
  */
 export function listAgents(harnessDir: string): AgentInfo[] {
   return loadAgentDocs(harnessDir).map((doc) => ({
-    id: doc.frontmatter.id,
-    l0: doc.l0,
-    l1: doc.l1,
+    id: doc.id,
+    description: doc.description ?? doc.id,
     path: doc.path,
-    tags: doc.frontmatter.tags,
-    status: doc.frontmatter.status,
+    tags: doc.tags,
+    status: doc.status,
   }));
 }
 
@@ -96,7 +94,7 @@ export function buildAgentPrompt(harnessDir: string, agentDoc: HarnessDocument, 
 
   // 1. Agent identity and instructions (always full L2)
   const agentBody = agentDoc.body;
-  sections.push(`# AGENT: ${agentDoc.frontmatter.id}\n\n${agentBody}`);
+  sections.push(`# AGENT: ${agentDoc.id}\n\n${agentBody}`);
   usedTokens += estimateTokens(agentBody);
 
   // 2. Primary agent identity from CORE.md (brief context)
@@ -121,19 +119,17 @@ export function buildAgentPrompt(harnessDir: string, agentDoc: HarnessDocument, 
         const remaining = targetBudget - usedTokens;
         if (remaining < 50) break;
 
-        // Try L1 first, fall back to L0
-        let level: 0 | 1 | 2 = 1;
-        let content = getAtLevel(rule, level);
+        // Try description first, fall back to id
+        let content = rule.description ?? rule.body.slice(0, 400);
         let tokens = estimateTokens(content);
 
         if (usedTokens + tokens > targetBudget) {
-          level = 0;
-          content = getAtLevel(rule, 0);
+          content = rule.description ?? rule.id;
           tokens = estimateTokens(content);
         }
 
         if (usedTokens + tokens <= targetBudget) {
-          ruleDocs.push(`### ${rule.frontmatter.id}\n${content}`);
+          ruleDocs.push(`### ${rule.id}\n${content}`);
           usedTokens += tokens;
         }
       }
@@ -170,7 +166,7 @@ function prepareDelegation(opts: DelegateOptions) {
   if (!agentDoc) {
     const available = listAgents(harnessDir);
     const agentList = available.length > 0
-      ? available.map((a) => `  - ${a.id}: ${a.l0}`).join('\n')
+      ? available.map((a) => `  - ${a.id}: ${a.description}`).join('\n')
       : '  (none)';
     throw new Error(
       `Agent "${agentId}" not found.\n\nAvailable agents:\n${agentList}`
@@ -193,7 +189,7 @@ function prepareDelegation(opts: DelegateOptions) {
   //   fast    → config.model.fast_model              (falls back to summary → primary)
   //
   // Invalid values throw a clear error at delegation time.
-  const modelTier = (agentDoc.frontmatter as { model?: string }).model ?? 'primary';
+  const modelTier = agentDoc.model ?? 'primary';
   let model;
   let resolvedModelId: string;
   switch (modelTier) {
@@ -205,19 +201,19 @@ function prepareDelegation(opts: DelegateOptions) {
       model = getSummaryModel(config, apiKey);
       resolvedModelId = config.model.summary_model ?? config.model.id;
       log.debug(
-        `[delegate] agent "${agentDoc.frontmatter.id}" using summary model tier → ${resolvedModelId}`,
+        `[delegate] agent "${agentDoc.id}" using summary model tier → ${resolvedModelId}`,
       );
       break;
     case 'fast':
       model = getFastModel(config, apiKey);
       resolvedModelId = config.model.fast_model ?? config.model.summary_model ?? config.model.id;
       log.debug(
-        `[delegate] agent "${agentDoc.frontmatter.id}" using fast model tier → ${resolvedModelId}`,
+        `[delegate] agent "${agentDoc.id}" using fast model tier → ${resolvedModelId}`,
       );
       break;
     default:
       throw new Error(
-        `Agent "${agentDoc.frontmatter.id}" declares model: "${modelTier}" ` +
+        `Agent "${agentDoc.id}" declares model: "${modelTier}" ` +
           `which is not valid. Allowed values: primary, summary, fast.`,
       );
   }
@@ -245,7 +241,7 @@ export async function delegateTo(opts: DelegateOptions): Promise<DelegationResul
   const sessionId = createSessionId();
   const started = new Date().toISOString();
 
-  const activeTools = (agentDoc.frontmatter as { active_tools?: string[] }).active_tools;
+  const activeTools = agentDoc.active_tools;
   const result = await generate({
     model,
     system: systemPrompt,
@@ -265,7 +261,7 @@ export async function delegateTo(opts: DelegateOptions): Promise<DelegationResul
     summary: result.text.slice(0, 200),
     tokens_used: result.usage.totalTokens,
     model_id: resolvedModelId,
-    delegated_to: agentDoc.frontmatter.id,
+    delegated_to: agentDoc.id,
     steps: result.steps,
     tool_calls: result.toolCalls.length > 0 ? result.toolCalls : undefined,
   };
@@ -277,7 +273,7 @@ export async function delegateTo(opts: DelegateOptions): Promise<DelegationResul
   }
 
   return {
-    agentId: agentDoc.frontmatter.id,
+    agentId: agentDoc.id,
     text: result.text,
     usage: result.usage,
     sessionId,
@@ -305,7 +301,7 @@ export function delegateStream(opts: DelegateOptions): DelegateStreamResult {
   const sessionId = createSessionId();
   const started = new Date().toISOString();
 
-  const activeTools = (agentDoc.frontmatter as { active_tools?: string[] }).active_tools;
+  const activeTools = agentDoc.active_tools;
   const result = streamGenerateWithDetails({
     model,
     system: systemPrompt,
@@ -324,7 +320,7 @@ export function delegateStream(opts: DelegateOptions): DelegateStreamResult {
       }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      log.warn(`Delegation stream error for agent "${agentDoc.frontmatter.id}": ${error.message}`);
+      log.warn(`Delegation stream error for agent "${agentDoc.id}": ${error.message}`);
       throw error;
     }
 
@@ -352,7 +348,7 @@ export function delegateStream(opts: DelegateOptions): DelegateStreamResult {
       summary: fullText.slice(0, 200),
       tokens_used: usage.totalTokens,
       model_id: resolvedModelId,
-      delegated_to: agentDoc.frontmatter.id,
+      delegated_to: agentDoc.id,
       steps,
       tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
     };
@@ -365,7 +361,7 @@ export function delegateStream(opts: DelegateOptions): DelegateStreamResult {
   }
 
   return {
-    agentId: agentDoc.frontmatter.id,
+    agentId: agentDoc.id,
     sessionId,
     textStream: wrappedStream(),
   };

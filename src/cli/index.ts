@@ -1791,14 +1791,14 @@ workflowCmd
 
     console.log(`\n${docs.length} workflow(s):\n`);
     for (const doc of docs) {
-      const schedule = doc.frontmatter.schedule || '(no schedule)';
-      const status = doc.frontmatter.status === 'active' ? '' : ` [${doc.frontmatter.status}]`;
-      const withAgent = doc.frontmatter.with ? ` → ${doc.frontmatter.with}` : '';
-      const durable = (doc.frontmatter as { durable?: boolean }).durable === true ? ' [durable]' : '';
+      const schedule = doc.schedule || '(no schedule)';
+      const status = doc.status === 'active' ? '' : ` [${doc.status}]`;
+      const withAgent = doc.with ? ` → ${doc.with}` : '';
+      const durable = doc.durable === true ? ' [durable]' : '';
       const bundle = doc.bundleDir ? ' [bundle]' : '';
-      console.log(`  ${doc.frontmatter.id}${status}${durable}${bundle}`);
+      console.log(`  ${doc.id}${status}${durable}${bundle}`);
       console.log(`    Schedule: ${schedule}${withAgent}`);
-      if (doc.l0) console.log(`    ${doc.l0}`);
+      if (doc.description) console.log(`    ${doc.description}`);
     }
     console.log();
   });
@@ -1865,11 +1865,11 @@ program
 
     if (opts.json) {
       console.log(JSON.stringify(results.map((r) => ({
-        id: r.doc.frontmatter.id,
+        id: r.doc.id,
         directory: r.directory,
-        status: r.doc.frontmatter.status,
-        tags: r.doc.frontmatter.tags,
-        l0: r.doc.l0,
+        status: r.doc.status,
+        tags: r.doc.tags,
+        description: r.doc.description,
         matchReason: r.matchReason,
       })), null, 2));
       return;
@@ -1883,12 +1883,12 @@ program
 
     console.log(`\n${results.length} result(s):\n`);
     for (const r of results) {
-      const tags = r.doc.frontmatter.tags.length > 0 ? ` [${r.doc.frontmatter.tags.join(', ')}]` : '';
-      const status = r.doc.frontmatter.status !== 'active' ? ` (${r.doc.frontmatter.status})` : '';
+      const tags = r.doc.tags.length > 0 ? ` [${r.doc.tags.join(', ')}]` : '';
+      const status = r.doc.status !== 'active' ? ` (${r.doc.status})` : '';
       const bundle = r.doc.bundleDir ? ' [bundle]' : '';
-      console.log(`  ${r.directory}/${r.doc.frontmatter.id}${status}${bundle}${tags}`);
+      console.log(`  ${r.directory}/${r.doc.id}${status}${bundle}${tags}`);
       console.log(`    ${r.matchReason}`);
-      if (r.doc.l0) console.log(`    ${r.doc.l0}`);
+      if (r.doc.description) console.log(`    ${r.doc.description}`);
     }
     console.log();
   });
@@ -2146,7 +2146,7 @@ toolsCmd
       const auth = tool.authReady ? 'ready' : 'missing auth';
       const status = tool.status !== 'active' ? ` [${tool.status}]` : '';
       console.log(`  ${tool.id}${status} (${auth})`);
-      if (tool.l0) console.log(`    ${tool.l0}`);
+      if (tool.description) console.log(`    ${tool.description}`);
       console.log(`    ${tool.operationCount} operation(s) | tags: ${tool.tags.join(', ') || 'none'}`);
     }
     console.log();
@@ -3061,7 +3061,7 @@ program
     for (const agent of agents) {
       const status = agent.status === 'active' ? '' : ` [${agent.status}]`;
       console.log(`  ${agent.id}${status}`);
-      if (agent.l0) console.log(`    ${agent.l0}`);
+      if (agent.description) console.log(`    ${agent.description}`);
       if (agent.tags.length > 0) console.log(`    tags: ${agent.tags.join(', ')}`);
       console.log();
     }

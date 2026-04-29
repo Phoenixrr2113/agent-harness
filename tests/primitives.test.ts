@@ -9,7 +9,6 @@ import {
   loadAllPrimitives,
   loadAllPrimitivesWithErrors,
   estimateTokens,
-  getAtLevel,
 } from '../src/primitives/loader.js';
 
 describe('primitives loader', () => {
@@ -26,7 +25,7 @@ describe('primitives loader', () => {
   });
 
   describe('parseHarnessDocument', () => {
-    it('should parse valid markdown with frontmatter and L0/L1', () => {
+    it('should parse valid markdown with frontmatter', () => {
       const testFile = join(testDir, 'test.md');
       writeFileSync(
         testFile,
@@ -36,11 +35,8 @@ tags: [test]
 created: 2026-04-06
 author: human
 status: active
+description: This is a short one-line summary.
 ---
-
-<!-- L0: This is a short one-line summary. -->
-<!-- L1: This is a longer paragraph summary that provides more context
-     about what this document contains and when it should be used. -->
 
 # Test Document
 
@@ -51,23 +47,17 @@ It contains multiple lines and paragraphs.
 
       const doc = parseHarnessDocument(testFile);
 
-      expect(doc.frontmatter.id).toBe('test-doc');
-      expect(doc.frontmatter.tags).toEqual(['test']);
-      expect(doc.frontmatter.author).toBe('human');
-      expect(doc.frontmatter.status).toBe('active');
-
-      expect(doc.l0).toBe('This is a short one-line summary.');
-      expect(doc.l1).toContain('This is a longer paragraph summary');
-      expect(doc.l1).toContain('when it should be used.');
+      expect(doc.id).toBe('test-doc');
+      expect(doc.tags).toEqual(['test']);
+      expect(doc.author).toBe('human');
+      expect(doc.status).toBe('active');
+      expect(doc.description).toBe('This is a short one-line summary.');
 
       expect(doc.body).toContain('# Test Document');
       expect(doc.body).toContain('This is the full body content');
-      // L0 and L1 should be stripped from body
-      expect(doc.body).not.toContain('<!-- L0:');
-      expect(doc.body).not.toContain('<!-- L1:');
     });
 
-    it('should handle missing L0 and L1', () => {
+    it('should handle missing description', () => {
       const testFile = join(testDir, 'no-summary.md');
       writeFileSync(
         testFile,
@@ -84,13 +74,12 @@ Just body content.
 
       const doc = parseHarnessDocument(testFile);
 
-      expect(doc.frontmatter.id).toBe('no-summary');
-      expect(doc.l0).toBe('');
-      expect(doc.l1).toBe('');
+      expect(doc.id).toBe('no-summary');
+      expect(doc.description).toBeUndefined();
       expect(doc.body).toContain('# Document Without Summaries');
     });
 
-    it('should create fallback frontmatter from filename if invalid', () => {
+    it('should create fallback id from filename if invalid', () => {
       const testFile = join(testDir, 'fallback-doc.md');
       writeFileSync(
         testFile,
@@ -102,7 +91,7 @@ This document has no frontmatter.
 
       const doc = parseHarnessDocument(testFile);
 
-      expect(doc.frontmatter.id).toBe('fallback-doc');
+      expect(doc.id).toBe('fallback-doc');
       expect(doc.body).toContain('# No Frontmatter');
     });
 
@@ -127,12 +116,13 @@ Body content.
       expect(doc.frontmatter.updated).toBe('2026-04-07');
     });
 
-    it('should handle multiline L1 summaries', () => {
+    it('should strip L0/L1 comments from body', () => {
       const testFile = join(testDir, 'multiline.md');
       writeFileSync(
         testFile,
         `---
 id: multiline
+description: Short summary.
 ---
 
 <!-- L0: Short summary. -->
@@ -146,10 +136,10 @@ id: multiline
 
       const doc = parseHarnessDocument(testFile);
 
-      expect(doc.l0).toBe('Short summary.');
-      expect(doc.l1).toContain('This summary spans');
-      expect(doc.l1).toContain('multiple lines');
-      expect(doc.l1).toContain('indentation and wrapping.');
+      expect(doc.description).toBe('Short summary.');
+      expect(doc.body).not.toContain('<!-- L0:');
+      expect(doc.body).not.toContain('<!-- L1:');
+      expect(doc.body).toContain('# Content');
     });
   });
 
@@ -179,7 +169,7 @@ Content 2`
       const docs = loadDirectory(rulesDir);
 
       expect(docs).toHaveLength(2);
-      expect(docs.map(d => d.frontmatter.id).sort()).toEqual(['rule1', 'rule2']);
+      expect(docs.map(d => d.id).sort()).toEqual(['rule1', 'rule2']);
     });
 
     it('should skip files starting with underscore', () => {
@@ -206,7 +196,7 @@ Index content`
       const docs = loadDirectory(skillsDir);
 
       expect(docs).toHaveLength(1);
-      expect(docs[0].frontmatter.id).toBe('skill1');
+      expect(docs[0].id).toBe('skill1');
     });
 
     it('should skip hidden files', () => {
@@ -233,7 +223,7 @@ Hidden content`
       const docs = loadDirectory(instinctsDir);
 
       expect(docs).toHaveLength(1);
-      expect(docs[0].frontmatter.id).toBe('instinct1');
+      expect(docs[0].id).toBe('instinct1');
     });
 
     it('should skip archived and deprecated files', () => {
@@ -270,7 +260,7 @@ Deprecated content`
       const docs = loadDirectory(playbooksDir);
 
       expect(docs).toHaveLength(1);
-      expect(docs[0].frontmatter.id).toBe('active');
+      expect(docs[0].id).toBe('active');
     });
 
     it('should return empty array for non-existent directory', () => {
@@ -297,7 +287,7 @@ Tool content`
       const docs = loadDirectory(toolsDir);
 
       expect(docs).toHaveLength(1);
-      expect(docs[0].frontmatter.id).toBe('tool');
+      expect(docs[0].id).toBe('tool');
     });
   });
 
@@ -372,7 +362,7 @@ Protocol content`
       expect(primitives.has('rules')).toBe(true);
       expect(primitives.has('protocols')).toBe(true);
       expect(primitives.get('protocols')?.length).toBe(1);
-      expect(primitives.get('protocols')?.[0].frontmatter.id).toBe('proto1');
+      expect(primitives.get('protocols')?.[0].id).toBe('proto1');
     });
 
     it('should not duplicate core dirs when passed as extension', () => {
@@ -413,55 +403,74 @@ Rule`
     });
   });
 
-  describe('getAtLevel', () => {
-    const sampleDoc = {
-      path: '/test.md',
-      frontmatter: {
-        id: 'test',
-        tags: ['test'],
-        created: '2026-04-06',
-        author: 'human' as const,
-        status: 'active' as const,
-      },
-      l0: 'Short one-line summary.',
-      l1: 'Longer paragraph summary with more details about the content and usage.',
-      body: '# Full Document\n\nThis is the complete body content with all details.\n\nMultiple paragraphs and sections.',
-      raw: '',
-    };
+  describe('HarnessDocument canonical accessors', () => {
+    it('should expose description and id as top-level fields', () => {
+      // Verify the new canonical accessor shape via a real parsed doc
+      const testFile = join(testDir, 'accessor-test.md');
+      writeFileSync(
+        testFile,
+        `---
+id: test
+tags: [test]
+created: 2026-04-06
+author: human
+status: active
+description: Short one-line summary.
+---
 
-    it('should return L0 at level 0', () => {
-      const content = getAtLevel(sampleDoc, 0);
-      expect(content).toBe('Short one-line summary.');
+# Full Document
+
+This is the complete body content with all details.
+
+Multiple paragraphs and sections.
+`,
+      );
+      const doc = parseHarnessDocument(testFile);
+      // description is the new canonical accessor (replaces L0/L1)
+      expect(doc.description).toBe('Short one-line summary.');
+      // id is a top-level canonical field
+      expect(doc.id).toBe('test');
+      // body contains document content
+      expect(doc.body).toContain('# Full Document');
+      expect(doc.body).toContain('complete body content');
     });
 
-    it('should return L1 at level 1', () => {
-      const content = getAtLevel(sampleDoc, 1);
-      expect(content).toBe('Longer paragraph summary with more details about the content and usage.');
+    it('should have undefined description when not set in frontmatter', () => {
+      const testFile = join(testDir, 'no-desc.md');
+      writeFileSync(
+        testFile,
+        `---
+id: test
+---
+Body.
+`,
+      );
+      const doc = parseHarnessDocument(testFile);
+      // Falls back to id when description is not present
+      expect(doc.description).toBeUndefined();
+      expect(doc.id).toBe('test');
     });
 
-    it('should return full body at level 2', () => {
-      const content = getAtLevel(sampleDoc, 2);
-      expect(content).toContain('# Full Document');
-      expect(content).toContain('complete body content');
-    });
+    it('should fall back to truncated body for description-less docs in context', () => {
+      const testFile = join(testDir, 'no-desc-body.md');
+      writeFileSync(
+        testFile,
+        `---
+id: test
+---
+# Full Document
 
-    it('should fallback to id if L0 is missing', () => {
-      const docWithoutL0 = { ...sampleDoc, l0: '' };
-      const content = getAtLevel(docWithoutL0, 0);
-      expect(content).toBe('test');
-    });
+This is the complete body content with all details.
 
-    it('should fallback to L0 if L1 is missing', () => {
-      const docWithoutL1 = { ...sampleDoc, l1: '' };
-      const content = getAtLevel(docWithoutL1, 1);
-      expect(content).toBe('Short one-line summary.');
-    });
-
-    it('should fallback to truncated body if both L0 and L1 are missing', () => {
-      const docWithoutSummaries = { ...sampleDoc, l0: '', l1: '' };
-      const content = getAtLevel(docWithoutSummaries, 1);
-      expect(content).toContain('# Full Document');
-      expect(content.length).toBeLessThanOrEqual(400);
+Multiple paragraphs and sections.
+`,
+      );
+      const doc = parseHarnessDocument(testFile);
+      expect(doc.description).toBeUndefined();
+      // Consumers should use: doc.description ?? doc.body.slice(0, 400)
+      const summary = doc.description ?? doc.body.slice(0, 400);
+      expect(summary).toContain('# Full Document');
+      expect(summary.length).toBeLessThanOrEqual(400);
     });
   });
 
@@ -486,7 +495,7 @@ Good content`,
       const result = loadDirectoryWithErrors(rulesDir);
 
       // Both files should parse (gray-matter creates fallback frontmatter)
-      expect(result.docs.some((d) => d.frontmatter.id === 'good')).toBe(true);
+      expect(result.docs.some((d) => d.id === 'good')).toBe(true);
       // No errors because gray-matter is resilient
       expect(result.errors).toHaveLength(0);
     });
@@ -535,7 +544,7 @@ Good content`,
       const result = loadAllPrimitivesWithErrors(testDir);
 
       expect(result.primitives.get('rules')?.length).toBe(1);
-      expect(result.primitives.get('rules')?.[0].frontmatter.id).toBe('good-rule');
+      expect(result.primitives.get('rules')?.[0].id).toBe('good-rule');
       // No errors for valid files
       expect(result.errors).toHaveLength(0);
     });
@@ -568,7 +577,7 @@ See scripts/run-diagnostics.sh.
       const docs = loadDirectory(skillsDir);
 
       expect(docs).toHaveLength(1);
-      expect(docs[0].frontmatter.id).toBe('debug-workflow');
+      expect(docs[0].id).toBe('debug-workflow');
       expect(docs[0].frontmatter.name).toBe('debug-workflow');
       expect(docs[0].frontmatter.description).toBe('Systematic debug procedure with diagnostic script.');
       expect(docs[0].bundleDir).toBe(bundleDir);
@@ -593,7 +602,7 @@ status: active
       const docs = loadDirectory(playbooksDir);
 
       expect(docs).toHaveLength(1);
-      expect(docs[0].frontmatter.id).toBe('deploy-production');
+      expect(docs[0].id).toBe('deploy-production');
       expect(docs[0].bundleDir).toBe(bundleDir);
     });
 
@@ -619,9 +628,9 @@ status: active
 
       const primitives = loadAllPrimitives(testDir);
 
-      expect(primitives.get('rules')?.[0].frontmatter.id).toBe('my-rules-bundle');
+      expect(primitives.get('rules')?.[0].id).toBe('my-rules-bundle');
       expect(primitives.get('rules')?.[0].bundleDir).toContain('my-rules-bundle');
-      expect(primitives.get('workflows')?.[0].frontmatter.id).toBe('my-workflows-bundle');
+      expect(primitives.get('workflows')?.[0].id).toBe('my-workflows-bundle');
       expect(primitives.get('workflows')?.[0].bundleDir).toContain('my-workflows-bundle');
     });
 
@@ -684,13 +693,13 @@ status: active
       );
 
       const docs = loadDirectory(skillsDir).sort((a, b) =>
-        a.frontmatter.id.localeCompare(b.frontmatter.id),
+        a.id.localeCompare(b.id),
       );
 
       expect(docs).toHaveLength(2);
-      expect(docs[0].frontmatter.id).toBe('bundled-skill');
+      expect(docs[0].id).toBe('bundled-skill');
       expect(docs[0].bundleDir).toBe(bundleDir);
-      expect(docs[1].frontmatter.id).toBe('flat-skill');
+      expect(docs[1].id).toBe('flat-skill');
       expect(docs[1].bundleDir).toBeUndefined();
     });
 
@@ -735,7 +744,7 @@ status: active
       const docs = loadDirectory(skillsDir);
 
       expect(docs).toHaveLength(1);
-      expect(docs[0].frontmatter.id).toBe('pr-review');
+      expect(docs[0].id).toBe('pr-review');
       expect(docs[0].frontmatter.name).toBe('PR Review');
       expect(docs[0].frontmatter.description).toBe('Structured pull-request review.');
     });
@@ -756,7 +765,7 @@ Body.
 
       const doc = parseHarnessDocument(testFile);
 
-      expect(doc.frontmatter.id).toBe('explicit-id');
+      expect(doc.id).toBe('explicit-id');
       expect(doc.frontmatter.name).toBe('Display Name');
     });
 

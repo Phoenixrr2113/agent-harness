@@ -131,8 +131,8 @@ export function createManifest(
       fileEntries.push({
         path: relPath,
         type,
-        id: doc.frontmatter.id ?? basename(relPath, '.md'),
-        l0: doc.l0 || '',
+        id: doc.id,
+        l0: doc.description ?? '',
       });
     } catch {
       fileEntries.push({

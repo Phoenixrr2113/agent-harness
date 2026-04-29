@@ -24,16 +24,15 @@ export function buildAgentTools(harnessDir: string): AIToolSet {
   const tools: AIToolSet = {};
 
   for (const doc of docs) {
-    if (doc.frontmatter.status !== 'active') continue;
+    if (doc.status !== 'active') continue;
 
-    const id = doc.frontmatter.id;
+    const id = doc.id;
     if (!id) {
       log.warn(`agents/${doc.path}: skipped — missing frontmatter id`);
       continue;
     }
 
-    const fm = doc.frontmatter as { description?: string };
-    const description = fm.description || doc.l1 || doc.l0 || `Delegate to the ${id} sub-agent.`;
+    const description = doc.description || `Delegate to the ${id} sub-agent.`;
 
     tools[id] = tool({
       description,

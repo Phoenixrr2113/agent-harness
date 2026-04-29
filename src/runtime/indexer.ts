@@ -10,12 +10,12 @@ export function buildIndex(harnessDir: string, directory: string): IndexEntry[] 
   const docs = loadDirectory(dirPath);
 
   return docs.map((doc) => ({
-    id: doc.frontmatter.id,
+    id: doc.id,
     path: doc.path,
-    tags: doc.frontmatter.tags,
-    l0: doc.l0,
-    created: doc.frontmatter.created || '',
-    status: doc.frontmatter.status,
+    tags: doc.tags,
+    l0: doc.description ?? doc.id,
+    created: doc.created || '',
+    status: doc.status,
   }));
 }
 

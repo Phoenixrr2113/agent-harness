@@ -106,9 +106,9 @@ export function validateHarness(dir: string): ValidationResult {
   }
 
   // --- Cross-reference integrity ---
-  const knownIds = new Set(allDocs.map((d) => d.frontmatter.id));
+  const knownIds = new Set(allDocs.map((d) => d.id));
   for (const doc of allDocs) {
-    const related = doc.frontmatter.related;
+    const related = doc.related;
     if (!related || related.length === 0) continue;
 
     for (const ref of related) {
@@ -127,18 +127,13 @@ export function validateHarness(dir: string): ValidationResult {
     }
   }
 
-  // --- Missing L0/L1 warnings ---
-  let missingL0 = 0;
-  let missingL1 = 0;
+  // --- Missing description warnings ---
+  let missingDescription = 0;
   for (const doc of allDocs) {
-    if (!doc.l0) missingL0++;
-    if (!doc.l1) missingL1++;
+    if (!doc.description) missingDescription++;
   }
-  if (missingL0 > 0) {
-    result.warnings.push(`${missingL0} primitive(s) missing L0 summary`);
-  }
-  if (missingL1 > 0) {
-    result.warnings.push(`${missingL1} primitive(s) missing L1 summary`);
+  if (missingDescription > 0) {
+    result.warnings.push(`${missingDescription} primitive(s) missing description`);
   }
 
   // --- Context budget ---
@@ -264,25 +259,20 @@ export function doctorHarness(dir: string): DoctorResult {
   // Recalculate L0/L1 warnings after fixes
   if (result.fixes.length > 0) {
     result.warnings = result.warnings.filter(
-      (w) => !w.includes('missing L0') && !w.includes('missing L1'),
+      (w) => !w.includes('missing description'),
     );
-    // Re-check L0/L1 counts
-    let missingL0 = 0;
-    let missingL1 = 0;
+    // Re-check description counts
+    let missingDescription = 0;
     for (const primDir of primitiveDirs) {
       const fullPath = join(dir, primDir);
       if (!existsSync(fullPath)) continue;
       const { docs } = loadDirectoryWithErrors(fullPath);
       for (const doc of docs) {
-        if (!doc.l0) missingL0++;
-        if (!doc.l1) missingL1++;
+        if (!doc.description) missingDescription++;
       }
     }
-    if (missingL0 > 0) {
-      result.warnings.push(`${missingL0} primitive(s) still missing L0 summary`);
-    }
-    if (missingL1 > 0) {
-      result.warnings.push(`${missingL1} primitive(s) still missing L1 summary`);
+    if (missingDescription > 0) {
+      result.warnings.push(`${missingDescription} primitive(s) still missing description`);
     }
   }
 

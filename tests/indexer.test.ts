@@ -15,10 +15,10 @@ function writePrimitive(dir: string, subdir: string, id: string, opts?: { tags?:
   mkdirSync(primDir, { recursive: true });
   const tags = opts?.tags ?? [subdir.replace(/s$/, '')];
   const status = opts?.status ?? 'active';
-  const l0 = opts?.l0 ?? `Summary for ${id}`;
+  const description = opts?.l0 ?? `Summary for ${id}`;
   writeFileSync(
     join(primDir, `${id}.md`),
-    `---\nid: ${id}\ntags: [${tags.join(', ')}]\nstatus: ${status}\ncreated: "2026-04-01"\n---\n<!-- L0: ${l0} -->\n# ${id}\n\nBody text for ${id}.\n`,
+    `---\nid: ${id}\ntags: [${tags.join(', ')}]\nstatus: ${status}\ncreated: "2026-04-01"\ndescription: "${description}"\n---\n# ${id}\n\nBody text for ${id}.\n`,
     'utf-8',
   );
 }
@@ -43,7 +43,7 @@ describe('buildIndex', () => {
 
     const ruleA = entries.find((e) => e.id === 'rule-a');
     expect(ruleA).toBeDefined();
-    expect(ruleA!.l0).toBe('Rule A summary');
+    expect(ruleA!.l0).toBe('Rule A summary');  // populated from doc.description
     expect(ruleA!.status).toBe('active');
     expect(ruleA!.created).toBe('2026-04-01');
 

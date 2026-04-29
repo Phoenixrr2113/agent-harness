@@ -155,11 +155,11 @@ export class Scheduler {
     void this.drainResumableRuns(docs);
 
     for (const doc of docs) {
-      const cronExpr = doc.frontmatter.schedule;
+      const cronExpr = doc.schedule;
       if (!cronExpr) continue;
 
       if (!cron.validate(cronExpr)) {
-        try { this.onError?.(doc.frontmatter.id, new Error(`Invalid cron expression: ${cronExpr}`)); } catch (e) {
+        try { this.onError?.(doc.id, new Error(`Invalid cron expression: ${cronExpr}`)); } catch (e) {
           log.warn(`onError hook failed: ${e instanceof Error ? e.message : String(e)}`);
         }
         continue;
@@ -169,8 +169,8 @@ export class Scheduler {
         await this.executeWorkflow(doc);
       });
 
-      this.workflows.set(doc.frontmatter.id, { doc, cronExpression: cronExpr, task });
-      try { this.onSchedule?.(doc.frontmatter.id, cronExpr); } catch (e) {
+      this.workflows.set(doc.id, { doc, cronExpression: cronExpr, task });
+      try { this.onSchedule?.(doc.id, cronExpr); } catch (e) {
         log.warn(`onSchedule hook failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
@@ -183,7 +183,7 @@ export class Scheduler {
       if (resumable.length === 0) return;
       log.info(`Found ${resumable.length} resumable durable run(s)`);
       for (const summary of resumable) {
-        const doc = docs.find((d) => d.frontmatter.id === summary.workflowId);
+        const doc = docs.find((d) => d.id === summary.workflowId);
         if (!doc) {
           log.warn(`Resumable run ${summary.runId} references unknown workflow ${summary.workflowId} — skipping`);
           continue;
@@ -229,7 +229,7 @@ export class Scheduler {
   }
 
   async executeWorkflow(doc: HarnessDocument): Promise<string> {
-    const workflowId = doc.frontmatter.id;
+    const workflowId = doc.id;
 
     // Check quiet hours — skip scheduled workflows during quiet time
     const config = loadConfig(this.harnessDir);
@@ -248,8 +248,8 @@ export class Scheduler {
       return '';
     }
 
-    const maxRetries = doc.frontmatter.max_retries ?? 0;
-    const baseDelay = doc.frontmatter.retry_delay_ms ?? 1000;
+    const maxRetries = doc.max_retries ?? 0;
+    const baseDelay = doc.retry_delay_ms ?? 1000;
     let lastError: Error | null = null;
     const startTime = Date.now();
 
@@ -262,11 +262,11 @@ export class Scheduler {
         let tokensUsed: number;
 
         const isDurable =
-          doc.frontmatter.durable === true ||
+          doc.durable === true ||
           (config as unknown as { workflows?: { durable_default?: boolean } }).workflows?.durable_default === true;
 
         // If workflow has a `with:` field, delegate to that sub-agent
-        const delegateAgentId = doc.frontmatter.with;
+        const delegateAgentId = doc.with;
         if (delegateAgentId) {
           log.debug(`Workflow "${workflowId}" delegating to agent "${delegateAgentId}"`);
           const delegateResult = await delegateTo({

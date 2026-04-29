@@ -52,15 +52,15 @@ export function searchPrimitives(
 
     for (const doc of docs) {
       // Filter by status
-      if (options?.status && doc.frontmatter.status !== options.status) continue;
+      if (options?.status && doc.status !== options.status) continue;
 
       // Filter by author
-      if (options?.author && doc.frontmatter.author !== options.author) continue;
+      if (options?.author && doc.author !== options.author) continue;
 
       // Filter by tag
       if (options?.tag) {
         const tagLower = options.tag.toLowerCase();
-        const hasTag = doc.frontmatter.tags.some((t) => t.toLowerCase() === tagLower);
+        const hasTag = doc.tags.some((t) => t.toLowerCase() === tagLower);
         if (!hasTag) continue;
       }
 
@@ -81,25 +81,20 @@ export function searchPrimitives(
 
 function matchDocument(doc: HarnessDocument, queryLower: string): string | null {
   // Check id
-  if (doc.frontmatter.id.toLowerCase().includes(queryLower)) {
-    return `id: ${doc.frontmatter.id}`;
+  if (doc.id.toLowerCase().includes(queryLower)) {
+    return `id: ${doc.id}`;
   }
 
   // Check tags
-  for (const tag of doc.frontmatter.tags) {
+  for (const tag of doc.tags) {
     if (tag.toLowerCase().includes(queryLower)) {
       return `tag: ${tag}`;
     }
   }
 
-  // Check L0
-  if (doc.l0.toLowerCase().includes(queryLower)) {
-    return `L0: ${doc.l0.slice(0, 80)}`;
-  }
-
-  // Check L1
-  if (doc.l1.toLowerCase().includes(queryLower)) {
-    return `L1 match`;
+  // Check description
+  if (doc.description && doc.description.toLowerCase().includes(queryLower)) {
+    return `description: ${doc.description.slice(0, 80)}`;
   }
 
   // Check body content

@@ -209,17 +209,17 @@ export function evaluateCapability(filePath: string, harnessDir?: string): EvalR
   }
 
   // Step 3: Check frontmatter
-  if (!doc.frontmatter.id) {
+  if (!doc.id) {
     result.valid = false;
     result.errors.push('Missing frontmatter field: id');
   }
 
-  if (!doc.frontmatter.status) {
+  if (!doc.status) {
     result.warnings.push('Missing status field, defaulting to "active"');
   }
 
   // Step 4: Detect type from tags or directory hint
-  const tags = doc.frontmatter.tags.map((t) => t.toLowerCase());
+  const tags = doc.tags.map((t) => t.toLowerCase());
   for (const type of VALID_TYPES) {
     if (tags.includes(type)) {
       result.type = type;
@@ -246,12 +246,9 @@ export function evaluateCapability(filePath: string, harnessDir?: string): EvalR
     );
   }
 
-  // Step 5: Check L0/L1
-  if (!doc.l0) {
-    result.warnings.push('Missing L0 summary (<!-- L0: ... -->). Recommended for context loading.');
-  }
-  if (!doc.l1) {
-    result.warnings.push('Missing L1 summary (<!-- L1: ... -->). Recommended for context loading.');
+  // Step 5: Check description
+  if (!doc.description) {
+    result.warnings.push('Missing description field in frontmatter. Recommended for context loading and discovery.');
   }
 
   // Step 6: Check body has content
@@ -280,12 +277,12 @@ function resolveDependencies(doc: HarnessDocument, harnessDir: string, result: E
     if (!existsSync(fullPath)) continue;
     const docs = loadDirectory(fullPath);
     for (const d of docs) {
-      knownIds.add(d.frontmatter.id);
+      knownIds.add(d.id);
     }
   }
 
   // Check related: references
-  const related = doc.frontmatter.related;
+  const related = doc.related;
   if (related && related.length > 0) {
     for (const ref of related) {
       if (knownIds.has(ref)) continue;
@@ -297,7 +294,7 @@ function resolveDependencies(doc: HarnessDocument, harnessDir: string, result: E
   }
 
   // Check with: agent reference (used for delegation)
-  const withAgent = doc.frontmatter.with;
+  const withAgent = doc.with;
   if (withAgent) {
     // Check if agent exists in agents/ directory
     const agentsDir = join(harnessDir, 'agents');
@@ -305,7 +302,7 @@ function resolveDependencies(doc: HarnessDocument, harnessDir: string, result: E
     if (existsSync(agentsDir)) {
       const agentDocs = loadDirectory(agentsDir);
       agentFound = agentDocs.some(
-        (d) => d.frontmatter.id === withAgent || basename(d.path, '.md') === withAgent,
+        (d) => d.id === withAgent || basename(d.path, '.md') === withAgent,
       );
     }
     if (!agentFound) {
@@ -314,7 +311,7 @@ function resolveDependencies(doc: HarnessDocument, harnessDir: string, result: E
   }
 
   // Check schedule: cron expression validity (for workflows)
-  const schedule = doc.frontmatter.schedule;
+  const schedule = doc.schedule;
   if (schedule) {
     // Basic cron validation: should have 5-6 space-separated fields
     const fields = schedule.trim().split(/\s+/);

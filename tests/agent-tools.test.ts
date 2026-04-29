@@ -95,28 +95,28 @@ describe('buildAgentTools', () => {
     expect(t.description).toBe('Explicit description wins.');
   });
 
-  it('falls back to L1 when description is not set', () => {
+  it('uses description from frontmatter when present alongside body content', () => {
     writeAgent(
       'l1-fallback',
-      { id: 'l1-fallback', tags: ['agent'], status: 'active' },
-      '<!-- L0: L0 summary. -->\n<!-- L1: Use the L1 summary here. -->\n\n# body',
+      { id: 'l1-fallback', tags: ['agent'], status: 'active', description: 'Use the description here.' },
+      '# body',
     );
 
     const tools = buildAgentTools(TEST_DIR);
     const t = tools['l1-fallback'] as { description?: string };
-    expect(t.description).toBe('Use the L1 summary here.');
+    expect(t.description).toBe('Use the description here.');
   });
 
-  it('falls back to L0 when description and L1 are not set', () => {
+  it('falls back to generic message when description is not set in frontmatter', () => {
     writeAgent(
       'l0-only',
       { id: 'l0-only', tags: ['agent'], status: 'active' },
-      '<!-- L0: Only L0 present. -->\n\n# body',
+      '# body only, no description',
     );
 
     const tools = buildAgentTools(TEST_DIR);
     const t = tools['l0-only'] as { description?: string };
-    expect(t.description).toBe('Only L0 present.');
+    expect(t.description).toBe('Delegate to the l0-only sub-agent.');
   });
 
   it('falls back to a generic description when none of description/L1/L0 are set', () => {

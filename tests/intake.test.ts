@@ -288,8 +288,7 @@ tags: [rule]
 This rule has no L0 or L1 summary annotations in the content.
 `);
     const result = evaluateCapability(filePath);
-    expect(result.warnings.some((w) => w.includes('L0'))).toBe(true);
-    expect(result.warnings.some((w) => w.includes('L1'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('description'))).toBe(true);
   });
 
   it('should fail on body too short', () => {

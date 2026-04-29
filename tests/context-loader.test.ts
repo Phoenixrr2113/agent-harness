@@ -168,16 +168,13 @@ Full instinct content.
     // 20 rules with L1 ~100 tokens each = ~2000 tokens (exceeds remaining ~1492)
     for (let i = 1; i <= 20; i++) {
       const largeBody = 'x'.repeat(5000); // ~1250 tokens each at L2
-      const largeL1 = `Medium summary ${i}: ${'detailed context about this important rule and its implications '.repeat(8)}`; // ~120 tokens at L1
       writeFileSync(
         join(rulesDir, `rule${i}.md`),
         `---
 id: rule${i}
 status: active
+description: "Short summary ${i}."
 ---
-
-<!-- L0: Short summary ${i}. -->
-<!-- L1: ${largeL1} -->
 
 # Rule ${i}
 
@@ -333,10 +330,8 @@ Multiple paragraphs of important information.
         `---
 id: rule${i}
 status: active
+description: "Summary ${i}."
 ---
-
-<!-- L0: Summary ${i}. -->
-<!-- L1: Medium summary ${i} with more context about this rule. -->
 
 # Rule ${i}
 
@@ -384,10 +379,8 @@ ${'x'.repeat(2000)}
         `---
 id: rule${i}
 status: active
+description: "Summary ${i} with more context about this rule that goes on for a while to consume tokens."
 ---
-
-<!-- L0: Summary ${i}. -->
-<!-- L1: Medium summary ${i} with more context about this rule that goes on for a while to consume tokens. -->
 
 # Rule ${i}
 

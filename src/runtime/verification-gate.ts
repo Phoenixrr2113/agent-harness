@@ -73,9 +73,9 @@ export function extractGates(doc: HarnessDocument): VerificationGate[] {
 
     if (criteria.length > 0) {
       gates.push({
-        id: `${doc.frontmatter.id}:${slugify(stageName)}`,
+        id: `${doc.id}:${slugify(stageName)}`,
         stage: stageName,
-        sourceId: doc.frontmatter.id,
+        sourceId: doc.id,
         criteria,
       });
     }
@@ -90,13 +90,13 @@ export function extractGates(doc: HarnessDocument): VerificationGate[] {
     const criteria = extractCriteriaFromSection(sectionBody);
 
     if (criteria.length > 0) {
-      const gateId = `${doc.frontmatter.id}:ac-${slugify(stageName)}`;
+      const gateId = `${doc.id}:ac-${slugify(stageName)}`;
       // Avoid duplicates from strategy 1
       if (!gates.some((g) => g.id === gateId)) {
         gates.push({
           id: gateId,
           stage: stageName,
-          sourceId: doc.frontmatter.id,
+          sourceId: doc.id,
           criteria,
         });
       }
@@ -108,13 +108,13 @@ export function extractGates(doc: HarnessDocument): VerificationGate[] {
 
   while ((match = inlineRegex.exec(body)) !== null) {
     const desc = match[1].trim();
-    const gateId = `${doc.frontmatter.id}:inline-${slugify(desc.slice(0, 40))}`;
+    const gateId = `${doc.id}:inline-${slugify(desc.slice(0, 40))}`;
 
     if (!gates.some((g) => g.id === gateId)) {
       gates.push({
         id: gateId,
         stage: 'inline',
-        sourceId: doc.frontmatter.id,
+        sourceId: doc.id,
         criteria: [{
           description: desc,
           manual: !desc.includes('`'),
@@ -189,9 +189,9 @@ function extractStepGates(doc: HarnessDocument): VerificationGate[] {
       // Flush previous gate if criteria were collected
       if (currentStep && criteriaBuffer.length > 0) {
         gates.push({
-          id: `${doc.frontmatter.id}:step-${slugify(currentStep)}`,
+          id: `${doc.id}:step-${slugify(currentStep)}`,
           stage: currentStep,
-          sourceId: doc.frontmatter.id,
+          sourceId: doc.id,
           criteria: [...criteriaBuffer],
         });
         criteriaBuffer = [];
@@ -216,9 +216,9 @@ function extractStepGates(doc: HarnessDocument): VerificationGate[] {
   // Flush last step
   if (currentStep && criteriaBuffer.length > 0) {
     gates.push({
-      id: `${doc.frontmatter.id}:step-${slugify(currentStep)}`,
+      id: `${doc.id}:step-${slugify(currentStep)}`,
       stage: currentStep,
-      sourceId: doc.frontmatter.id,
+      sourceId: doc.id,
       criteria: [...criteriaBuffer],
     });
   }
@@ -261,12 +261,12 @@ export function loadGates(harnessDir: string): GateExtractResult {
 
     const docs = loadDirectory(fullPath);
     for (const doc of docs) {
-      if (doc.frontmatter.status !== 'active') continue;
+      if (doc.status !== 'active') continue;
       const docGates = extractGates(doc);
       if (docGates.length > 0) {
         gates.push(...docGates);
-        if (!sources.includes(doc.frontmatter.id)) {
-          sources.push(doc.frontmatter.id);
+        if (!sources.includes(doc.id)) {
+          sources.push(doc.id);
         }
       }
     }

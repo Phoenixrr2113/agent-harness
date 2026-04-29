@@ -130,8 +130,7 @@ Validate and evaluate incoming capability files.
 
       const docs = loadAgentDocs(testDir);
       expect(docs).toHaveLength(1);
-      expect(docs[0].frontmatter.id).toBe('agent-evaluator');
-      expect(docs[0].l0).toBe('Evaluator agent — validates incoming capabilities.');
+      expect(docs[0].id).toBe('agent-evaluator');
     });
 
     it('should skip archived agents', () => {
@@ -221,13 +220,13 @@ status: active
     it('should find agent by exact id', () => {
       const agent = findAgent(testDir, 'agent-evaluator');
       expect(agent).toBeDefined();
-      expect(agent!.frontmatter.id).toBe('agent-evaluator');
+      expect(agent!.id).toBe('agent-evaluator');
     });
 
     it('should find agent by id without prefix', () => {
       const agent = findAgent(testDir, 'evaluator');
       expect(agent).toBeDefined();
-      expect(agent!.frontmatter.id).toBe('agent-evaluator');
+      expect(agent!.id).toBe('agent-evaluator');
     });
 
     it('should find agent by filename', () => {
@@ -240,15 +239,13 @@ tags: [agent]
 status: active
 ---
 
-<!-- L0: Custom agent. -->
-
 # Agent: Custom
 `
       );
 
       const agent = findAgent(testDir, 'custom');
       expect(agent).toBeDefined();
-      expect(agent!.frontmatter.id).toBe('my-custom-agent');
+      expect(agent!.id).toBe('my-custom-agent');
     });
 
     it('should return undefined for non-existent agent', () => {
@@ -263,17 +260,15 @@ status: active
       expect(agents).toEqual([]);
     });
 
-    it('should return agent info with l0 and tags', () => {
+    it('should return agent info with description and tags', () => {
       writeFileSync(
         join(testDir, 'agents', 'summarizer.md'),
         `---
 id: agent-summarizer
 tags: [agent, utility, stateless]
 status: active
+description: Stateless summarizer agent.
 ---
-
-<!-- L0: Stateless summarizer agent. -->
-<!-- L1: Produces structured summaries from long-form text. -->
 
 # Agent: Summarizer
 `
@@ -282,7 +277,7 @@ status: active
       const agents = listAgents(testDir);
       expect(agents).toHaveLength(1);
       expect(agents[0].id).toBe('agent-summarizer');
-      expect(agents[0].l0).toBe('Stateless summarizer agent.');
+      expect(agents[0].description).toBe('Stateless summarizer agent.');
       expect(agents[0].tags).toContain('agent');
       expect(agents[0].tags).toContain('stateless');
       expect(agents[0].status).toBe('active');

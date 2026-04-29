@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve } from '@hono/node-server';
 import { readFileSync, existsSync, writeFileSync, readdirSync, statSync } from 'fs';
-import { join, basename, relative } from 'path';
+import { join, relative } from 'path';
 import { collectSnapshot } from './telemetry.js';
 import { loadConfig } from '../core/config.js';
 import { loadState, saveState } from './state.js';
@@ -199,10 +199,10 @@ export function createWebApp(harnessDir: string, options?: CreateWebAppOptions):
 
       for (const [dir, docs] of all.entries()) {
         result[dir] = docs.map((doc) => ({
-          id: doc.frontmatter.id ?? basename(doc.path, '.md'),
+          id: doc.id,
           path: doc.path,
-          l0: doc.l0,
-          tags: doc.frontmatter.tags ?? [],
+          l0: doc.description ?? doc.id,
+          tags: doc.tags,
         }));
       }
 
@@ -552,8 +552,9 @@ function serializeDoc(doc: HarnessDocument): Record<string, unknown> {
   return {
     path: doc.path,
     frontmatter: doc.frontmatter,
-    l0: doc.l0,
-    l1: doc.l1,
+    id: doc.id,
+    name: doc.name,
+    description: doc.description,
     body: doc.body,
   };
 }

@@ -116,8 +116,7 @@ describe('validateHarness', () => {
     );
 
     const result = validateHarness(TEST_DIR);
-    expect(result.warnings.some((w) => w.includes('missing L0'))).toBe(true);
-    expect(result.warnings.some((w) => w.includes('missing L1'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('missing description'))).toBe(true);
   });
 
   it('should warn on missing memory directories', () => {

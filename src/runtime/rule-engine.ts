@@ -56,7 +56,7 @@ export interface RuleCheckResult {
  */
 export function parseRulesFromDoc(doc: HarnessDocument): ParsedRule[] {
   const rules: ParsedRule[] = [];
-  const text = (doc.l0 + '\n' + doc.l1 + '\n' + doc.body).trim();
+  const text = ((doc.description ?? '') + '\n' + doc.body).trim();
 
   for (const line of text.split('\n')) {
     const trimmed = line.trim().toLowerCase();
@@ -74,19 +74,19 @@ export function parseRulesFromDoc(doc: HarnessDocument): ParsedRule[] {
       // Check if this is an approval gate (e.g., "never X without approval")
       if (/without\s+(explicit\s+)?(human\s+)?approval/.test(subject)) {
         rules.push({
-          ruleId: doc.frontmatter.id,
+          ruleId: doc.id,
           subject: subject.replace(/\s+without\s+(explicit\s+)?(human\s+)?approval.*$/, ''),
           action: 'require_approval',
           directive: cleaned,
-          tags: doc.frontmatter.tags,
+          tags: doc.tags,
         });
       } else {
         rules.push({
-          ruleId: doc.frontmatter.id,
+          ruleId: doc.id,
           subject,
           action: 'deny',
           directive: cleaned,
-          tags: doc.frontmatter.tags,
+          tags: doc.tags,
         });
       }
       continue;
@@ -101,19 +101,19 @@ export function parseRulesFromDoc(doc: HarnessDocument): ParsedRule[] {
       // "require approval" / "require explicit approval" patterns
       if (/\bapproval\b/.test(subject) || /\brequires?\s+(explicit\s+)?(human\s+)?approval\b/.test(subject)) {
         rules.push({
-          ruleId: doc.frontmatter.id,
+          ruleId: doc.id,
           subject,
           action: 'require_approval',
           directive: cleaned,
-          tags: doc.frontmatter.tags,
+          tags: doc.tags,
         });
       } else {
         rules.push({
-          ruleId: doc.frontmatter.id,
+          ruleId: doc.id,
           subject,
           action: 'allow',
           directive: cleaned,
-          tags: doc.frontmatter.tags,
+          tags: doc.tags,
         });
       }
       continue;
@@ -125,11 +125,11 @@ export function parseRulesFromDoc(doc: HarnessDocument): ParsedRule[] {
     );
     if (warnMatch) {
       rules.push({
-        ruleId: doc.frontmatter.id,
+        ruleId: doc.id,
         subject: warnMatch[2].replace(/[.!]$/, ''),
         action: 'warn',
         directive: cleaned,
-        tags: doc.frontmatter.tags,
+        tags: doc.tags,
       });
     }
   }
@@ -149,7 +149,7 @@ export function loadRules(harnessDir: string): ParsedRule[] {
   const rules: ParsedRule[] = [];
 
   for (const doc of docs) {
-    if (doc.frontmatter.status !== 'active') continue;
+    if (doc.status !== 'active') continue;
     rules.push(...parseRulesFromDoc(doc));
   }
 

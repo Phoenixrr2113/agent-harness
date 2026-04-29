@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import { loadAllPrimitivesWithErrors, estimateTokens, getAtLevel } from '../primitives/loader.js';
+import { loadAllPrimitivesWithErrors, estimateTokens } from '../primitives/loader.js';
 import type { ParseError } from '../primitives/loader.js';
 import type { HarnessConfig, HarnessDocument, ContextBudget } from '../core/types.js';
 import { log } from '../core/logger.js';
@@ -91,7 +91,7 @@ export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): Lo
   const primitiveBudget = targetBudget - budget.used_tokens;
   let totalL2Demand = 0;
   for (const { doc } of allDocs) {
-    totalL2Demand += estimateTokens(getAtLevel(doc, 2));
+    totalL2Demand += estimateTokens(doc.body);
   }
 
   // Choose a global disclosure level based on how much fits
@@ -99,10 +99,10 @@ export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): Lo
   if (totalL2Demand <= primitiveBudget) {
     globalLevel = 2; // Everything fits at full
   } else {
-    // Estimate L1 demand
+    // Estimate L1 demand (description or truncated body)
     let totalL1Demand = 0;
     for (const { doc } of allDocs) {
-      totalL1Demand += estimateTokens(getAtLevel(doc, 1));
+      totalL1Demand += estimateTokens(doc.description ?? doc.body.slice(0, 400));
     }
     globalLevel = totalL1Demand <= primitiveBudget ? 1 : 0;
   }
@@ -117,16 +117,16 @@ export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): Lo
     for (const doc of docs) {
       // Start from global level, fall back if this doc would exceed budget
       let level = globalLevel;
-      let content = getAtLevel(doc, level);
+      let content = level === 2 ? doc.body : (level === 1 ? (doc.description ?? doc.body.slice(0, 400)) : (doc.description ?? doc.id));
       let tokens = estimateTokens(content);
 
       while (budget.used_tokens + tokens > targetBudget && level > 0) {
         level = (level - 1) as 0 | 1;
-        content = getAtLevel(doc, level);
+        content = level === 1 ? (doc.description ?? doc.body.slice(0, 400)) : (doc.description ?? doc.id);
         tokens = estimateTokens(content);
       }
 
-      categoryDocs.push(`### ${doc.frontmatter.id}\n${content}`);
+      categoryDocs.push(`### ${doc.id}\n${content}`);
       budget.used_tokens += tokens;
       budget.loaded_files.push(doc.path);
     }

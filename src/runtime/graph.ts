@@ -52,15 +52,14 @@ export function buildDependencyGraph(harnessDir: string, config?: HarnessConfig)
 
     const { docs } = loadDirectoryWithErrors(fullPath);
     for (const doc of docs) {
-      const id = doc.frontmatter.id;
-      nodeIds.add(id);
+      nodeIds.add(doc.id);
       nodes.push({
-        id,
+        id: doc.id,
         directory: dir,
         path: relative(harnessDir, doc.path),
-        tags: doc.frontmatter.tags,
-        status: doc.frontmatter.status,
-        l0: doc.l0,
+        tags: doc.tags,
+        status: doc.status,
+        l0: doc.description ?? doc.id,
       });
     }
   }
@@ -72,10 +71,10 @@ export function buildDependencyGraph(harnessDir: string, config?: HarnessConfig)
 
     const { docs } = loadDirectoryWithErrors(fullPath);
     for (const doc of docs) {
-      const fromId = doc.frontmatter.id;
+      const fromId = doc.id;
 
       // related: field edges
-      for (const ref of doc.frontmatter.related) {
+      for (const ref of doc.related) {
         const targetId = resolveRef(ref, nodeIds, harnessDir);
         if (targetId) {
           edges.push({ from: fromId, to: targetId, type: 'related' });
@@ -83,8 +82,8 @@ export function buildDependencyGraph(harnessDir: string, config?: HarnessConfig)
       }
 
       // with: field edges (agent delegation reference)
-      if (doc.frontmatter.with) {
-        const withRef = doc.frontmatter.with;
+      if (doc.with) {
+        const withRef = doc.with;
         const targetId = resolveRef(withRef, nodeIds, harnessDir);
         if (targetId) {
           edges.push({ from: fromId, to: targetId, type: 'with' });
@@ -219,16 +218,16 @@ export function getGraphStats(harnessDir: string, config?: HarnessConfig): Graph
 
     const { docs } = loadDirectoryWithErrors(fullPath);
     for (const doc of docs) {
-      for (const ref of doc.frontmatter.related) {
+      for (const ref of doc.related) {
         const resolved = resolveRef(ref, nodeIds, harnessDir);
         if (!resolved) {
-          brokenRefs.push({ from: doc.frontmatter.id, ref });
+          brokenRefs.push({ from: doc.id, ref });
         }
       }
-      if (doc.frontmatter.with) {
-        const resolved = resolveRef(doc.frontmatter.with, nodeIds, harnessDir);
+      if (doc.with) {
+        const resolved = resolveRef(doc.with, nodeIds, harnessDir);
         if (!resolved) {
-          brokenRefs.push({ from: doc.frontmatter.id, ref: doc.frontmatter.with });
+          brokenRefs.push({ from: doc.id, ref: doc.with });
         }
       }
     }

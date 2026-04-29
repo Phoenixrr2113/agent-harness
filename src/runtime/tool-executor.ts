@@ -244,7 +244,7 @@ export function convertToolDefinition(
     const opSchema = buildOperationSchema(operation);
 
     tools[toolName] = aiTool({
-      description: `[${toolDef.id}] ${operation.method} ${operation.endpoint} — ${toolDef.doc.l0}`,
+      description: `[${toolDef.id}] ${operation.method} ${operation.endpoint} — ${toolDef.doc.description ?? toolDef.doc.id}`,
       inputSchema: jsonSchema<Record<string, unknown>>(opSchema),
       execute: async (input) => {
         const typedInput = input;

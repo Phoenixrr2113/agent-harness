@@ -105,18 +105,13 @@ export function extractEmbeddableText(doc: HarnessDocument): string {
   const parts: string[] = [];
 
   // Tags provide topical context
-  if (doc.frontmatter.tags.length > 0) {
-    parts.push(`Tags: ${doc.frontmatter.tags.join(', ')}`);
+  if (doc.tags.length > 0) {
+    parts.push(`Tags: ${doc.tags.join(', ')}`);
   }
 
-  // L0 — one-liner
-  if (doc.l0) {
-    parts.push(doc.l0);
-  }
-
-  // L1 — paragraph summary
-  if (doc.l1) {
-    parts.push(doc.l1);
+  // Description — one-liner or paragraph summary
+  if (doc.description) {
+    parts.push(doc.description);
   }
 
   // Truncated body for additional context
@@ -151,9 +146,9 @@ export function detectStalePrimitives(
 
   for (const [directory, docs] of allPrimitives) {
     for (const doc of docs) {
-      if (doc.frontmatter.status !== 'active') continue;
+      if (doc.status !== 'active') continue;
 
-      const id = doc.frontmatter.id;
+      const id = doc.id;
 
       if (modelChanged || !store) {
         stale.push({ doc, directory });
@@ -252,8 +247,8 @@ export async function indexPrimitives(
         mtime = new Date().toISOString();
       }
 
-      store.records[doc.frontmatter.id] = {
-        id: doc.frontmatter.id,
+      store.records[doc.id] = {
+        id: doc.id,
         path: doc.path,
         directory: batchDocs[j].directory,
         embeddedText: batch[j],
@@ -271,7 +266,7 @@ export async function indexPrimitives(
   const allPrimitives = loadAllPrimitives(harnessDir, harnessConfig?.extensions?.directories);
   for (const [, docs] of allPrimitives) {
     for (const doc of docs) {
-      allIds.add(doc.frontmatter.id);
+      allIds.add(doc.id);
     }
   }
 
@@ -357,7 +352,7 @@ export async function semanticSearch(
   const docMap = new Map<string, { doc: HarnessDocument; directory: string }>();
   for (const [directory, docs] of allPrimitives) {
     for (const doc of docs) {
-      docMap.set(doc.frontmatter.id, { doc, directory });
+      docMap.set(doc.id, { doc, directory });
     }
   }
 

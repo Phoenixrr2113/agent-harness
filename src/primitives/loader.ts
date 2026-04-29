@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, existsSync, statSync } from 'fs';
 import { join, extname, basename } from 'path';
 import matter from 'gray-matter';
-import { FrontmatterSchema, CORE_PRIMITIVE_DIRS, type HarnessDocument, type Frontmatter } from '../core/types.js';
+import { FrontmatterSchema, CORE_PRIMITIVE_DIRS, type HarnessDocument, type Frontmatter, type NonSkillFrontmatter } from '../core/types.js';
 
 export interface ParseError {
   path: string;
@@ -64,24 +64,63 @@ export function parseHarnessDocument(filePath: string, bundleDir?: string): Harn
     frontmatter = FrontmatterSchema.parse({ id: fallbackId });
   }
 
-  const l0Match = content.match(L0_REGEX);
-  const l1Match = content.match(L1_REGEX);
-
-  const l0 = l0Match ? l0Match[1].trim() : '';
-  const l1 = l1Match ? l1Match[1].trim() : '';
-
+  // Strip L0/L1 HTML comments from the body — they are not assigned as fields.
+  // The regex constants are kept so that migration tooling (task 6.3) can import them.
   const body = content
     .replace(L0_REGEX, '')
     .replace(L1_REGEX, '')
     .trim();
 
+  // Derive canonical id: prefer frontmatter.id (already slugified by FrontmatterSchema
+  // preprocess), else bundle dir name, else filename stem.
+  const id = frontmatter.id ||
+    (bundleDir ? basename(bundleDir) : basename(filePath).replace(/\.md$/, '')) ||
+    'unknown';
+
+  // Derive canonical name: prefer frontmatter.name (display name), else fall back to id.
+  const name = typeof frontmatter.name === 'string' ? frontmatter.name : id;
+
+  // Parse allowed-tools: the legacy FrontmatterSchema stores it as string[] already;
+  // the new spec stores it as a space-separated string. Handle both.
+  const rawAllowedTools = (frontmatter as Record<string, unknown>)['allowed-tools'];
+  let allowedTools: string[] = [];
+  if (typeof rawAllowedTools === 'string') {
+    allowedTools = rawAllowedTools.split(/\s+/).filter(Boolean);
+  } else if (Array.isArray(rawAllowedTools)) {
+    allowedTools = rawAllowedTools.filter((t): t is string => typeof t === 'string');
+  }
+
+  const fm = frontmatter as Record<string, unknown>;
+
   const doc: HarnessDocument = {
     path: filePath,
-    frontmatter,
-    l0,
-    l1,
+    id,
+    name,
+    description: typeof fm.description === 'string' ? fm.description : undefined,
+    license: typeof fm.license === 'string' ? fm.license : undefined,
+    compatibility: typeof fm.compatibility === 'string' ? fm.compatibility : undefined,
+    allowedTools,
+    tags: Array.isArray(frontmatter.tags) ? frontmatter.tags as string[] : [],
+    status: (frontmatter.status ?? 'active') as 'active' | 'archived' | 'deprecated' | 'draft',
+    author: (frontmatter.author ?? 'human') as 'human' | 'agent' | 'infrastructure',
+    created: typeof frontmatter.created === 'string' ? frontmatter.created : undefined,
+    updated: typeof frontmatter.updated === 'string' ? frontmatter.updated : undefined,
+    related: Array.isArray(frontmatter.related) ? frontmatter.related as string[] : [],
+    schedule: typeof fm.schedule === 'string' ? fm.schedule : undefined,
+    with: typeof fm.with === 'string' ? fm.with : undefined,
+    channel: typeof fm.channel === 'string' ? fm.channel : undefined,
+    duration_minutes: typeof fm.duration_minutes === 'number' ? fm.duration_minutes : undefined,
+    max_retries: typeof fm.max_retries === 'number' ? fm.max_retries : undefined,
+    retry_delay_ms: typeof fm.retry_delay_ms === 'number' ? fm.retry_delay_ms : undefined,
+    durable: typeof fm.durable === 'boolean' ? fm.durable : undefined,
+    model: (typeof fm.model === 'string' ? fm.model : undefined) as 'primary' | 'summary' | 'fast' | undefined,
+    active_tools: Array.isArray(fm.active_tools) ? fm.active_tools as string[] : undefined,
+    metadata: typeof fm.metadata === 'object' && fm.metadata !== null
+      ? fm.metadata as Record<string, unknown>
+      : undefined,
     body,
     raw,
+    frontmatter: frontmatter as unknown as NonSkillFrontmatter,
   };
   if (bundleDir) doc.bundleDir = bundleDir;
   return doc;
@@ -148,7 +187,7 @@ export function loadDirectoryWithErrors(dirPath: string): LoadResult {
       }
       try {
         const doc = parseHarnessDocument(entryFile, entryPath);
-        if (doc.frontmatter.status !== 'archived' && doc.frontmatter.status !== 'deprecated') {
+        if (doc.status !== 'archived' && doc.status !== 'deprecated') {
           docs.push(doc);
         }
       } catch (err) {
@@ -161,7 +200,7 @@ export function loadDirectoryWithErrors(dirPath: string): LoadResult {
       // Flat primitive — single-file convention, backward compatible.
       try {
         const doc = parseHarnessDocument(entryPath);
-        if (doc.frontmatter.status !== 'archived' && doc.frontmatter.status !== 'deprecated') {
+        if (doc.status !== 'archived' && doc.status !== 'deprecated') {
           docs.push(doc);
         }
       } catch (err) {
@@ -212,14 +251,3 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-// Load a file at a specific disclosure level
-export function getAtLevel(doc: HarnessDocument, level: 0 | 1 | 2): string {
-  switch (level) {
-    case 0:
-      return doc.l0 || doc.frontmatter.id;
-    case 1:
-      return doc.l1 || doc.l0 || doc.body.slice(0, 400);
-    case 2:
-      return doc.body;
-  }
-}
