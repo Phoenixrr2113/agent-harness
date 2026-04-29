@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'child_process';
 import { cpSync, mkdtempSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
@@ -15,12 +15,6 @@ function copyFixtureToTmp(): string {
 }
 
 describe('e2e — old harness migration', () => {
-  beforeAll(() => {
-    const buildResult = spawnSync('npm', ['run', 'build'], { encoding: 'utf-8', cwd: join(__dirname, '..', '..') });
-    if (buildResult.status !== 0) {
-      throw new Error(`Build failed: ${buildResult.stderr}`);
-    }
-  }, 60000);
 
   it('--check reports findings on the old harness', () => {
     const dir = copyFixtureToTmp();

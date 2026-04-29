@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'child_process';
 import { cpSync, mkdtempSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -8,10 +8,6 @@ const HARNESS_BIN = join(__dirname, '..', '..', 'dist', 'cli', 'index.js');
 const FIXTURE = join(__dirname, '..', 'fixtures', 'old-harness-7-primitives');
 
 describe('e2e — 7-primitive harness collapse', () => {
-  beforeAll(() => {
-    const buildResult = spawnSync('npm', ['run', 'build'], { encoding: 'utf-8', cwd: join(__dirname, '..', '..') });
-    if (buildResult.status !== 0) throw new Error(`Build failed: ${buildResult.stderr}`);
-  }, 60000);
 
   it('--migrate collapses all 5 old primitive types', () => {
     const dir = mkdtempSync(join(tmpdir(), 'collapse-e2e-'));
