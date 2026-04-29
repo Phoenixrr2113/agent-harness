@@ -1812,74 +1812,13 @@ program
     }
   });
 
-// --- WORKFLOW (list and run workflows) ---
-const workflowCmd = program
+// --- WORKFLOW (singular — DEPRECATED: workflow primitives are removed) ---
+program
   .command('workflow')
-  .description('Manage workflows');
-
-workflowCmd
-  .command('list')
-  .description('List all workflows and their schedules')
-  .option('-d, --dir <path>', 'Harness directory', '.')
-  .action(async (opts: { dir: string }) => {
-    const { loadDirectory } = await import('../primitives/loader.js');
-    const dir = resolve(opts.dir);
-    requireHarness(dir);
-
-    const workflowDir = join(dir, 'workflows');
-    if (!existsSync(workflowDir)) {
-      console.log('\nNo workflows/ directory. Create workflow files to enable scheduling.\n');
-      return;
-    }
-
-    const docs = loadDirectory(workflowDir);
-    if (docs.length === 0) {
-      console.log('\nNo workflows defined.\n');
-      return;
-    }
-
-    console.log(`\n${docs.length} workflow(s):\n`);
-    for (const doc of docs) {
-      const schedule = doc.schedule || '(no schedule)';
-      const status = doc.status === 'active' ? '' : ` [${doc.status}]`;
-      const withAgent = doc.with ? ` → ${doc.with}` : '';
-      const durable = doc.durable === true ? ' [durable]' : '';
-      const bundle = doc.bundleDir ? ' [bundle]' : '';
-      console.log(`  ${doc.id}${status}${durable}${bundle}`);
-      console.log(`    Schedule: ${schedule}${withAgent}`);
-      if (doc.description) console.log(`    ${doc.description}`);
-    }
-    console.log();
-  });
-
-workflowCmd
-  .command('run <id>')
-  .description('Execute a workflow by ID (bypasses quiet hours)')
-  .option('-d, --dir <path>', 'Harness directory', '.')
-  .action(async (workflowId: string, opts: { dir: string }) => {
-    const { Scheduler } = await import('../runtime/scheduler.js');
-    const dir = resolve(opts.dir);
-    loadEnvFromDir(dir);
-    requireHarness(dir);
-
-    console.log(`\nExecuting workflow: ${workflowId}...`);
-    const scheduler = new Scheduler({
-      harnessDir: dir,
-      autoArchival: false,
-    });
-
-    try {
-      const result = await scheduler.runOnce(workflowId);
-      console.log(`\n✓ Workflow "${workflowId}" complete.\n`);
-      if (result) {
-        console.log(result.slice(0, 500));
-        if (result.length > 500) console.log(`\n... (${result.length} chars total)`);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`\n✗ Workflow failed: ${msg}\n`);
-      process.exit(1);
-    }
+  .description('[DEPRECATED] Use `harness skill list --scheduled` to list scheduled skills')
+  .action(() => {
+    console.error('harness workflow has been removed. Scheduled skills replaced the workflows/ primitive.\nUse `harness skill list --scheduled` to see skills with a harness-schedule.\nUse `harness workflows status/inspect/resume/cleanup` to manage durable workflow runs.');
+    process.exit(1);
   });
 
 // --- SEARCH (find primitives by query/filters) ---
@@ -3089,81 +3028,55 @@ program
     }
   });
 
-// --- AGENTS (list available sub-agents) ---
-program
-  .command('agents')
-  .description('List available sub-agents')
-  .option('-d, --dir <path>', 'Harness directory', '.')
-  .action(async (opts: { dir: string }) => {
-    const { listAgents } = await import('../runtime/delegate.js');
-    const dir = resolve(opts.dir);
+// --- SKILL (list skills with optional trigger/schedule filters) ---
+const skillCmd = program
+  .command('skill')
+  .description('Manage skills');
 
-    const agents = listAgents(dir);
-
-    if (agents.length === 0) {
-      console.log('\nNo agents defined.');
-      console.log('Create agent files in agents/ to enable delegation.\n');
+skillCmd
+  .command('list')
+  .description('List skills, optionally filtered by trigger or schedule')
+  .option('-d, --dir <path>', 'harness directory', process.cwd())
+  .option('--trigger <kind>', 'filter to skills with metadata.harness-trigger=<kind>')
+  .option('--scheduled', 'show only scheduled skills (those with metadata.harness-schedule)')
+  .action(async (opts: { dir: string; trigger?: string; scheduled?: boolean }) => {
+    const { loadAllPrimitives } = await import('../primitives/loader.js');
+    const harnessDir = resolve(opts.dir);
+    const all = loadAllPrimitives(harnessDir);
+    let skills = all.get('skills') ?? [];
+    if (opts.trigger) {
+      skills = skills.filter((s) => s.metadata?.['harness-trigger'] === opts.trigger);
+    }
+    if (opts.scheduled) {
+      skills = skills.filter((s) => typeof s.metadata?.['harness-schedule'] === 'string');
+    }
+    if (skills.length === 0) {
+      console.log('  (no matching skills)');
       return;
     }
-
-    console.log(`\n${agents.length} agent(s) available:\n`);
-    for (const agent of agents) {
-      const status = agent.status === 'active' ? '' : ` [${agent.status}]`;
-      console.log(`  ${agent.id}${status}`);
-      if (agent.description) console.log(`    ${agent.description}`);
-      if (agent.tags.length > 0) console.log(`    tags: ${agent.tags.join(', ')}`);
-      console.log();
+    for (const s of skills) {
+      const trigger = s.metadata?.['harness-trigger'] ?? '-';
+      const schedule = s.metadata?.['harness-schedule'] ?? '-';
+      console.log(`  ${s.name.padEnd(40)} trigger=${String(trigger)}\tschedule=${String(schedule)}`);
     }
   });
 
-// --- DELEGATE (invoke a sub-agent) ---
+// --- AGENTS (DEPRECATED — sub-agent primitives have been removed) ---
 program
-  .command('delegate <agent-id> <prompt>')
-  .description('Delegate a prompt to a sub-agent')
-  .option('-d, --dir <path>', 'Harness directory', '.')
-  .option('-m, --model <model>', 'Model override (or alias: gemma, qwen, glm, claude)')
-  .option('-s, --stream', 'Stream output', false)
-  .action(async (agentId: string, prompt: string, opts: { dir: string; model?: string; stream: boolean }) => {
-    const dir = resolve(opts.dir);
-    loadEnvFromDir(dir);
-    requireHarness(dir);
+  .command('agents')
+  .description('[DEPRECATED] Use `harness skill list --trigger subagent` instead')
+  .action(() => {
+    console.error('harness agents has been removed. Use `harness skill list --trigger subagent` to list subagent-tagged skills.');
+    process.exit(1);
+  });
 
-    const modelId = resolveModel(opts.model);
-    const delegateOpts = {
-      harnessDir: dir,
-      agentId,
-      prompt,
-      modelOverride: modelId,
-    };
-
-    try {
-      console.error(`[delegate] Invoking agent "${agentId}"${opts.stream ? ' (streaming)' : ''}...`);
-
-      if (opts.stream) {
-        const { delegateStream } = await import('../runtime/delegate.js');
-        const result = delegateStream(delegateOpts);
-        process.stdout.write('\n');
-        for await (const chunk of result.textStream) {
-          process.stdout.write(chunk);
-        }
-        process.stdout.write('\n\n');
-        console.error(
-          `[delegate] Agent: ${result.agentId} | session: ${result.sessionId}`
-        );
-      } else {
-        const { delegateTo } = await import('../runtime/delegate.js');
-        const result = await delegateTo(delegateOpts);
-        console.log('\n' + result.text + '\n');
-        console.error(
-          `[delegate] Agent: ${result.agentId} | ` +
-          `${result.usage.totalTokens} tokens | ` +
-          `session: ${result.sessionId}`
-        );
-      }
-    } catch (err: unknown) {
-      console.error(`Error: ${formatError(err)}`);
-      process.exit(1);
-    }
+// --- DELEGATE (DEPRECATED — use activate_skill tool or invoke the bundled subagent script directly) ---
+program
+  .command('delegate <agentId> <prompt>')
+  .description('[DEPRECATED] Use the activate_skill tool from within an agent run, or invoke the bundled subagent script directly')
+  .action((agentId: string) => {
+    console.error(`harness delegate has been removed. Either run the agent and let it call activate_skill('${agentId}'), or invoke the bundled subagent script directly via shell.`);
+    process.exit(1);
   });
 
 // --- COSTS (spending tracker) ---
