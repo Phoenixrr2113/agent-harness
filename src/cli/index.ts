@@ -1480,49 +1480,84 @@ program
 // --- DOCTOR (validate + batch auto-fix + migration check/apply) ---
 program
   .command('doctor')
-  .description('Validate harness and auto-fix all fixable issues in one pass')
+  .description('Inspect a harness for spec compliance, migration needs, and skill quality')
   .option('-d, --dir <path>', 'Harness directory', '.')
-  .option('--check', 'report migration findings only, do not modify files', false)
+  .option('--check', 'report findings only, do not modify files', false)
   .option('--migrate', 'apply detected migrations', false)
-  .action(async (opts: { dir: string; check: boolean; migrate: boolean }) => {
+  .option('--fix', 'apply auto-fixable lints (e.g., chmod +x scripts)', false)
+  .action(async (opts: { dir: string; check: boolean; migrate: boolean; fix: boolean }) => {
     const { checkMigrations, applyMigrations } = await import('../runtime/migration.js');
+    const { runLints, applyFixes } = await import('../runtime/doctor.js');
     const dir = resolve(opts.dir);
 
-    // --check or --migrate: run the migration flow only (CI-friendly, process-exit-oriented)
-    if (opts.check || opts.migrate) {
+    // --check, --migrate, or --fix: structured CI-friendly flow
+    if (opts.check || opts.migrate || opts.fix) {
       const report = checkMigrations(dir);
+      const lintResults = await runLints(dir);
 
-      if (report.findings.length === 0) {
-        console.log('Harness is clean -- no migrations needed.');
-        process.exit(0);
+      let exitCode = 0;
+
+      // Report migration findings
+      if (report.findings.length > 0) {
+        console.log(`Migration findings (${report.findings.length}):`);
+        for (const f of report.findings) {
+          console.log(`  - ${f.kind}: ${f.path}`);
+        }
+        if (!opts.migrate) {
+          console.log(`\nRun 'harness doctor --migrate' to apply.`);
+        }
+        // --check exits non-zero on migration findings; --migrate will apply and
+        // exit 1 only if the apply step itself errors.
+        if (opts.check) exitCode = 1;
       }
 
+      // Report lint findings
+      if (lintResults.length > 0) {
+        console.log(`\nLint findings (${lintResults.length}):`);
+        for (const r of lintResults) {
+          const icon = r.severity === 'error' ? 'E' : r.severity === 'warn' ? 'W' : 'I';
+          const fixable = r.fixable ? ' [fixable]' : '';
+          console.log(`  [${icon}]${fixable} ${r.code}: ${r.message}`);
+        }
+        // --check exits non-zero on error-severity lint findings
+        if (opts.check && lintResults.some((r) => r.severity === 'error')) exitCode = 1;
+      }
+
+      // Apply migrations if requested
       if (opts.migrate) {
-        const result = applyMigrations(dir, report);
-        console.log(`Applied: ${result.applied.length}`);
-        for (const f of result.applied) console.log(`  + ${f.kind}: ${f.path}`);
-        if (result.skipped.length > 0) {
-          console.log(`Skipped: ${result.skipped.length}`);
-          for (const f of result.skipped) console.log(`  ~ ${f.kind}: ${f.path} (${f.reason})`);
+        if (report.findings.length === 0) {
+          console.log('No migrations needed.');
+        } else {
+          const result = applyMigrations(dir, report);
+          console.log(`\nMigrations applied: ${result.applied.length}`);
+          for (const f of result.applied) console.log(`  + ${f.kind}: ${f.path}`);
+          if (result.skipped.length > 0) {
+            console.log(`Skipped: ${result.skipped.length}`);
+            for (const f of result.skipped) console.log(`  ~ ${f.kind}: ${f.path} (${f.reason})`);
+          }
+          if (result.errors.length > 0) {
+            console.log(`Errors: ${result.errors.length}`);
+            for (const f of result.errors) console.log(`  ! ${f.kind}: ${f.path} (${f.reason})`);
+            exitCode = 1;
+          }
         }
-        if (result.errors.length > 0) {
-          console.log(`Errors: ${result.errors.length}`);
-          for (const f of result.errors) console.log(`  ! ${f.kind}: ${f.path} (${f.reason})`);
-          process.exit(1);
-        }
-        process.exit(0);
       }
 
-      // --check (or default with findings): report and exit 1 for CI
-      console.log(`Found ${report.findings.length} migration(s):`);
-      for (const f of report.findings) {
-        console.log(`  - ${f.kind}: ${f.path}`);
+      // Apply auto-fixable lints if requested
+      if (opts.fix) {
+        const { applied, remaining } = await applyFixes(dir, lintResults);
+        const manualCount = remaining.filter((r) => r.severity !== 'info').length;
+        console.log(`\nApplied ${applied} auto-fix(es). ${manualCount} remaining (manual review needed).`);
       }
-      console.log(`\nRun 'harness doctor --migrate' to apply.`);
-      process.exit(1);
+
+      if (report.findings.length === 0 && lintResults.length === 0) {
+        console.log('Harness is clean -- no migrations needed and no lint issues.');
+      }
+
+      process.exit(exitCode);
     }
 
-    // Default (no flags): preserve existing doctorHarness behavior
+    // Default (no flags): preserve existing doctorHarness behavior + show lints
     const { doctorHarness } = await import('../runtime/validator.js');
 
     console.log(`\nRunning doctor on: ${dir}\n`);
@@ -1562,7 +1597,7 @@ program
     console.log(`\nSummary: ${result.ok.length} ok, ${result.warnings.length} warnings, ${result.errors.length} errors${fixLabel}`);
     console.log(`Primitives: ${result.totalPrimitives}\n`);
 
-    // Also report migration findings in default mode
+    // Report migration findings
     const migrationReport = checkMigrations(dir);
     if (migrationReport.findings.length > 0) {
       console.log(`Migration findings: ${migrationReport.findings.length}`);
@@ -1570,6 +1605,18 @@ program
         console.log(`  - ${f.kind}: ${f.path}`);
       }
       console.log(`\nRun 'harness doctor --migrate' to apply.\n`);
+    }
+
+    // Report lint findings
+    const lintResults = await runLints(dir);
+    if (lintResults.length > 0) {
+      console.log(`Lint findings (${lintResults.length}):`);
+      for (const r of lintResults) {
+        const icon = r.severity === 'error' ? 'E' : r.severity === 'warn' ? 'W' : 'I';
+        const fixable = r.fixable ? ' [fixable]' : '';
+        console.log(`  [${icon}]${fixable} ${r.code}: ${r.message}`);
+      }
+      console.log(`\nRun 'harness doctor --fix' to apply auto-fixable lints.\n`);
     }
 
     if (result.errors.length > 0) {

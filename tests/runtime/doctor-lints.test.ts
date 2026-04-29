@@ -5,6 +5,7 @@ import { tmpdir } from 'os';
 import { skillLints } from '../../src/runtime/lints/skill-lints.js';
 import { scriptLints } from '../../src/runtime/lints/script-lints.js';
 import { loadAllPrimitives } from '../../src/primitives/loader.js';
+import { runLints, applyFixes } from '../../src/runtime/doctor.js';
 
 function loadFirstSkill(harnessDir: string) {
   const skills = loadAllPrimitives(harnessDir).get('skills') ?? [];
@@ -129,5 +130,37 @@ describe('scriptLints', () => {
     writeFileSync(path, '#!/usr/bin/env bash\nread -p "Enter name: " name\necho "Hi $name"\n', 'utf-8');
     const results = await scriptLints.noInteractive(path);
     expect(results.find((r) => r.severity === 'warn')).toBeTruthy();
+  });
+});
+
+describe('runLints integration', () => {
+  it('reports lint findings across multiple skills', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'doctor-int-'));
+    makeSkillBundle(dir, 'too-short', 'name: too-short\ndescription: Bad.', 'Body.');
+    const all = await runLints(dir);
+    expect(all.some((r) => r.code === 'DESCRIPTION_TOO_SHORT')).toBe(true);
+  });
+
+  it('applyFixes can chmod +x scripts', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'doctor-fix-'));
+    const bundleDir = makeSkillBundle(
+      dir,
+      'foo',
+      'name: foo\ndescription: A skill that has scripts. Use when testing fixes.',
+      '## Available scripts\n\n- `scripts/run.sh` — Test'
+    );
+    const scriptDir = join(bundleDir, 'scripts');
+    mkdirSync(scriptDir, { recursive: true });
+    const scriptPath = join(scriptDir, 'run.sh');
+    writeFileSync(
+      scriptPath,
+      '#!/usr/bin/env bash\nif [ "${1:-}" = "--help" ]; then\n  echo "Usage: run.sh"\n  echo "Exit codes:"\n  echo "  0 OK"\n  exit 0\nfi\necho hi\n',
+      'utf-8'
+    );
+    chmodSync(scriptPath, 0o644);
+    const lints = await runLints(dir);
+    const { applied } = await applyFixes(dir, lints);
+    expect(applied).toBeGreaterThan(0);
+    expect(statSync(scriptPath).mode & 0o100).toBeTruthy();
   });
 });
