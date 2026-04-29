@@ -368,3 +368,89 @@ describe('applyMigrations — primitive type collapse', () => {
     expect(existsSync(join(dir, 'instincts'))).toBe(false);
   });
 });
+
+describe('applyMigrations — tools to skills with scripts', () => {
+  it('converts a markdown HTTP tool to a skill bundle with auto-generated scripts/call.sh', () => {
+    const dir = mkdtempSync(join(tmpdir(), `mig-tools-${Math.random().toString(36).slice(2, 10)}-`));
+    mkdirSync(join(dir, 'tools'), { recursive: true });
+    writeFileSync(
+      join(dir, 'tools', 'example-api.md'),
+      `---
+name: example-api
+description: Example HTTP API.
+---
+# Example API
+
+## Authentication
+
+Set EXAMPLE_API_KEY environment variable.
+
+## Operations
+
+### get_status
+
+GET https://example.com/status
+Headers: { "Authorization": "Bearer \${EXAMPLE_API_KEY}" }
+Returns: JSON with status field.
+`,
+      'utf-8'
+    );
+
+    applyMigrations(dir, checkMigrations(dir));
+
+    expect(existsSync(join(dir, 'tools', 'example-api.md'))).toBe(false);
+    expect(existsSync(join(dir, 'skills', 'example-api', 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(dir, 'skills', 'example-api', 'scripts', 'call.sh'))).toBe(true);
+
+    const skillRaw = readFileSync(join(dir, 'skills', 'example-api', 'SKILL.md'), 'utf-8');
+    const skill = matter(skillRaw);
+    expect((skill.data.metadata as Record<string, unknown>)?.['harness-script-source']).toBe('auto-generated-from-tools');
+
+    const script = readFileSync(join(dir, 'skills', 'example-api', 'scripts', 'call.sh'), 'utf-8');
+    expect(script).toContain('#!/usr/bin/env bash');
+    expect(script).toContain('NOT_IMPLEMENTED');
+
+    expect(skillRaw).toContain('## Available scripts');
+    expect(skillRaw).toContain('scripts/call.sh');
+  });
+
+  it('preserves the tool md as-is when the operations block cannot be parsed', () => {
+    const dir = mkdtempSync(join(tmpdir(), `mig-tools-${Math.random().toString(36).slice(2, 10)}-`));
+    mkdirSync(join(dir, 'tools'), { recursive: true });
+    writeFileSync(
+      join(dir, 'tools', 'unparseable.md'),
+      `---\nname: unparseable\ndescription: Unparseable tool.\n---\nNo operations section.`,
+      'utf-8'
+    );
+
+    const result = applyMigrations(dir, checkMigrations(dir));
+
+    // Either skipped with reason OR converted with a stub script + warning
+    const tool =
+      result.applied.find((f) => f.kind === 'convert-tool-to-skill-with-script' && f.path.includes('unparseable')) ||
+      result.skipped.find((f) => f.kind === 'convert-tool-to-skill-with-script' && f.path.includes('unparseable')) ||
+      result.errors.find((f) => f.kind === 'convert-tool-to-skill-with-script' && f.path.includes('unparseable'));
+    expect(tool).toBeTruthy();
+
+    // When converted, the stub script must flag NEEDS_MANUAL_CONVERSION
+    if (result.applied.find((f) => f.kind === 'convert-tool-to-skill-with-script' && f.path.includes('unparseable'))) {
+      const script = readFileSync(join(dir, 'skills', 'unparseable', 'scripts', 'call.sh'), 'utf-8');
+      expect(script).toContain('NEEDS_MANUAL_CONVERSION');
+    }
+  });
+
+  it('skips conversion when the target skill bundle already exists', () => {
+    const dir = mkdtempSync(join(tmpdir(), `mig-tools-${Math.random().toString(36).slice(2, 10)}-`));
+    mkdirSync(join(dir, 'tools'), { recursive: true });
+    mkdirSync(join(dir, 'skills', 'my-tool'), { recursive: true });
+    writeFileSync(join(dir, 'tools', 'my-tool.md'), `---\nname: my-tool\ndescription: Tool.\n---\nBody.`, 'utf-8');
+    writeFileSync(join(dir, 'skills', 'my-tool', 'SKILL.md'), `---\nname: my-tool\n---\nExisting.`, 'utf-8');
+
+    const result = applyMigrations(dir, checkMigrations(dir));
+
+    expect(result.skipped).toContainEqual(
+      expect.objectContaining({ kind: 'convert-tool-to-skill-with-script', reason: expect.stringMatching(/exists/) })
+    );
+    expect(existsSync(join(dir, 'tools', 'my-tool.md'))).toBe(true);
+  });
+});

@@ -1,4 +1,4 @@
-import { readdirSync, existsSync, statSync, mkdirSync, renameSync, unlinkSync, rmSync, readFileSync, writeFileSync } from 'fs';
+import { readdirSync, existsSync, statSync, mkdirSync, renameSync, unlinkSync, rmSync, readFileSync, writeFileSync, chmodSync } from 'fs';
 import { join, dirname, basename } from 'path';
 import matter from 'gray-matter';
 
@@ -14,6 +14,7 @@ export type MigrationKind =
   | 'move-playbook-to-skill'
   | 'move-workflow-to-skill'
   | 'move-agent-to-skill'
+  | 'convert-tool-to-skill-with-script'
   | 'cleanup-empty-primitive-dir';
 
 export interface MigrationFinding {
@@ -150,6 +151,17 @@ export function checkMigrations(harnessDir: string): MigrationReport {
       const entryPath = join(oldDir, entry);
       if (!statSync(entryPath).isFile() || !entry.endsWith('.md')) continue;
       findings.push({ kind: kindByDir[oldKind], path: entryPath });
+    }
+  }
+
+  // Scan tools/ for markdown HTTP tool descriptions to convert to skill bundles
+  const toolsDir = join(harnessDir, 'tools');
+  if (existsSync(toolsDir) && statSync(toolsDir).isDirectory()) {
+    for (const entry of readdirSync(toolsDir)) {
+      const entryPath = join(toolsDir, entry);
+      if (statSync(entryPath).isFile() && entry.endsWith('.md')) {
+        findings.push({ kind: 'convert-tool-to-skill-with-script', path: entryPath });
+      }
     }
   }
 
@@ -400,6 +412,78 @@ export function applyMigrations(harnessDir: string, report: MigrationReport): Ap
           }
           mkdirSync(newBundleDir, { recursive: true });
           writeFileSync(join(newBundleDir, 'SKILL.md'), matter.stringify(content, data), 'utf-8');
+          unlinkSync(flatPath);
+          applied.push(finding);
+          break;
+        }
+        case 'convert-tool-to-skill-with-script': {
+          const flatPath = finding.path;
+          const baseName = basename(flatPath, '.md');
+          const newBundleDir = join(harnessDir, 'skills', baseName);
+          if (existsSync(newBundleDir)) {
+            skipped.push({ ...finding, reason: `skills/${baseName}/ exists; tool left in place` });
+            break;
+          }
+
+          const raw = readFileSync(flatPath, 'utf-8');
+          const { data, content } = matter(raw);
+
+          // Try to parse ## Operations section to generate a script with operation stubs
+          const opsMatch = content.match(/##\s*Operations\s*\n([\s\S]*?)(?=\n##|$)/i);
+
+          let script: string;
+          if (opsMatch) {
+            script = [
+              '#!/usr/bin/env bash',
+              `# Auto-generated from tools/${baseName}.md`,
+              'set -euo pipefail',
+              '',
+              '# Authentication: see SKILL.md "## Authentication" section',
+              '',
+              '# Usage: scripts/call.sh <operation> [args...]',
+              'OP="${1:-}"',
+              'shift || true',
+              '',
+              'case "$OP" in',
+              '  --help|-h)',
+              '    cat <<\'EOF\'',
+              `Usage: scripts/call.sh <operation> [args...]`,
+              `Operations: see SKILL.md "## Operations" section.`,
+              'Returns JSON: { status, result?, error?, next_steps? }',
+              'EOF',
+              '    exit 0',
+              '    ;;',
+              '  *)',
+              '    echo \'{"status":"error","error":{"code":"NOT_IMPLEMENTED","message":"Auto-generated stub. Edit scripts/call.sh to implement operations."}}\'',
+              '    exit 1',
+              '    ;;',
+              'esac',
+              '',
+            ].join('\n');
+          } else {
+            // No operations section — emit a stub script flagging that the tool needs manual conversion
+            script = [
+              '#!/usr/bin/env bash',
+              `# Auto-generated stub — no parseable Operations section in the original tool md.`,
+              `echo '{"status":"error","error":{"code":"NEEDS_MANUAL_CONVERSION","message":"This tool was converted from tools/${baseName}.md but its operations could not be auto-extracted. See SKILL.md and rewrite this script."}}'`,
+              'exit 1',
+              '',
+            ].join('\n');
+          }
+
+          // Inject harness-script-source into metadata
+          if (!data.metadata || typeof data.metadata !== 'object') data.metadata = {};
+          (data.metadata as Record<string, unknown>)['harness-script-source'] = 'auto-generated-from-tools';
+
+          // Append ## Available scripts section to the body
+          const newBody = `${content.trim()}\n\n## Available scripts\n\n- \`scripts/call.sh\` — Auto-generated from this tool's Operations section. Review before relying on it.\n`;
+
+          mkdirSync(newBundleDir, { recursive: true });
+          mkdirSync(join(newBundleDir, 'scripts'), { recursive: true });
+          writeFileSync(join(newBundleDir, 'SKILL.md'), matter.stringify(newBody, data), 'utf-8');
+          writeFileSync(join(newBundleDir, 'scripts', 'call.sh'), script, 'utf-8');
+          // chmod +x the script — best-effort, ignore on systems that don't support it
+          try { chmodSync(join(newBundleDir, 'scripts', 'call.sh'), 0o755); } catch { /* best-effort */ }
           unlinkSync(flatPath);
           applied.push(finding);
           break;
