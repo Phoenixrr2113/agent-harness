@@ -2269,9 +2269,11 @@ toolsCmd
     console.log();
   });
 
-// --- EXPORT (data portability) ---
+// --- EXPORT-BUNDLE (data portability) ---
+// NOTE: renamed from `export` to `export-bundle` so the provider-integration
+// `harness export [provider]` (added later) can claim the shorter verb.
 program
-  .command('export [output]')
+  .command('export-bundle [output]')
   .description('Export harness to a portable JSON bundle')
   .option('-d, --dir <path>', 'Harness directory', '.')
   .option('--no-sessions', 'Exclude session files')
@@ -3358,6 +3360,73 @@ rulesCmd
       console.log(`NOT promoted: ${candidateId}`);
       console.log(`Reason: ${result.reason}`);
       process.exit(1);
+    }
+  });
+
+// --- EXPORT (provider integration) ---
+program
+  .command('export [provider]')
+  .description('Export skills/rules/identity to provider format(s)')
+  .option('--target <path>', 'Override target directory for the provider')
+  .option('--force', 'Skip drift confirmation')
+  .option('--dry-run', 'Print what would be written without writing')
+  .option('--prune', 'Remove orphan exports (no longer in source)')
+  .option('--resync-from <provider>', 'Pull a provider file back into the harness (native adapters only)')
+  .option('--resync-file <file>', 'Specific provider file to resync (used with --resync-from)')
+  .option('--harness <dir>', 'Harness directory', process.cwd())
+  .action(async (provider: string | undefined, opts: { target?: string; force?: boolean; dryRun?: boolean; prune?: boolean; resyncFrom?: string; resyncFile?: string; harness: string }) => {
+    const { runExport, runPrune, runResync } = await import('../runtime/export/runner.js');
+    await import('../runtime/export/index.js'); // ensure adapters register
+
+    if (opts.resyncFrom && opts.resyncFile) {
+      const result = await runResync(opts.harness, opts.resyncFrom as never, opts.resyncFile, opts.target);
+      console.log(`Resynced: ${result.updated}`);
+      return;
+    }
+
+    const validProviders = ['claude', 'codex', 'cursor', 'copilot', 'gemini', 'agents'] as const;
+    type ValidProvider = typeof validProviders[number];
+
+    let providers: ValidProvider[] = [];
+    if (provider) {
+      if (!validProviders.includes(provider as ValidProvider)) {
+        console.error(`Unknown provider: ${provider}. Valid: ${validProviders.join(', ')}`);
+        process.exit(1);
+      }
+      providers = [provider as ValidProvider];
+    } else {
+      // Read from config
+      const { loadConfig } = await import('../core/config.js');
+      const config = loadConfig(opts.harness);
+      const targets = (config as { export?: { targets?: Array<{ provider: string }> } }).export?.targets ?? [];
+      if (targets.length === 0) {
+        console.error('No <provider> given and no targets configured in config.yaml — use `harness export <provider>` or configure export.targets.');
+        process.exit(1);
+      }
+      providers = targets.map((t) => t.provider as ValidProvider);
+    }
+
+    if (opts.prune) {
+      const results = await runPrune(opts.harness, providers, opts.target);
+      for (const r of results) {
+        console.log(`${r.provider}: pruned ${r.removed.length} orphan(s)`);
+        for (const path of r.removed) console.log(`  removed ${path}`);
+      }
+      return;
+    }
+
+    const reports = await runExport({
+      harnessDir: opts.harness,
+      providers,
+      targetPath: opts.target,
+      dryRun: opts.dryRun ?? false,
+      force: opts.force ?? false,
+    });
+    for (const r of reports) {
+      console.log(`\n${r.provider}:`);
+      for (const path of r.written) console.log(`  ✓ ${path}`);
+      for (const s of r.skipped) console.log(`  ⊘ ${s.path}: ${s.reason}`);
+      for (const w of r.warnings) console.log(`  ⚠ ${w}`);
     }
   });
 
