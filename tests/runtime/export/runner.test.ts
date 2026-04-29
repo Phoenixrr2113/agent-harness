@@ -63,8 +63,10 @@ describe('runExport', () => {
     });
     registerAdapter({ name: 'copilot', exportAll, detectDrift: async () => ({ provider: 'copilot', findings: [] }) });
     await runExport({ harnessDir: dir, providers: ['copilot'] });
-    // copilot's canonical target is .github, NOT .copilot
-    expect(observedTargetDir).toBe('.github');
+    // copilot's canonical target is .github, NOT .copilot. v0.14.1+ anchors
+    // relative target paths against the project root (not cwd) so the path
+    // is now fully resolved.
+    expect(observedTargetDir.endsWith('/.github')).toBe(true);
   });
 
   it('threads CLI version into ExportContext.harnessVersion (not "@unknown")', async () => {
@@ -91,6 +93,42 @@ describe('defaultTargetFor', () => {
     expect(defaultTargetFor('cursor')).toBe('.cursor');
     expect(defaultTargetFor('gemini')).toBe('.gemini');
     expect(defaultTargetFor('agents')).toBe('.agents');
+  });
+});
+
+describe('resolveTargetDir (N3+N4)', () => {
+  it('anchors relative paths to detectProjectRoot, not cwd', async () => {
+    const { resolveTargetDir } = await import('../../../src/runtime/export/runner.js');
+    const projectDir = tmp();
+    const harnessDir = join(projectDir, '.harness');
+    mkdirSync(harnessDir);
+    // No project sentinels at parent → projectRoot is harnessDir
+    expect(resolveTargetDir(harnessDir, 'agents')).toBe(join(harnessDir, '.agents'));
+  });
+
+  it('for project-resident installs, anchors at project root', async () => {
+    const { resolveTargetDir } = await import('../../../src/runtime/export/runner.js');
+    const projectDir = tmp();
+    const harnessDir = join(projectDir, '.harness');
+    mkdirSync(harnessDir);
+    writeFileSync(join(projectDir, 'AGENTS.md'), '# project'); // sentinel → projectRoot is parent
+    expect(resolveTargetDir(harnessDir, 'agents')).toBe(join(projectDir, '.agents'));
+  });
+
+  it('passes through absolute paths unchanged', async () => {
+    const { resolveTargetDir } = await import('../../../src/runtime/export/runner.js');
+    const projectDir = tmp();
+    expect(resolveTargetDir(projectDir, 'claude', '/abs/path')).toBe('/abs/path');
+  });
+
+  it('user-supplied relative path is anchored too', async () => {
+    const { resolveTargetDir } = await import('../../../src/runtime/export/runner.js');
+    const projectDir = tmp();
+    const harnessDir = join(projectDir, '.harness');
+    mkdirSync(harnessDir);
+    writeFileSync(join(projectDir, 'AGENTS.md'), '# project');
+    // User passes path: "out/claude" — should resolve to <project>/out/claude
+    expect(resolveTargetDir(harnessDir, 'claude', 'out/claude')).toBe(join(projectDir, 'out/claude'));
   });
 });
 

@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { loadAllPrimitives } from '../../primitives/loader.js';
@@ -82,6 +82,19 @@ export function defaultTargetFor(provider: ProviderName): string {
 }
 
 /**
+ * Resolve a provider target directory. Relative paths are anchored at the
+ * project root (not at process.cwd()), so `harness export` works the same
+ * regardless of the directory it's invoked from. The project root is the
+ * harness's parent for subdirectory installs (e.g. `<project>/.harness/`),
+ * or the harness directory itself for standalone installs.
+ */
+export function resolveTargetDir(harnessDir: string, provider: ProviderName, targetPath?: string): string {
+  const path = targetPath ?? defaultTargetFor(provider);
+  if (isAbsolute(path)) return path;
+  return join(detectProjectRoot(harnessDir), path);
+}
+
+/**
  * Resolve the host project root. If `harnessDir`'s parent has any
  * project-level sentinel (AGENTS.md, CLAUDE.md, GEMINI.md, package.json,
  * .git), treat it as a subdirectory install and return the parent.
@@ -122,7 +135,7 @@ export async function runExport(opts: RunExportOptions): Promise<ExportReport[]>
     if (!adapter) {
       throw new Error(`unknown provider: ${name}`);
     }
-    const targetDir = targetPath ?? defaultTargetFor(name);
+    const targetDir = resolveTargetDir(harnessDir, name, targetPath);
     const ctx = buildContext(harnessDir, targetDir);
     if (dryRun) {
       reports.push({ provider: name, written: [], skipped: [], warnings: ['dry-run: no files written'] });
@@ -144,7 +157,7 @@ export async function runDrift(harnessDir: string, providers: ProviderName[], ta
   for (const name of providers) {
     const adapter = getAdapter(name);
     if (!adapter) throw new Error(`unknown provider: ${name}`);
-    const targetDir = targetPath ?? defaultTargetFor(name);
+    const targetDir = resolveTargetDir(harnessDir, name, targetPath);
     const ctx = buildContext(harnessDir, targetDir);
     const report = await adapter.detectDrift(ctx);
     out.push({ provider: name, findings: report.findings });
@@ -161,7 +174,7 @@ export async function runPrune(harnessDir: string, providers: ProviderName[], ta
       out.push({ provider: name, removed: [] });
       continue;
     }
-    const targetDir = targetPath ?? defaultTargetFor(name);
+    const targetDir = resolveTargetDir(harnessDir, name, targetPath);
     const ctx = buildContext(harnessDir, targetDir);
     const result = await adapter.prune(ctx);
     out.push({ provider: name, removed: result.removed });
@@ -173,7 +186,7 @@ export async function runResync(harnessDir: string, provider: ProviderName, prov
   const adapter = getAdapter(provider);
   if (!adapter) throw new Error(`unknown provider: ${provider}`);
   if (!adapter.resyncFile) throw new Error(`provider ${provider} does not support resync`);
-  const targetDir = targetPath ?? defaultTargetFor(provider);
+  const targetDir = resolveTargetDir(harnessDir, provider, targetPath);
   const ctx = buildContext(harnessDir, targetDir);
   return adapter.resyncFile(ctx, providerFile);
 }
