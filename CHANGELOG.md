@@ -4,6 +4,18 @@ All notable changes to `@agntk/agent-harness` are documented here. The format is
 
 > **Migrating from 0.8.x?** See [Upgrading from 0.8.x](#upgrading-from-08x) at the bottom of this file. The 0.9 → 0.15 series brings substantial breaking changes alongside an automated migration path (`harness doctor --migrate`).
 
+## [0.15.1] — 2026-04-29
+
+Documentation-only patch — the first release after the `0.9 → 0.15` series that ships `CHANGELOG.md` and the refreshed `README.md` inside the npm tarball. No code changes from `0.15.0`.
+
+### Added
+
+- `CHANGELOG.md` — covers every release from `0.9.0` to `0.15.0` plus the "Migrating from 0.8.x" guide. Now bundled in the npm tarball via `package.json: files`.
+
+### Fixed
+
+- `README.md` references to pre-`0.15.0` defaults: `harness dev` dashboard is now opt-in (`--web`) at port `8080`; the previous "always-on at port 3000" line was wrong as of `0.15.0`. Removed the stale `harness workflow` (singular, deprecated since `0.10.0`) and `skill scheduled` (never existed; should be `skill list --scheduled`) references in the CLI overview. Added the `0.12.0` skill-eval / optimization / promotion commands.
+
 ## [0.15.0] — 2026-04-29
 
 Round-3 deep e2e fixes. Thirteen findings (D1–D15) from manual end-to-end testing of v0.14.1 — every fix verified against its exact original failure scenario before merging.
