@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { buildSystemPrompt } from '../src/runtime/context-loader.js';
+import { buildSystemPrompt, loadIdentity } from '../src/runtime/context-loader.js';
 import type { HarnessConfig } from '../src/core/types.js';
 
 describe('context assembly', () => {
@@ -42,9 +42,9 @@ describe('context assembly', () => {
     }
   });
 
-  it('should load CORE.md first and always in full', () => {
+  it('should load IDENTITY.md first and always in full', () => {
     writeFileSync(
-      join(testDir, 'CORE.md'),
+      join(testDir, 'IDENTITY.md'),
       `# My Agent
 
 I am an autonomous agent focused on testing.
@@ -60,13 +60,13 @@ I am an autonomous agent focused on testing.
     expect(systemPrompt).toContain('# CORE IDENTITY');
     expect(systemPrompt).toContain('# My Agent');
     expect(systemPrompt).toContain('autonomous agent focused on testing');
-    expect(budget.loaded_files).toContain('CORE.md');
+    expect(budget.loaded_files).toContain('IDENTITY.md');
     expect(budget.used_tokens).toBeGreaterThan(0);
   });
 
   it('should load state.md', () => {
     writeFileSync(
-      join(testDir, 'CORE.md'),
+      join(testDir, 'IDENTITY.md'),
       '# Test Agent\n\nCore identity.'
     );
 
@@ -90,9 +90,9 @@ working
     expect(budget.loaded_files).toContain('state.md');
   });
 
-  it('should load SYSTEM.md', () => {
+  it('should not load SYSTEM.md even when present', () => {
     writeFileSync(
-      join(testDir, 'CORE.md'),
+      join(testDir, 'IDENTITY.md'),
       '# Test Agent'
     );
 
@@ -106,13 +106,12 @@ Boot sequence and operational guidelines.
 
     const { systemPrompt, budget } = buildSystemPrompt(testDir, mockConfig);
 
-    expect(systemPrompt).toContain('# SYSTEM');
-    expect(systemPrompt).toContain('Boot sequence and operational guidelines');
-    expect(budget.loaded_files).toContain('SYSTEM.md');
+    expect(systemPrompt).not.toContain('Boot sequence and operational guidelines');
+    expect(budget.loaded_files).not.toContain('SYSTEM.md');
   });
 
   it('should load primitives in priority order', () => {
-    writeFileSync(join(testDir, 'CORE.md'), '# Test Agent');
+    writeFileSync(join(testDir, 'IDENTITY.md'), '# Test Agent');
 
     // Create primitive directories
     for (const dir of ['rules', 'instincts', 'skills']) {
@@ -158,7 +157,7 @@ Full instinct content.
   });
 
   it('should respect token budget and use progressive disclosure', () => {
-    writeFileSync(join(testDir, 'CORE.md'), '# Test Agent\n\nCore identity.');
+    writeFileSync(join(testDir, 'IDENTITY.md'), '# Test Agent\n\nCore identity.');
 
     const rulesDir = join(testDir, 'rules');
     mkdirSync(rulesDir);
@@ -198,7 +197,7 @@ ${largeBody}
   });
 
   it('should load scratch.md if it has content', () => {
-    writeFileSync(join(testDir, 'CORE.md'), '# Test Agent');
+    writeFileSync(join(testDir, 'IDENTITY.md'), '# Test Agent');
 
     mkdirSync(join(testDir, 'memory'), { recursive: true });
     writeFileSync(
@@ -214,7 +213,7 @@ ${largeBody}
   });
 
   it('should skip empty scratch.md', () => {
-    writeFileSync(join(testDir, 'CORE.md'), '# Test Agent');
+    writeFileSync(join(testDir, 'IDENTITY.md'), '# Test Agent');
 
     mkdirSync(join(testDir, 'memory'), { recursive: true });
     writeFileSync(join(testDir, 'memory', 'scratch.md'), '');
@@ -226,7 +225,7 @@ ${largeBody}
   });
 
   it('should calculate remaining tokens correctly', () => {
-    writeFileSync(join(testDir, 'CORE.md'), '# Test Agent\n\nCore identity.');
+    writeFileSync(join(testDir, 'IDENTITY.md'), '# Test Agent\n\nCore identity.');
 
     const { budget } = buildSystemPrompt(testDir, mockConfig);
 
@@ -246,8 +245,7 @@ ${largeBody}
   });
 
   it('should separate sections with markdown dividers', () => {
-    writeFileSync(join(testDir, 'CORE.md'), '# Test Agent');
-    writeFileSync(join(testDir, 'SYSTEM.md'), '# System');
+    writeFileSync(join(testDir, 'IDENTITY.md'), '# Test Agent');
     writeFileSync(join(testDir, 'state.md'), '# State\n\n## Mode\nidle');
 
     const { systemPrompt } = buildSystemPrompt(testDir, mockConfig);
@@ -258,8 +256,7 @@ ${largeBody}
   });
 
   it('should track all loaded files in budget', () => {
-    writeFileSync(join(testDir, 'CORE.md'), '# Test Agent');
-    writeFileSync(join(testDir, 'SYSTEM.md'), '# System');
+    writeFileSync(join(testDir, 'IDENTITY.md'), '# Test Agent');
     writeFileSync(join(testDir, 'state.md'), '# State\n\n## Mode\nidle');
 
     const rulesDir = join(testDir, 'rules');
@@ -275,8 +272,8 @@ Rule content`
 
     const { budget } = buildSystemPrompt(testDir, mockConfig);
 
-    expect(budget.loaded_files).toContain('CORE.md');
-    expect(budget.loaded_files).toContain('SYSTEM.md');
+    expect(budget.loaded_files).toContain('IDENTITY.md');
+    expect(budget.loaded_files).not.toContain('SYSTEM.md');
     expect(budget.loaded_files).toContain('state.md');
     expect(budget.loaded_files.some(f => f.includes('rule1.md'))).toBe(true);
   });
@@ -285,7 +282,7 @@ Rule content`
     // Use larger budget for this test
     mockConfig.model.max_tokens = 100000;
 
-    writeFileSync(join(testDir, 'CORE.md'), '# Test Agent');
+    writeFileSync(join(testDir, 'IDENTITY.md'), '# Test Agent');
 
     const rulesDir = join(testDir, 'rules');
     mkdirSync(rulesDir);
@@ -319,7 +316,7 @@ Multiple paragraphs of important information.
     // Very tight budget
     mockConfig.model.max_tokens = 2000;
 
-    writeFileSync(join(testDir, 'CORE.md'), '# Test Agent\n\n' + 'x'.repeat(1000));
+    writeFileSync(join(testDir, 'IDENTITY.md'), '# Test Agent\n\n' + 'x'.repeat(1000));
 
     const rulesDir = join(testDir, 'rules');
     mkdirSync(rulesDir);
@@ -353,7 +350,7 @@ ${'x'.repeat(2000)}
   });
 
   it('should return empty parseErrors for valid harness', () => {
-    writeFileSync(join(testDir, 'CORE.md'), '# Test Agent');
+    writeFileSync(join(testDir, 'IDENTITY.md'), '# Test Agent');
 
     const result = buildSystemPrompt(testDir, mockConfig);
 
@@ -368,7 +365,7 @@ ${'x'.repeat(2000)}
     // Very tight budget forces L0 loading
     mockConfig.model.max_tokens = 2000;
 
-    writeFileSync(join(testDir, 'CORE.md'), '# Test Agent\n\n' + 'x'.repeat(1000));
+    writeFileSync(join(testDir, 'IDENTITY.md'), '# Test Agent\n\n' + 'x'.repeat(1000));
 
     const rulesDir = join(testDir, 'rules');
     mkdirSync(rulesDir);
@@ -396,13 +393,141 @@ ${'x'.repeat(2000)}
   });
 
   it('should warn when context budget usage is high', () => {
-    // Budget where CORE.md alone takes >12% of max_tokens
+    // Budget where IDENTITY.md alone takes >12% of max_tokens
     mockConfig.model.max_tokens = 200; // Very small
-    writeFileSync(join(testDir, 'CORE.md'), 'x'.repeat(200)); // ~50 tokens = 25% of 200
+    writeFileSync(join(testDir, 'IDENTITY.md'), 'x'.repeat(200)); // ~50 tokens = 25% of 200
 
     const result = buildSystemPrompt(testDir, mockConfig);
 
     // 25% > 12% threshold
     expect(result.warnings.some((w) => w.includes('System prompt using'))).toBe(true);
+  });
+});
+
+describe('loadIdentity', () => {
+  it('loads IDENTITY.md when present', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'identity-test-'));
+    writeFileSync(join(dir, 'IDENTITY.md'), '# Test Agent\n\nIdentity content.', 'utf-8');
+
+    const result = loadIdentity(dir);
+    expect(result.content).toContain('Identity content.');
+    expect(result.source).toBe('IDENTITY.md');
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('falls back to CORE.md with deprecation warning', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'identity-test-'));
+    writeFileSync(join(dir, 'CORE.md'), '# Old Agent\n\nLegacy content.', 'utf-8');
+
+    const warnSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = loadIdentity(dir);
+
+    expect(result.content).toContain('Legacy content.');
+    expect(result.source).toBe('CORE.md');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/CORE\.md is deprecated/));
+
+    warnSpy.mockRestore();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('prefers IDENTITY.md when both exist', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'identity-test-'));
+    writeFileSync(join(dir, 'IDENTITY.md'), '# New', 'utf-8');
+    writeFileSync(join(dir, 'CORE.md'), '# Old', 'utf-8');
+
+    const warnSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = loadIdentity(dir);
+
+    expect(result.content).toBe('# New');
+    expect(result.source).toBe('IDENTITY.md');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/CORE\.md.* is being ignored/));
+
+    warnSpy.mockRestore();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('returns empty when neither exists', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'identity-test-'));
+
+    const result = loadIdentity(dir);
+    expect(result.content).toBe('');
+    expect(result.source).toBe('none');
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('buildSystemPrompt — uses loadIdentity', () => {
+  let testDir: string;
+  let mockConfig: HarnessConfig;
+
+  beforeEach(() => {
+    testDir = mkdtempSync(join(tmpdir(), 'sysprompt-test-'));
+    mockConfig = {
+      agent: { name: 'test-agent', version: '0.1.0' },
+      model: { provider: 'openrouter', id: 'anthropic/claude-sonnet-4', max_tokens: 10000 },
+      runtime: { scratchpad_budget: 1000, timezone: 'America/New_York' },
+      memory: { session_retention_days: 7, journal_retention_days: 365 },
+      channels: { primary: 'cli' },
+    };
+  });
+
+  afterEach(() => {
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('reads IDENTITY.md as the identity section', () => {
+    writeFileSync(join(testDir, 'IDENTITY.md'), '# I am Edith.', 'utf-8');
+
+    const result = buildSystemPrompt(testDir, mockConfig);
+    expect(result.systemPrompt).toContain('# I am Edith.');
+    expect(result.budget.loaded_files).toContain('IDENTITY.md');
+  });
+
+  it('falls back to CORE.md when IDENTITY.md is absent', () => {
+    const warnSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    writeFileSync(join(testDir, 'CORE.md'), '# I am a legacy agent.', 'utf-8');
+
+    const result = buildSystemPrompt(testDir, mockConfig);
+    expect(result.systemPrompt).toContain('# I am a legacy agent.');
+    expect(result.budget.loaded_files).toContain('CORE.md');
+
+    warnSpy.mockRestore();
+  });
+});
+
+describe('buildSystemPrompt — does not read SYSTEM.md', () => {
+  let testDir: string;
+  let mockConfig: HarnessConfig;
+
+  beforeEach(() => {
+    testDir = mkdtempSync(join(tmpdir(), 'sysprompt-test-'));
+    mockConfig = {
+      agent: { name: 'test-agent', version: '0.1.0' },
+      model: { provider: 'openrouter', id: 'anthropic/claude-sonnet-4', max_tokens: 10000 },
+      runtime: { scratchpad_budget: 1000, timezone: 'America/New_York' },
+      memory: { session_retention_days: 7, journal_retention_days: 365 },
+      channels: { primary: 'cli' },
+    };
+  });
+
+  afterEach(() => {
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('ignores SYSTEM.md content if present', () => {
+    writeFileSync(join(testDir, 'IDENTITY.md'), '# Identity content.', 'utf-8');
+    writeFileSync(join(testDir, 'SYSTEM.md'), '# Old infrastructure docs.', 'utf-8');
+
+    const result = buildSystemPrompt(testDir, mockConfig);
+    expect(result.systemPrompt).toContain('# Identity content.');
+    expect(result.systemPrompt).not.toContain('# Old infrastructure docs.');
   });
 });

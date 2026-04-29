@@ -12,6 +12,42 @@ export interface LoadedContext {
   warnings: string[];
 }
 
+export interface IdentityLoadResult {
+  content: string;
+  source: 'IDENTITY.md' | 'CORE.md' | 'none';
+}
+
+/**
+ * Load the agent's identity file. Prefers IDENTITY.md (the canonical name as of
+ * 2026-04-28). Falls back to CORE.md with a deprecation warning. If both exist,
+ * IDENTITY.md wins and CORE.md is reported as ignored.
+ */
+export function loadIdentity(harnessDir: string): IdentityLoadResult {
+  const identityPath = join(harnessDir, 'IDENTITY.md');
+  const corePath = join(harnessDir, 'CORE.md');
+
+  const hasIdentity = existsSync(identityPath);
+  const hasCore = existsSync(corePath);
+
+  if (hasIdentity) {
+    if (hasCore) {
+      console.error(
+        `[deprecation] Both IDENTITY.md and CORE.md found at ${harnessDir}. CORE.md is being ignored. Delete CORE.md or run \`harness doctor --migrate\` to clean up.`
+      );
+    }
+    return { content: readFileSync(identityPath, 'utf-8'), source: 'IDENTITY.md' };
+  }
+
+  if (hasCore) {
+    console.error(
+      `[deprecation] CORE.md is deprecated at ${harnessDir}. Rename to IDENTITY.md or run \`harness doctor --migrate\`.`
+    );
+    return { content: readFileSync(corePath, 'utf-8'), source: 'CORE.md' };
+  }
+
+  return { content: '', source: 'none' };
+}
+
 export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): LoadedContext {
   const maxTokens = config.model.max_tokens;
   const budget: ContextBudget = {
@@ -24,13 +60,12 @@ export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): Lo
   const warnings: string[] = [];
   const sections: string[] = [];
 
-  // --- Step 1: Load CORE.md (always, full content) ---
-  const corePath = join(harnessDir, 'CORE.md');
-  if (existsSync(corePath)) {
-    const core = readFileSync(corePath, 'utf-8');
-    sections.push(`# CORE IDENTITY\n\n${core}`);
-    budget.used_tokens += estimateTokens(core);
-    budget.loaded_files.push('CORE.md');
+  // --- Step 1: Load identity (IDENTITY.md preferred; falls back to CORE.md) ---
+  const identity = loadIdentity(harnessDir);
+  if (identity.content) {
+    sections.push(`# CORE IDENTITY\n\n${identity.content}`);
+    budget.used_tokens += estimateTokens(identity.content);
+    budget.loaded_files.push(identity.source);
   }
 
   // --- Step 2: Load state.md ---
@@ -42,16 +77,10 @@ export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): Lo
     budget.loaded_files.push('state.md');
   }
 
-  // --- Step 3: Load SYSTEM.md (boot instructions) ---
-  const systemPath = join(harnessDir, 'SYSTEM.md');
-  if (existsSync(systemPath)) {
-    const system = readFileSync(systemPath, 'utf-8');
-    sections.push(`# SYSTEM\n\n${system}`);
-    budget.used_tokens += estimateTokens(system);
-    budget.loaded_files.push('SYSTEM.md');
-  }
+  // SYSTEM.md is no longer authored content. Boot sequence and context-loading
+  // strategy are documented in README only; runtime details live in code.
 
-  // --- Step 4: Load all primitives at appropriate level ---
+  // --- Step 3: Load all primitives at appropriate level ---
   const extDirs = config.extensions?.directories ?? [];
   const { primitives, errors: parseErrors } = loadAllPrimitivesWithErrors(harnessDir, extDirs);
 
@@ -136,7 +165,7 @@ export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): Lo
     }
   }
 
-  // --- Step 5: Load scratch.md if exists ---
+  // --- Step 4: Load scratch.md if exists ---
   const scratchPath = join(harnessDir, 'memory', 'scratch.md');
   if (existsSync(scratchPath)) {
     const scratch = readFileSync(scratchPath, 'utf-8');
@@ -149,7 +178,7 @@ export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): Lo
 
   budget.remaining = maxTokens - budget.used_tokens;
 
-  // --- Step 6: Budget warnings ---
+  // --- Step 5: Budget warnings ---
   const usagePercent = (budget.used_tokens / maxTokens) * 100;
   if (usagePercent > 12) {
     // System prompt using more than 80% of its 15% allocation
