@@ -155,6 +155,19 @@ export function loadDirectoryWithErrors(dirPath: string): LoadResult {
       }
       try {
         const doc = parseHarnessDocument(entryFile, entryPath, kind);
+        // Spec rule: skills/<name>/SKILL.md must have frontmatter name === <name>
+        // (https://agentskills.io/specification#name-field)
+        // We compare the slugified doc.id (derived from name) against the directory
+        // basename so that display-name variants (e.g. "PR Review" → "pr-review")
+        // still resolve correctly.
+        const expectedName = basename(entryPath);
+        if (kind === 'skills' && doc.id !== expectedName) {
+          errors.push({
+            path: entryFile,
+            error: `Skill bundle name mismatch: parent directory is "${expectedName}" but frontmatter name is "${doc.name}". Per Agent Skills spec, name must match the parent directory.`,
+          });
+          continue;
+        }
         if (doc.status !== 'archived' && doc.status !== 'deprecated') {
           docs.push(doc);
         }
