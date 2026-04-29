@@ -397,11 +397,10 @@ Content here.
   describe('autoProcessAll', () => {
     it('should process all markdown files across directories', () => {
       writeFileSync(join(harnessDir, 'rules', 'rule-a.md'), '# Rule A\n\nDescription A.');
-      writeFileSync(join(harnessDir, 'skills', 'skill-b.md'), '# Skill B\n\nDescription B.');
-      writeFileSync(join(harnessDir, 'instincts', 'instinct-c.md'), '# Instinct C\n\nDescription C.');
+      writeFileSync(join(harnessDir, 'rules', 'rule-b.md'), '# Rule B\n\nDescription B.');
 
       const results = autoProcessAll(harnessDir);
-      expect(results.length).toBe(3);
+      expect(results.length).toBe(2);
       expect(results.every((r) => r.modified)).toBe(true);
     });
 

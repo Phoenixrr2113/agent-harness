@@ -144,15 +144,14 @@ describe('rebuildAllIndexes', () => {
 
   it('should rebuild indexes for all core primitive directories that exist', () => {
     writePrimitive(testDir, 'rules', 'rule-1');
-    writePrimitive(testDir, 'instincts', 'instinct-1');
-    writePrimitive(testDir, 'skills', 'skill-1');
+    writePrimitive(testDir, 'rules', 'rule-2');
 
     rebuildAllIndexes(testDir);
 
     expect(existsSync(join(testDir, 'rules', '_index.md'))).toBe(true);
-    expect(existsSync(join(testDir, 'instincts', '_index.md'))).toBe(true);
-    expect(existsSync(join(testDir, 'skills', '_index.md'))).toBe(true);
     // Non-existent dirs should not have indexes
+    expect(existsSync(join(testDir, 'skills', '_index.md'))).toBe(false);
+    expect(existsSync(join(testDir, 'instincts', '_index.md'))).toBe(false);
     expect(existsSync(join(testDir, 'playbooks', '_index.md'))).toBe(false);
   });
 

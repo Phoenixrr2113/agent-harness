@@ -249,12 +249,7 @@ export interface HarnessDocument {
 // --- Primitive Types ---
 export type PrimitiveType =
   | 'rule'
-  | 'instinct'
   | 'skill'
-  | 'playbook'
-  | 'workflow'
-  | 'tool'
-  | 'agent'
   | 'session'
   | 'journal';
 
@@ -620,7 +615,7 @@ export const CONFIG_DEFAULTS: HarnessConfig = {
   },
 };
 
-export const CORE_PRIMITIVE_DIRS = ['rules', 'instincts', 'skills', 'playbooks', 'workflows', 'tools', 'agents'] as const;
+export const CORE_PRIMITIVE_DIRS = ['skills', 'rules'] as const;
 
 export function getPrimitiveDirs(config?: HarnessConfig): string[] {
   const dirs: string[] = [...CORE_PRIMITIVE_DIRS];

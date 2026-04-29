@@ -113,8 +113,8 @@ Boot sequence and operational guidelines.
   it('should load primitives in priority order', () => {
     writeFileSync(join(testDir, 'IDENTITY.md'), '# Test Agent');
 
-    // Create primitive directories
-    for (const dir of ['rules', 'instincts', 'skills']) {
+    // Create primitive directories (only skills and rules after primitive collapse)
+    for (const dir of ['rules', 'skills']) {
       mkdirSync(join(testDir, dir));
     }
 
@@ -134,17 +134,17 @@ Full rule content.
     );
 
     writeFileSync(
-      join(testDir, 'instincts', 'instinct1.md'),
+      join(testDir, 'rules', 'rule2.md'),
       `---
-id: instinct1
+id: rule2
 status: active
 ---
 
-<!-- L0: Instinct one summary. -->
+<!-- L0: Rule two summary. -->
 
-# Instinct 1
+# Rule 2
 
-Full instinct content.
+Full second rule content.
 `
     );
 
@@ -152,8 +152,7 @@ Full instinct content.
 
     expect(systemPrompt).toContain('# RULES');
     expect(systemPrompt).toContain('### rule1');
-    expect(systemPrompt).toContain('# INSTINCTS');
-    expect(systemPrompt).toContain('### instinct1');
+    expect(systemPrompt).toContain('### rule2');
   });
 
   it('should respect token budget and use progressive disclosure', () => {

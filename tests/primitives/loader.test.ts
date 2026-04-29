@@ -3,7 +3,8 @@ import { mkdirSync, writeFileSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import type { HarnessDocument } from '../../src/core/types.js';
-import { loadDirectoryWithErrors } from '../../src/primitives/loader.js';
+import { CORE_PRIMITIVE_DIRS } from '../../src/core/types.js';
+import { loadDirectoryWithErrors, BUNDLE_ENTRY_BY_KIND } from '../../src/primitives/loader.js';
 
 describe('loadDirectoryWithErrors — strict mode reports errors', () => {
   it('reports skills missing required name', () => {
@@ -136,5 +137,17 @@ Body.`,
     const result = loadDirectoryWithErrors(rulesDir);
     expect(result.errors).toHaveLength(0);
     expect(result.docs).toHaveLength(1);
+  });
+});
+
+describe('primitive collapse — only skills and rules', () => {
+  it('CORE_PRIMITIVE_DIRS contains exactly [skills, rules]', () => {
+    expect(CORE_PRIMITIVE_DIRS).toEqual(['skills', 'rules']);
+  });
+
+  it('BUNDLE_ENTRY_BY_KIND contains exactly skills and rules', () => {
+    expect(Object.keys(BUNDLE_ENTRY_BY_KIND).sort()).toEqual(['rules', 'skills']);
+    expect(BUNDLE_ENTRY_BY_KIND.skills).toBe('SKILL.md');
+    expect(BUNDLE_ENTRY_BY_KIND.rules).toBe('RULE.md');
   });
 });

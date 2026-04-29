@@ -56,9 +56,8 @@ describe('graph', () => {
 
   it('should identify orphan nodes', () => {
     writeFileSync(join(TEST_DIR, 'rules', 'ops.md'), makePrimitive('ops', ['code-review']), 'utf-8');
-    // Skills must be bundles — use instincts (flat-file kind) for these cross-kind reference tests
-    writeFileSync(join(TEST_DIR, 'instincts', 'code-review.md'), makePrimitive('code-review', ['ops']), 'utf-8');
-    writeFileSync(join(TEST_DIR, 'instincts', 'research.md'), makePrimitive('research'), 'utf-8');
+    writeFileSync(join(TEST_DIR, 'rules', 'code-review.md'), makePrimitive('code-review', ['ops']), 'utf-8');
+    writeFileSync(join(TEST_DIR, 'rules', 'research.md'), makePrimitive('research'), 'utf-8');
 
     const graph = buildDependencyGraph(TEST_DIR);
     expect(graph.orphans).toHaveLength(1);
@@ -66,8 +65,8 @@ describe('graph', () => {
   });
 
   it('should detect with: agent references as edges', () => {
-    writeFileSync(join(TEST_DIR, 'agents', 'reviewer.md'), makePrimitive('reviewer'), 'utf-8');
-    writeFileSync(join(TEST_DIR, 'workflows', 'review.md'), makePrimitive('review', [], 'reviewer'), 'utf-8');
+    writeFileSync(join(TEST_DIR, 'rules', 'reviewer.md'), makePrimitive('reviewer'), 'utf-8');
+    writeFileSync(join(TEST_DIR, 'rules', 'review.md'), makePrimitive('review', [], 'reviewer'), 'utf-8');
 
     const graph = buildDependencyGraph(TEST_DIR);
     expect(graph.edges).toHaveLength(1);
@@ -78,14 +77,14 @@ describe('graph', () => {
   });
 
   it('should find clusters (connected components)', () => {
-    // Cluster 1: a <-> b
+    // Cluster 1: a <-> b (rules)
     writeFileSync(join(TEST_DIR, 'rules', 'a.md'), makePrimitive('a', ['b']), 'utf-8');
     writeFileSync(join(TEST_DIR, 'rules', 'b.md'), makePrimitive('b', ['a']), 'utf-8');
-    // Cluster 2: c <-> d
-    writeFileSync(join(TEST_DIR, 'instincts', 'c.md'), makePrimitive('c', ['d']), 'utf-8');
-    writeFileSync(join(TEST_DIR, 'instincts', 'd.md'), makePrimitive('d', ['c']), 'utf-8');
-    // Orphan: e
-    writeFileSync(join(TEST_DIR, 'tools', 'e.md'), makePrimitive('e'), 'utf-8');
+    // Cluster 2: c <-> d (also rules, but disconnected from a/b)
+    writeFileSync(join(TEST_DIR, 'rules', 'c.md'), makePrimitive('c', ['d']), 'utf-8');
+    writeFileSync(join(TEST_DIR, 'rules', 'd.md'), makePrimitive('d', ['c']), 'utf-8');
+    // Orphan: e (rules, no references)
+    writeFileSync(join(TEST_DIR, 'rules', 'e.md'), makePrimitive('e'), 'utf-8');
 
     const graph = buildDependencyGraph(TEST_DIR);
     expect(graph.clusters).toHaveLength(2);

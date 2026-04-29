@@ -46,7 +46,7 @@ describe('primitive-registry', () => {
       '---\nid: testing\ntags: [testing]\n---\n# Testing Rules\n\nWrite tests for everything.',
     );
     writeFileSync(
-      join(harnessDir, 'instincts', 'be-concise.md'),
+      join(harnessDir, 'rules', 'be-concise.md'),
       '---\nid: be-concise\ntags: [communication]\n---\n# Be Concise\n\nKeep responses short.',
     );
   }
@@ -132,12 +132,11 @@ describe('primitive-registry', () => {
       const bundle = packBundle(harnessDir, {
         name: 'mixed-pack',
         description: 'Mixed bundle',
-        files: ['rules/code-style.md', 'instincts/be-concise.md'],
+        files: ['rules/code-style.md', 'rules/be-concise.md'],
       });
 
       expect(bundle.files.length).toBe(2);
       expect(bundle.manifest.types).toContain('rules');
-      expect(bundle.manifest.types).toContain('instincts');
     });
 
     it('should write and read a bundle directory', () => {
@@ -188,7 +187,7 @@ describe('primitive-registry', () => {
       const result = installBundle(targetDir, bundle);
       expect(result.installed).toBe(true);
       expect(result.name).toBe('install-test');
-      expect(result.files.length).toBe(2);
+      expect(result.files.length).toBe(3); // code-style, testing, be-concise
       expect(existsSync(join(targetDir, 'rules', 'code-style.md'))).toBe(true);
     });
 
@@ -302,7 +301,7 @@ describe('primitive-registry', () => {
       installBundle(targetDir, baseBundle);
 
       // Install a dependent bundle with a real file
-      writeFileSync(join(targetDir, 'instincts', 'dep-instinct.md'), '---\nid: dep-instinct\n---\n# Dep');
+      writeFileSync(join(targetDir, 'rules', 'dep-rule.md'), '---\nid: dep-rule\n---\n# Dep');
       const depManifest: BundleManifest = {
         version: '1.0',
         name: 'dependent',
@@ -310,14 +309,14 @@ describe('primitive-registry', () => {
         author: 'test',
         bundle_version: '1.0.0',
         created: new Date().toISOString(),
-        types: ['instincts'],
+        types: ['rules'],
         tags: [],
-        files: [{ path: 'instincts/dep-instinct.md', type: 'instincts', id: 'dep-instinct', l0: 'Dep' }],
+        files: [{ path: 'rules/dep-rule.md', type: 'rules', id: 'dep-rule', l0: 'Dep' }],
         dependencies: ['base-rules'],
       };
       const depBundle: PackedBundle = {
         manifest: depManifest,
-        files: [{ path: 'instincts/dep-instinct.md', content: '---\nid: dep-instinct\n---\n# Dep' }],
+        files: [{ path: 'rules/dep-rule.md', content: '---\nid: dep-rule\n---\n# Dep' }],
       };
       installBundle(targetDir, depBundle, { overwrite: true });
 
@@ -369,12 +368,12 @@ describe('primitive-registry', () => {
         name: 'diff-test',
         description: 'v2',
         version: '2.0.0',
-        files: ['rules/code-style.md', 'instincts/be-concise.md'],
+        files: ['rules/code-style.md', 'rules/be-concise.md'],
       });
 
       const diff = diffBundle(targetDir, v2);
       expect(diff.modified).toContain('rules/code-style.md');
-      expect(diff.added).toContain('instincts/be-concise.md');
+      expect(diff.added).toContain('rules/be-concise.md');
       expect(diff.removed).toContain('rules/testing.md');
     });
 
@@ -425,7 +424,7 @@ describe('primitive-registry', () => {
         name: 'update-test',
         description: 'v2',
         version: '2.0.0',
-        files: ['rules/code-style.md', 'instincts/be-concise.md'],
+        files: ['rules/code-style.md', 'rules/be-concise.md'],
       });
 
       const result = updateBundle(targetDir, v2);
@@ -433,7 +432,7 @@ describe('primitive-registry', () => {
       expect(result.oldVersion).toBe('1.0.0');
       expect(result.newVersion).toBe('2.0.0');
       expect(result.modified).toContain('rules/code-style.md');
-      expect(result.added).toContain('instincts/be-concise.md');
+      expect(result.added).toContain('rules/be-concise.md');
 
       // Verify content updated
       const content = readFileSync(join(targetDir, 'rules', 'code-style.md'), 'utf-8');

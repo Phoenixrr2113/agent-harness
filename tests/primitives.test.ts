@@ -292,22 +292,20 @@ Tool content`
 
   describe('loadAllPrimitives', () => {
     it('should load all primitive directories', () => {
-      // Create all primitive directories with sample files.
+      // Create both core primitive directories with sample files.
       // Skills must be bundles (Agent Skills spec) — use SKILL.md entry.
-      // Other kinds support flat .md files.
-      const flatTypes = ['rules', 'instincts', 'playbooks', 'workflows', 'tools', 'agents'];
-      for (const type of flatTypes) {
-        const dir = join(testDir, type);
-        mkdirSync(dir);
-        writeFileSync(
-          join(dir, `${type}-1.md`),
-          `---
-id: ${type}-1
+      // Rules support flat .md files.
+      const rulesDir = join(testDir, 'rules');
+      mkdirSync(rulesDir);
+      writeFileSync(
+        join(rulesDir, 'rules-1.md'),
+        `---
+id: rules-1
 status: active
 ---
-Content for ${type}`
-        );
-      }
+Content for rules`
+      );
+
       // Skills must be a bundle directory
       const skillsDir = join(testDir, 'skills');
       const skillBundle = join(skillsDir, 'skills-1');
@@ -324,8 +322,8 @@ Content for skills`
 
       const primitives = loadAllPrimitives(testDir);
 
-      const primitiveTypes = ['rules', 'instincts', 'skills', 'playbooks', 'workflows', 'tools', 'agents'];
-      expect(primitives.size).toBe(7);
+      const primitiveTypes = ['rules', 'skills'];
+      expect(primitives.size).toBe(2);
       for (const type of primitiveTypes) {
         expect(primitives.has(type)).toBe(true);
         expect(primitives.get(type)?.length).toBe(1);
@@ -333,7 +331,7 @@ Content for skills`
     });
 
     it('should handle missing primitive directories', () => {
-      // Create only some directories
+      // Create only the rules directory; skills is absent
       mkdirSync(join(testDir, 'rules'));
       writeFileSync(
         join(testDir, 'rules', 'rule.md'),
@@ -347,7 +345,6 @@ Rule content`
       const primitives = loadAllPrimitives(testDir);
 
       expect(primitives.get('rules')?.length).toBe(1);
-      expect(primitives.get('instincts')?.length).toBe(0);
       expect(primitives.get('skills')?.length).toBe(0);
     });
 
@@ -393,8 +390,8 @@ Rule`
       const primitives = loadAllPrimitives(testDir, ['rules']);
 
       expect(primitives.get('rules')?.length).toBe(1);
-      // Should still have exactly 7 core + 0 new = 7 entries
-      expect(primitives.size).toBe(7);
+      // Should still have exactly 2 core + 0 new = 2 entries (no duplication)
+      expect(primitives.size).toBe(2);
     });
   });
 
@@ -596,55 +593,24 @@ See scripts/run-diagnostics.sh.
       expect(docs[0].bundleDir).toBe(bundleDir);
     });
 
-    it('loads playbooks/<name>/PLAYBOOK.md', () => {
-      const playbooksDir = join(testDir, 'playbooks');
-      const bundleDir = join(playbooksDir, 'deploy-production');
+    it('loads rules/<name>/RULE.md as a bundle', () => {
+      const bundleDir = join(testDir, 'rules', 'my-rules-bundle');
       mkdirSync(bundleDir, { recursive: true });
       writeFileSync(
-        join(bundleDir, 'PLAYBOOK.md'),
+        join(bundleDir, 'RULE.md'),
         `---
-name: deploy-production
-description: Ship-to-prod sequence with preflight + rollback.
+name: my-rules-bundle
 status: active
 ---
 
-<!-- L0: Ship-to-prod sequence. -->
+<!-- L0: rules bundle. -->
 `,
       );
-
-      const docs = loadDirectory(playbooksDir);
-
-      expect(docs).toHaveLength(1);
-      expect(docs[0].id).toBe('deploy-production');
-      expect(docs[0].bundleDir).toBe(bundleDir);
-    });
-
-    it('loads rules/<name>/RULE.md and workflows/<name>/WORKFLOW.md', () => {
-      const cases: Array<[string, string]> = [
-        ['rules', 'RULE.md'],
-        ['workflows', 'WORKFLOW.md'],
-      ];
-      for (const [kind, entry] of cases) {
-        const bundleDir = join(testDir, kind, `my-${kind}-bundle`);
-        mkdirSync(bundleDir, { recursive: true });
-        writeFileSync(
-          join(bundleDir, entry),
-          `---
-name: my-${kind}-bundle
-status: active
----
-
-<!-- L0: ${kind} bundle. -->
-`,
-        );
-      }
 
       const primitives = loadAllPrimitives(testDir);
 
       expect(primitives.get('rules')?.[0].id).toBe('my-rules-bundle');
       expect(primitives.get('rules')?.[0].bundleDir).toContain('my-rules-bundle');
-      expect(primitives.get('workflows')?.[0].id).toBe('my-workflows-bundle');
-      expect(primitives.get('workflows')?.[0].bundleDir).toContain('my-workflows-bundle');
     });
 
     it('errors when a bundle-capable dir has a subdir missing its entry file', () => {

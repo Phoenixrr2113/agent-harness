@@ -31,9 +31,7 @@ const L1_REGEX = /<!--\s*L1:\s*([\s\S]*?)\s*-->/;
  */
 export const BUNDLE_ENTRY_BY_KIND: Record<string, string> = {
   skills: 'SKILL.md',
-  playbooks: 'PLAYBOOK.md',
   rules: 'RULE.md',
-  workflows: 'WORKFLOW.md',
 };
 
 /**
