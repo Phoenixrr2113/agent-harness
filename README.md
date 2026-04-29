@@ -8,7 +8,7 @@ Agent Harness is the layer between "I have an LLM API key" and "I have a working
 
 ## When to use this (and when not to)
 
-**Use it as itself.** `harness init my-agent && harness chat` — you're talking to an agent that works on whatever you give it. Standalone, identity in `CORE.md`, memory under `memory/`, learning loop on by default.
+**Use it as itself.** `harness init my-agent && harness chat` — you're talking to an agent that works on whatever you give it. Standalone, identity in `IDENTITY.md`, memory under `memory/`, learning loop on by default.
 
 **Use it as your project's resident assistant.** Initialize a harness inside any codebase or workspace; the agent operates on that project's files, runs scripts, manages tasks, learns your patterns over time. Like having a colleague who's read every file and remembers every conversation.
 
@@ -21,7 +21,7 @@ If you're building your own agent product and want what's good here, **copy the 
 Most agent frameworks give you a box of parts and leave the rest to you. agent-harness gives you a runtime that does three things nobody else does:
 
 ### 1. It manages itself
-- **Context budget**: three disclosure levels (L0/L1/L2) loaded intelligently so you never hit the token ceiling
+- **Context budget**: three disclosure tiers (discovery / activation / resources) loaded intelligently so you never hit the token ceiling
 - **Session capture**: every interaction is recorded without asking
 - **Journal synthesis**: run `harness journal` and the agent writes its own daily reflection
 - **Dead primitive detection**: orphan files get flagged, contradictions get surfaced
@@ -124,30 +124,31 @@ When you run `harness init my-agent`, you get this directory:
 
 ```
 my-agent/
-├── CORE.md              # Agent identity (frozen — who am I?)
-├── SYSTEM.md            # Boot instructions (how do I operate?)
-├── config.yaml          # Model, runtime, memory settings
-├── state.md             # Live state (mode, goals, last interaction)
-├── rules/               # Human-authored operational boundaries
-├── instincts/           # Agent-learned reflexive behaviors
-├── skills/              # Capabilities with embedded expertise
-├── playbooks/           # Adaptive guidance for outcomes
-├── workflows/           # Cron-driven automations
-├── tools/               # External service integrations
-├── agents/              # Sub-agent roster
+├── IDENTITY.md             # Agent identity (was CORE.md)
+├── config.yaml             # Model, runtime, memory, MCP, scheduler
+├── rules/                  # Human-authored operational boundaries
+├── instincts/              # Agent-learned reflexive behaviors (collapsed in next release)
+├── skills/                 # Capabilities with embedded expertise (Agent Skills bundles)
+├── playbooks/              # Adaptive guidance (collapsed in next release)
+├── workflows/              # Cron-driven automations (collapsed in next release)
+├── tools/                  # External service integrations (collapsed in next release)
+├── agents/                 # Sub-agent roster (collapsed in next release)
 └── memory/
-    ├── sessions/        # Auto-captured interaction records
-    ├── journal/         # Daily synthesized reflections
-    └── scratch.md       # Ephemeral working memory
+    ├── state.md            # Live state (mode, goals, last interaction)
+    ├── sessions/           # Auto-captured interaction records
+    ├── journal/            # Daily synthesized reflections
+    └── scratch.md          # Ephemeral working memory
 ```
 
-Every file is markdown with YAML frontmatter. Every file has three disclosure levels:
+### Progressive disclosure
 
-- **L0** (~5 tokens): One-line summary in an HTML comment
-- **L1** (~50–100 tokens): Paragraph summary in an HTML comment
-- **L2** (full body): Complete content
+The harness loads files at three tiers per the [Agent Skills spec](https://agentskills.io/specification#progressive-disclosure):
 
-The harness loads files intelligently based on token budget — L0 to decide relevance, L1 to work with, L2 only when actively needed.
+1. **Discovery** (~50–100 tokens per skill): name + description loaded for every skill at boot
+2. **Activation** (full body): loaded when the model invokes the skill
+3. **Resources** (`scripts/`, `references/`, `assets/`): loaded on demand via the agent's read tools
+
+Identity (`IDENTITY.md`) and rules (`rules/`) are always loaded in full. Skills are loaded progressively.
 
 ## The 7 primitives
 
@@ -161,7 +162,7 @@ The harness loads files intelligently based on token budget — L0 to decide rel
 | **Tools** | External | Service integration knowledge | "GitHub API patterns" |
 | **Agents** | External | Sub-agent roster and capabilities | "Code reviewer agent" |
 
-Every file has exactly one owner — **human** writes rules and CORE.md, **agent** writes instincts and sessions, **infrastructure** writes indexes and journals.
+Every file has exactly one owner — **human** writes rules and IDENTITY.md, **agent** writes instincts and sessions, **infrastructure** writes indexes and journals.
 
 ## Flat files vs bundled primitives
 
@@ -177,7 +178,7 @@ The harness follows the [Agent Skills open standard](https://agentskills.io) —
 skills/
 ├── research.md                         ← flat (single-file)
 └── debug-workflow/                     ← bundled
-    ├── SKILL.md                        ← entry, frontmatter + L0/L1
+    ├── SKILL.md                        ← entry, frontmatter + instructions
     ├── scripts/
     │   └── run-diagnostics.sh
     ├── references/
@@ -198,34 +199,42 @@ rules/<name>/RULE.md      workflows/<name>/WORKFLOW.md
 
 ### What's loaded into context
 
-Only the entry markdown's L0/L1/L2 enters the agent's system prompt at boot — same progressive disclosure as flat files. Support files (`scripts/`, `references/`, `assets/`) stay on disk. The agent reads or executes them on demand via its Read/Bash tools when the body of the entry file points to them.
+Only the entry markdown (name + description at discovery tier, full body at activation tier) enters the agent's system prompt — same progressive disclosure as flat files. Support files (`scripts/`, `references/`, `assets/`) stay on disk. The agent reads or executes them on demand via its Read/Bash tools when the body of the entry file points to them.
 
-This keeps context budget predictable: a 12-file bundled skill costs the same tokens as a 1-file flat skill, until the agent decides a support file is worth pulling in.
+This keeps context budget predictable: a 12-file bundled skill costs the same tokens as a 1-file flat skill at discovery, until the agent decides a support file is worth pulling in.
 
 ### Frontmatter schemas
 
-Both schemas work side by side:
+Skills use the strict Agent Skills schema; other primitives (rules, playbooks, workflows, etc.) use the harness extension schema:
 
 ```yaml
+# Agent Skills schema (canonical for skills/)
 ---
-# Legacy harness schema
-id: my-skill
-tags: [skill]
-status: active
----
-```
-
-```yaml
----
-# Agent Skills schema (preferred for new bundles)
 name: my-skill
-description: One-line description of what this skill does.
+description: One-line description of what this skill does and when to use it.
 license: MIT
-allowed-tools: [Read, Bash]
+allowed-tools: Read Bash(jq:*)
+metadata:
+  harness-tags: "knowledge-work,research"
+  harness-status: active
+  harness-author: human
+  harness-created: "2026-04-28"
 ---
 ```
 
-If `name` is set and `id` is not, the loader derives `id = slugify(name)`. Existing primitives using `id` keep working unchanged.
+```yaml
+# Harness extension schema (rules, playbooks, workflows, etc.)
+---
+name: my-rule
+description: One-line description.
+tags: [boundary]
+status: active
+author: human
+created: 2026-04-28
+---
+```
+
+**See [docs/skill-authoring.md](./docs/skill-authoring.md) for detailed authoring guidance.**
 
 ## Templates
 
@@ -461,7 +470,7 @@ During `harness init`, MCP servers on your machine are auto-discovered and added
 `harness dev` starts everything at once:
 
 - **File watcher** — auto-rebuilds indexes when you edit primitives
-- **Auto-processor** — fills missing frontmatter and L0/L1 summaries on save
+- **Auto-processor** — fills missing frontmatter and descriptions on save
 - **Scheduler** — runs cron-based workflows, drains resumable durable runs
 - **Web dashboard** — browse primitives, chat, view sessions at `localhost:3000`
 
@@ -600,11 +609,10 @@ curl -X POST http://localhost:8080/run -H "Authorization: Bearer $SECRET" \
 
 On every run, the harness:
 
-1. Loads **CORE.md** (always, full content)
-2. Loads **state.md** (current goals and mode)
-3. Loads **SYSTEM.md** (boot instructions)
-4. Scans all primitive directories, loading files at the appropriate disclosure level based on remaining token budget
-5. Loads **scratch.md** if it has content
+1. Loads **IDENTITY.md** (always, full content)
+2. Loads **memory/state.md** (current goals and mode)
+3. Scans all primitive directories, loading files at the appropriate disclosure level based on remaining token budget
+4. Loads **memory/scratch.md** if it has content
 
 Total harness overhead is typically ~1,000–3,000 tokens depending on how many primitives you have.
 
@@ -620,6 +628,17 @@ Total harness overhead is typically ~1,000–3,000 tokens depending on how many 
 | `HARNESS_VERBOSE` | `1` to surface dotenv/debug banners |
 
 The `.env` and `.env.local` files in your harness directory are auto-loaded.
+
+## Upgrading from older versions
+
+If your harness was created before 2026-04-28, run:
+
+```bash
+harness doctor --check         # see what would change
+harness doctor --migrate       # apply the migration
+```
+
+This handles renaming `CORE.md` → `IDENTITY.md`, deleting `SYSTEM.md` (now infrastructure docs), moving `state.md` → `memory/state.md`, restructuring flat skills into bundles, and rewriting frontmatter to the strict Agent Skills shape. The migration is idempotent.
 
 ## Philosophy
 
