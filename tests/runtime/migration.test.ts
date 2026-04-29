@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import matter from 'gray-matter';
 import { checkMigrations, applyMigrations } from '../../src/runtime/migration.js';
 
 describe('checkMigrations', () => {
@@ -134,5 +135,147 @@ describe('applyMigrations', () => {
     expect(r1.applied.length).toBeGreaterThan(0);
     expect(r2.applied).toHaveLength(0);
     expect(r2.skipped).toHaveLength(0);
+  });
+});
+
+describe('applyMigrations — skill frontmatter rewrite', () => {
+  it('moves top-level extension fields into metadata.harness-*', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mig-test-'));
+    mkdirSync(join(dir, 'skills', 'research'), { recursive: true });
+    writeFileSync(
+      join(dir, 'skills', 'research', 'SKILL.md'),
+      `---
+id: research
+name: research
+description: A skill.
+tags:
+  - research
+status: active
+author: human
+created: 2026-01-15
+allowed-tools:
+  - WebSearch
+  - Read
+---
+Body.`,
+      'utf-8'
+    );
+
+    const report = checkMigrations(dir);
+    expect(report.findings.some(f => f.kind === 'rewrite-skill-frontmatter')).toBe(true);
+
+    applyMigrations(dir, report);
+
+    const after = readFileSync(join(dir, 'skills', 'research', 'SKILL.md'), 'utf-8');
+    const parsed = matter(after);
+    expect(parsed.data).not.toHaveProperty('id');
+    expect(parsed.data).not.toHaveProperty('tags');
+    expect(parsed.data).not.toHaveProperty('status');
+    expect(parsed.data).not.toHaveProperty('author');
+    expect(parsed.data).not.toHaveProperty('created');
+    expect((parsed.data.metadata as Record<string, unknown>)?.['harness-tags']).toBe('research');
+    expect((parsed.data.metadata as Record<string, unknown>)?.['harness-status']).toBe('active');
+    expect((parsed.data.metadata as Record<string, unknown>)?.['harness-author']).toBe('human');
+    expect((parsed.data.metadata as Record<string, unknown>)?.['harness-created']).toBe('2026-01-15');
+    expect(parsed.data['allowed-tools']).toBe('WebSearch Read');
+  });
+
+  it('strips L0/L1 HTML comments from body', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mig-test-'));
+    mkdirSync(join(dir, 'skills', 'foo'), { recursive: true });
+    writeFileSync(
+      join(dir, 'skills', 'foo', 'SKILL.md'),
+      `---
+name: foo
+description: A skill.
+---
+<!-- L0: short -->
+<!-- L1: longer -->
+Body content.`,
+      'utf-8'
+    );
+
+    const report = checkMigrations(dir);
+    expect(report.findings.some(f => f.kind === 'strip-l0-l1-comments')).toBe(true);
+
+    applyMigrations(dir, report);
+
+    const after = readFileSync(join(dir, 'skills', 'foo', 'SKILL.md'), 'utf-8');
+    expect(after).not.toMatch(/L0:/);
+    expect(after).not.toMatch(/L1:/);
+    expect(after).toContain('Body content.');
+  });
+
+  it('lifts L0 into description when description is missing', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mig-test-'));
+    mkdirSync(join(dir, 'skills', 'foo'), { recursive: true });
+    writeFileSync(
+      join(dir, 'skills', 'foo', 'SKILL.md'),
+      `---
+name: foo
+---
+<!-- L0: This is the trigger summary -->
+Body content.`,
+      'utf-8'
+    );
+
+    const report = checkMigrations(dir);
+    applyMigrations(dir, report);
+
+    const after = readFileSync(join(dir, 'skills', 'foo', 'SKILL.md'), 'utf-8');
+    const parsed = matter(after);
+    expect(parsed.data.description).toBe('This is the trigger summary');
+    expect(parsed.content).not.toMatch(/L0:/);
+  });
+
+  it('preserves existing description when both description AND L0 present', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mig-test-'));
+    mkdirSync(join(dir, 'skills', 'foo'), { recursive: true });
+    writeFileSync(
+      join(dir, 'skills', 'foo', 'SKILL.md'),
+      `---
+name: foo
+description: Authoritative description here.
+---
+<!-- L0: Less authoritative summary -->
+Body content.`,
+      'utf-8'
+    );
+
+    const report = checkMigrations(dir);
+    applyMigrations(dir, report);
+
+    const after = readFileSync(join(dir, 'skills', 'foo', 'SKILL.md'), 'utf-8');
+    const parsed = matter(after);
+    expect(parsed.data.description).toBe('Authoritative description here.');
+    expect(parsed.content).not.toMatch(/L0:/);
+  });
+
+  it('rewrite migration is deduplicated per file', () => {
+    // A single skill triggering all three rewrite kinds should only result in
+    // one applied finding (the consolidated rewrite-skill-frontmatter), not three.
+    const dir = mkdtempSync(join(tmpdir(), 'mig-test-'));
+    mkdirSync(join(dir, 'skills', 'foo'), { recursive: true });
+    writeFileSync(
+      join(dir, 'skills', 'foo', 'SKILL.md'),
+      `---
+id: foo
+name: foo
+description: A skill.
+tags: [foo]
+allowed-tools: [Read]
+---
+<!-- L0: summary -->
+Body.`,
+      'utf-8'
+    );
+
+    const result = applyMigrations(dir, checkMigrations(dir));
+    const rewriteCount = result.applied.filter(f =>
+      f.kind === 'rewrite-skill-frontmatter' ||
+      f.kind === 'convert-allowed-tools-to-string' ||
+      f.kind === 'strip-l0-l1-comments'
+    ).length;
+    expect(rewriteCount).toBe(1);
   });
 });
