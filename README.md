@@ -275,6 +275,33 @@ harness contradictions # conflicts between rules and skills
 harness dead-primitives # orphaned files not used in 30+ days
 ```
 
+## Evaluating skills
+
+Skills can be evaluated for trigger reliability (does the model pick this skill when it should?) and output quality (does the skill produce better results than no skill?). Each default skill ships with `evals/triggers.json`; high-effort defaults also ship with `evals/evals.json`.
+
+```bash
+# Run trigger eval for a skill
+harness skill eval-triggers research
+
+# Run quality eval (with-skill vs no-skill baseline)
+harness skill eval-quality delegate-to-cli
+
+# Iteratively refine a skill's description against its trigger set
+harness skill optimize-description research
+
+# Iteratively refine a skill's body against its quality eval
+harness skill optimize-quality delegate-to-cli
+```
+
+For the full reference — schema, scoring, workspace layout, promotion gate — see [docs/skill-evals.md](./docs/skill-evals.md).
+
+The promotion gate (default-on for `harness rules promote`) verifies that agent-learned rules show measured benefit before being installed:
+
+```bash
+harness rules promote <candidate-id>                  # gated by default
+harness rules promote <candidate-id> --no-eval-gate   # power-user bypass
+```
+
 ## Durable workflows
 
 As of 0.7.0, workflows run durably. Each step of a tool-using agent checkpoints to disk, so interruptions don't cost the whole run.
