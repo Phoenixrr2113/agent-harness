@@ -20,6 +20,8 @@ import { checkGuardrails } from '../runtime/guardrails.js';
 import { applyContentFilters } from '../runtime/content-filters.js';
 import { buildToolSet, type AIToolSet } from '../runtime/tool-executor.js';
 import { createMcpManager, type McpManager } from '../runtime/mcp.js';
+import { buildActivateSkillTool } from '../runtime/skill-activation.js';
+import { tool as aiTool } from 'ai';
 
 export function createHarness(options: CreateHarnessOptions): HarnessAgent {
   const dir = resolve(options.dir);
@@ -75,6 +77,14 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
       }
 
       toolSet = buildToolSet(dir, options.toolExecutor, mcpTools);
+      const activateTool = buildActivateSkillTool(dir);
+      if (activateTool) {
+        toolSet['activate_skill'] = aiTool({
+          description: activateTool.description,
+          inputSchema: activateTool.inputSchema,
+          execute: (input) => activateTool.execute(input as { name: string; args?: string }),
+        });
+      }
       if (config.approval?.enabled && config.approval.tools.length > 0 && !options.bypassApproval) {
         const { wrapToolSetWithApproval } = await import('../runtime/approval.js');
         toolSet = wrapToolSetWithApproval(toolSet, {
