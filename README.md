@@ -238,7 +238,7 @@ created: 2026-04-28
 ---
 ```
 
-**See [docs/skill-authoring.md](./docs/skill-authoring.md) for detailed authoring guidance.**
+**See [docs/skill-authoring.md](./docs/skill-authoring.md) for detailed authoring guidance.** Script authors: the [Script feedback contract](./docs/skill-authoring.md#script-feedback-contract) section covers JSON output shape, exit codes, `--help` requirements, idempotency, and long-running patterns.
 
 ## Templates
 
