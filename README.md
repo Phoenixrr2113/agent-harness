@@ -2,7 +2,7 @@
 
 > **A self-managing, self-improving agent runtime. Point it at a problem, write what it should know in markdown, and watch it get better as you use it.**
 
-Agent Harness is the layer between "I have an LLM API key" and "I have a working agent that does useful work." It handles identity, memory, tools, context budgeting, session capture, journal synthesis, instinct learning, progressive disclosure, durable workflows, and MCP integration — so you describe the problem in markdown instead of wiring up 500 lines of TypeScript.
+Agent Harness is the layer between "I have an LLM API key" and "I have a working agent that does useful work." It handles identity, memory, tools, context budgeting, session capture, journal synthesis, rule learning, progressive disclosure, durable workflows, and MCP integration — so you describe the problem in markdown instead of wiring up 500 lines of TypeScript.
 
 **Who this is for**: anyone technical or semi-technical who has a repeating problem they want an agent to own. Writers, founders, ops people, researchers, developers, consultants, analysts. If you can describe what you want in a document, you can build an agent for it.
 
@@ -102,8 +102,9 @@ harness journal            # synthesize today's sessions
 harness learn --install    # promote patterns to rules
 harness run "Same question again" # agent now applies its new rules
 
-# Watch + dashboard at http://localhost:3000
+# File watcher + scheduler (no dashboard by default — pass --web to start it)
 harness dev
+harness dev --web    # also start the dashboard at http://localhost:8080
 ```
 
 ## Why markdown (not code)
@@ -254,7 +255,7 @@ created: 2026-04-28
 | `assistant` | General-purpose assistant profile |
 | `code-reviewer` | Code review profile |
 
-Run `harness init` with no args for interactive mode — it walks you through name, purpose, template, and optional AI-generated CORE.md.
+Run `harness init` with no args for interactive mode — it walks you through name, purpose, template, and optional AI-generated IDENTITY.md.
 
 ## The learning loop
 
@@ -526,21 +527,22 @@ During `harness init`, MCP servers on your machine are auto-discovered and added
 
 ## Dev mode and dashboard
 
-`harness dev` starts everything at once:
+`harness dev` starts the file watcher + scheduler. The web dashboard is a separate opt-in (was on by default before v0.15.0):
 
 - **File watcher** — auto-rebuilds indexes when you edit primitives
 - **Auto-processor** — fills missing frontmatter and descriptions on save
-- **Scheduler** — runs cron-based workflows, drains resumable durable runs
-- **Web dashboard** — browse primitives, chat, view sessions at `localhost:3000`
+- **Scheduler** — runs scheduled skills (`metadata.harness-schedule`) and drains resumable durable workflow runs
+- **Web dashboard** — opt-in via `--web`. Browse primitives, chat, view sessions at `http://localhost:8080`.
 
 ```bash
-harness dev                    # Everything
-harness dev --port 8080        # Custom port
-harness dev --no-web           # Skip dashboard
-harness dev --no-auto-process  # Skip auto-processing
+harness dev                    # Watcher + scheduler (no dashboard)
+harness dev --web              # Also start the dashboard on port 8080
+harness dev --web --port 9090  # Custom port for the dashboard
+harness dev --no-auto-process  # Skip auto-processing primitives on save
+harness dev --no-schedule      # Skip the scheduler
 ```
 
-The dashboard shows: agent status, health, spending, sessions, workflows, primitives browser, file editor, MCP status, settings editor, and a chat interface.
+The dashboard shows: agent status, health, spending, sessions, workflows, primitives browser, file editor, MCP status, settings editor, and a chat interface. `harness serve` is the API-only equivalent (same port default — pick one or the other; they don't run together by default).
 
 ## Configuration
 
@@ -615,10 +617,13 @@ The full surface is ~90 commands. `harness --help` shows everything; `harness <c
 `journal`, `learn`, `harvest`, `auto-promote`, `suggest`, `contradictions`, `dead-primitives`, `enrich`
 
 ### Workflows
-`workflow list|run`, `workflows status|resume|cleanup|inspect` (durable), `metrics show|history`
+`workflows status|resume|cleanup|inspect` (durable runs), `metrics show|history`
 
 ### Skills
-`skill list`, `skill run <name> <prompt>`, `skill scheduled`
+`skill new <name>`, `skill list [--scheduled] [--trigger <kind>]`, `skill validate <name>`, `skill eval-triggers <name>`, `skill eval-quality <name>`, `skill optimize-description <name>`, `skill optimize-quality <name>`
+
+### Rules
+`rules promote <candidate-id> [--no-eval-gate]`
 
 ### MCP
 `mcp list|test|discover|search|install`
@@ -699,11 +704,14 @@ The `.env` and `.env.local` files in your harness directory are auto-loaded.
 If your harness was created before 2026-04-28, run:
 
 ```bash
-harness doctor --check         # see what would change
-harness doctor --migrate       # apply the migration
+harness doctor --check                # see what would change
+harness doctor --migrate --dry-run    # preview the migration without applying (v0.14.0+)
+harness doctor --migrate              # apply the migration
 ```
 
 This handles renaming `CORE.md` → `IDENTITY.md`, deleting `SYSTEM.md` (now infrastructure docs), moving `state.md` → `memory/state.md`, restructuring flat skills into bundles, rewriting frontmatter to the strict Agent Skills shape, and migrating the old 7-primitive directories (instincts, playbooks, workflows, tools, agents) into the 2-primitive shape (skills + rules). The migration is idempotent.
+
+For the full version-by-version diff and the breaking changes between v0.8.x and v0.15.0, see [CHANGELOG.md](./CHANGELOG.md).
 
 ## Philosophy
 
