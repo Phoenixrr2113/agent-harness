@@ -13,9 +13,18 @@ interface SkillState {
   skills: Map<string, HarnessDocument>;
 }
 
-function getModelInvokableSkills(harnessDir: string): HarnessDocument[] {
+export interface SkillCatalogOptions {
+  excludeSkillNames?: string[];
+}
+
+export function getModelInvokableSkills(
+  harnessDir: string,
+  options: SkillCatalogOptions = {},
+): HarnessDocument[] {
+  const exclude = new Set(options.excludeSkillNames ?? []);
   const all = loadAllPrimitives(harnessDir);
   const skills = (all.get('skills') ?? []).filter((s) => {
+    if (exclude.has(s.name)) return false;
     if (s.status === 'archived' || s.status === 'deprecated') return false;
     const trigger = s.metadata?.['harness-trigger'] as string | undefined;
     const schedule = s.metadata?.['harness-schedule'] as string | undefined;
@@ -45,8 +54,11 @@ function formatSkillContent(skill: HarnessDocument): string {
   return `<skill_content name="${skill.name}">\n${skill.body}${dirHint}${resourceXml}\n</skill_content>`;
 }
 
-export function buildActivateSkillTool(harnessDir: string): ActivateSkillTool | null {
-  const skills = getModelInvokableSkills(harnessDir);
+export function buildActivateSkillTool(
+  harnessDir: string,
+  options: SkillCatalogOptions = {},
+): ActivateSkillTool | null {
+  const skills = getModelInvokableSkills(harnessDir, options);
   if (skills.length === 0) return null;
 
   const skillMap = new Map<string, HarnessDocument>();

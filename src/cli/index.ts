@@ -3198,6 +3198,41 @@ skillCmd
     process.exit(filtered.some((r) => r.severity === 'error') ? 1 : 0);
   });
 
+skillCmd
+  .command('eval-triggers <name>')
+  .description('Run trigger eval for a skill against its evals/triggers.json')
+  .option('--runs <n>', 'Runs per query (default 3)', (v) => parseInt(v, 10), 3)
+  .option('--split <split>', 'train | validation | all (default all)', 'all')
+  .option('--harness <dir>', 'Harness directory', process.cwd())
+  .action(async (name: string, opts: { runs: number; split: string; harness: string }) => {
+    const { runTriggerEval } = await import('../runtime/evals/triggers.js');
+    const { buildLiveTriggerEvalRunner } = await import('../runtime/evals/agent-runner.js');
+    const split = opts.split as 'train' | 'validation' | 'all';
+    if (!['train', 'validation', 'all'].includes(split)) {
+      console.error(`Invalid split: ${opts.split}. Must be train, validation, or all.`);
+      process.exit(1);
+    }
+    const runner = await buildLiveTriggerEvalRunner(opts.harness);
+    const result = await runTriggerEval({
+      harnessDir: opts.harness,
+      skillName: name,
+      runs: opts.runs,
+      split,
+      runner,
+    });
+    console.log(`\nSkill: ${result.skill}`);
+    console.log(`Split: ${result.split}`);
+    console.log(`Runs/query: ${result.runs_per_query}`);
+    console.log(`\nResults:`);
+    for (const r of result.results) {
+      const flag = r.passed ? 'PASS' : 'FAIL';
+      const expectStr = r.should_trigger ? 'should trigger' : 'should NOT trigger';
+      console.log(`  [${flag}] ${r.id} (${expectStr}): ${r.trigger_rate.toFixed(2)}`);
+    }
+    console.log(`\nSummary: ${result.summary.passed}/${result.summary.total} passed (${(result.summary.pass_rate * 100).toFixed(1)}%)`);
+    if (result.summary.failed > 0) process.exit(1);
+  });
+
 // --- AGENTS (DEPRECATED — sub-agent primitives have been removed) ---
 program
   .command('agents')
