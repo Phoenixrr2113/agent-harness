@@ -143,19 +143,27 @@ export class Conversation {
   /**
    * Trim oldest messages until token budget is satisfied.
    * Always retains at least MIN_MESSAGES.
+   * Messages containing <skill_content> tags are exempt from pruning —
+   * per the Adding-skills-support guide, skill instructions are durable
+   * behavioral guidance and losing them mid-conversation silently degrades
+   * agent performance without any visible error.
    */
   private trimToTokenBudget(): void {
     const budget = this.getMessageBudget();
 
-    // Hard cap on count
+    // Hard cap on count — skip protected messages
     while (this.messages.length > MAX_MESSAGES) {
-      this.messages.shift();
+      const idx = this.messages.findIndex((m) => !isSkillContent(m));
+      if (idx === -1) break;
+      this.messages.splice(idx, 1);
     }
 
-    // Trim by token budget — drop oldest messages first
+    // Trim by token budget — drop oldest non-protected messages first
     let totalTokens = this.messages.reduce((sum, m) => sum + m.tokens, 0);
     while (totalTokens > budget && this.messages.length > MIN_MESSAGES) {
-      const removed = this.messages.shift();
+      const idx = this.messages.findIndex((m) => !isSkillContent(m));
+      if (idx === -1) break;
+      const removed = this.messages.splice(idx, 1)[0];
       if (removed) {
         totalTokens -= removed.tokens;
       }
@@ -454,6 +462,18 @@ function parseLegacyContext(raw: string): Message[] {
   }
 
   return messages;
+}
+
+/**
+ * Returns true when a message carries skill instructions injected by
+ * activate_skill. These messages must survive context compaction — losing
+ * skill instructions mid-conversation silently degrades agent performance.
+ *
+ * The <skill_content> tag is the canonical marker: trimToTokenBudget() uses
+ * this predicate to skip protected messages when pruning.
+ */
+export function isSkillContent(message: Pick<Message, 'content'>): boolean {
+  return message.content.includes('<skill_content');
 }
 
 // Export parsers for testing

@@ -42,7 +42,7 @@ vi.mock('../src/llm/provider.js', async (importOriginal) => {
   };
 });
 
-import { parseJsonlContext, parseLegacyContext, Conversation } from '../src/runtime/conversation.js';
+import { parseJsonlContext, parseLegacyContext, isSkillContent, Conversation } from '../src/runtime/conversation.js';
 import { estimateTokens } from '../src/primitives/loader.js';
 import { tool } from 'ai';
 import { z } from 'zod';
@@ -509,6 +509,50 @@ model:
     it('setProviderOverride should reject empty strings', () => {
       const conv = new Conversation(testDir, undefined, { recordSessions: false });
       expect(() => conv.setProviderOverride('')).toThrow('provider cannot be empty');
+    });
+  });
+
+  describe('skill content compaction protection', () => {
+    it('isSkillContent returns true for messages containing <skill_content', () => {
+      expect(isSkillContent({ content: '<skill_content name="research">\n# Research\nBody.\n</skill_content>' })).toBe(true);
+      expect(isSkillContent({ content: 'prefix <skill_content name="x">...</skill_content> suffix' })).toBe(true);
+    });
+
+    it('isSkillContent returns false for ordinary messages', () => {
+      expect(isSkillContent({ content: 'Hello there' })).toBe(false);
+      expect(isSkillContent({ content: '' })).toBe(false);
+      expect(isSkillContent({ content: 'skill_content without angle bracket' })).toBe(false);
+    });
+
+    it('does not drop messages containing <skill_content during token budget trim', async () => {
+      const conv = new Conversation(testDir, undefined, { recordSessions: false });
+      await conv.init();
+
+      const history = (conv as unknown as { messages: Array<{ role: 'user' | 'assistant'; content: string; tokens: number }> }).messages;
+
+      // Fill with old messages that will exceed budget
+      const skillMsg = '<skill_content name="research">\n# Research\nBody.\n</skill_content>';
+      history.push(
+        { role: 'user', content: 'old request', tokens: 10 },
+        { role: 'assistant', content: skillMsg, tokens: 50 },
+        { role: 'user', content: 'newer request', tokens: 10 },
+      );
+
+      // Access private method via cast to exercise the protection
+      const trimMethod = (conv as unknown as { trimToTokenBudget(): void }).trimToTokenBudget.bind(conv);
+
+      // Override budget to a very tight value so trimming is forced
+      const getBudget = (conv as unknown as { getMessageBudget(): number }).getMessageBudget.bind(conv);
+      const originalGetBudget = getBudget;
+      (conv as unknown as { getMessageBudget(): number }).getMessageBudget = () => 15;
+
+      trimMethod();
+
+      // Restore
+      (conv as unknown as { getMessageBudget(): number }).getMessageBudget = originalGetBudget;
+
+      const remaining = conv.getHistory();
+      expect(remaining.some((m) => m.content.includes('<skill_content'))).toBe(true);
     });
   });
 
