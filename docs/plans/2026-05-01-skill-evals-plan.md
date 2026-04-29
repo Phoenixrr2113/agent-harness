@@ -1159,10 +1159,12 @@ skillCmd
 The runner needs to actually invoke the agent in eval mode. Create `src/runtime/evals/agent-runner.ts`:
 
 ```typescript
+import { tool as aiTool } from 'ai';
 import { loadConfig } from '../../core/config.js';
 import { getModel, generateWithAgent } from '../../llm/provider.js';
 import { buildActivateSkillTool } from '../skill-activation.js';
 import { loadIdentity } from '../context-loader.js';
+import type { AIToolSet } from '../tool-executor.js';
 import type { TriggerEvalAgentRunner } from './triggers.js';
 
 /**
@@ -1176,13 +1178,20 @@ export async function buildLiveTriggerEvalRunner(harnessDir: string): Promise<Tr
 
   return async ({ query, skillName: _skillName }) => {
     const activate = buildActivateSkillTool(harnessDir);
-    const tools = activate ? { activate_skill: activate } : {};
+    const tools: AIToolSet = {};
+    if (activate) {
+      tools['activate_skill'] = aiTool({
+        description: activate.description,
+        inputSchema: activate.inputSchema,
+        execute: (input) => activate.execute(input as { name: string; args?: string }),
+      });
+    }
     const model = getModel(config);
     const result = await generateWithAgent({
       model,
       system: identity.content,
       prompt: query,
-      tools: tools as Record<string, unknown>,
+      tools,
       maxToolSteps: 5,
     });
     return {
@@ -1199,7 +1208,7 @@ export async function buildLiveTriggerEvalRunner(harnessDir: string): Promise<Tr
 }
 ```
 
-> **Note:** the `tools` cast goes via `Record<string, unknown>` to bridge the `ActivateSkillTool` shape (custom interface) to `AIToolSet`. If TypeScript complains, wrap `activate` in an AI SDK `tool({ ... })` helper in a follow-up; for now, runtime structural compatibility is sufficient. Verify by building dist and running an e2e in Task 13.
+> Pattern mirrors `src/core/harness.ts:88` — custom `ActivateSkillTool` shape gets wrapped in AI SDK's `tool()` helper, producing a proper `AIToolSet` entry.
 
 - [ ] **Step 9: Run lint + tests**
 
@@ -1539,10 +1548,17 @@ export async function buildLiveQualityEvalRunner(harnessDir: string): Promise<Qu
   const identity = loadIdentity(harnessDir);
 
   return async ({ withSkill, prompt, workingDir, skillName }) => {
-    const tool = withSkill
+    const activate = withSkill
       ? buildActivateSkillTool(harnessDir)
       : buildActivateSkillTool(harnessDir, { excludeSkillNames: [skillName] });
-    const tools = tool ? { activate_skill: tool } : {};
+    const tools: AIToolSet = {};
+    if (activate) {
+      tools['activate_skill'] = aiTool({
+        description: activate.description,
+        inputSchema: activate.inputSchema,
+        execute: (input) => activate.execute(input as { name: string; args?: string }),
+      });
+    }
     const model = getModel(config);
 
     const start = Date.now();
@@ -1550,7 +1566,7 @@ export async function buildLiveQualityEvalRunner(harnessDir: string): Promise<Qu
       model,
       system: `${identity.content}\n\nWorking directory: ${workingDir}`,
       prompt,
-      tools: tools as Record<string, unknown>,
+      tools,
       maxToolSteps: 10,
     });
     const durationMs = Date.now() - start;
