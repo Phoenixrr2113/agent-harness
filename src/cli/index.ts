@@ -3233,6 +3233,36 @@ skillCmd
     if (result.summary.failed > 0) process.exit(1);
   });
 
+skillCmd
+  .command('eval-quality <name>')
+  .description('Run quality eval for a skill: with-skill vs baseline')
+  .option('--baseline <kind>', 'none | previous (default none)', 'none')
+  .option('--harness <dir>', 'Harness directory', process.cwd())
+  .action(async (name: string, opts: { baseline: string; harness: string }) => {
+    const { runQualityEval } = await import('../runtime/evals/quality.js');
+    const { buildLiveQualityEvalRunner, buildLiveLlmGrader } = await import('../runtime/evals/agent-runner.js');
+    const baseline = (opts.baseline as 'none' | 'previous');
+    if (!['none', 'previous'].includes(baseline)) {
+      console.error(`Invalid baseline: ${opts.baseline}. Must be none or previous.`);
+      process.exit(1);
+    }
+    const runner = await buildLiveQualityEvalRunner(opts.harness);
+    const llmGrader = await buildLiveLlmGrader(opts.harness);
+    const result = await runQualityEval({
+      harnessDir: opts.harness,
+      skillName: name,
+      baseline,
+      runner,
+      llmGrader,
+    });
+    console.log(`\nSkill: ${result.skill}`);
+    console.log(`Iteration: ${result.iteration}`);
+    console.log(`Baseline: ${result.baseline}\n`);
+    console.log(`with_skill   pass_rate=${result.with_skill.pass_rate.mean.toFixed(2)} tokens=${Math.round(result.with_skill.tokens.mean)} duration_ms=${Math.round(result.with_skill.duration_ms.mean)}`);
+    console.log(`without_skill pass_rate=${result.without_skill.pass_rate.mean.toFixed(2)} tokens=${Math.round(result.without_skill.tokens.mean)} duration_ms=${Math.round(result.without_skill.duration_ms.mean)}`);
+    console.log(`\ndelta: pass_rate=${result.delta.pass_rate.toFixed(2)} tokens=${Math.round(result.delta.tokens)} duration_ms=${Math.round(result.delta.duration_ms)}`);
+  });
+
 // --- AGENTS (DEPRECATED — sub-agent primitives have been removed) ---
 program
   .command('agents')
