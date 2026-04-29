@@ -1935,15 +1935,15 @@ program
     console.log(`  Last interaction: ${state.last_interaction}\n`);
   });
 
-// --- SCRATCH (write to working memory) ---
+// --- SCRATCH (write to / show working memory) ---
 program
   .command('scratch')
-  .description('Write a note to scratch.md (working memory)')
-  .argument('<note...>', 'Note to write')
+  .description('Write a note to scratch.md, or show contents when no note is given')
+  .argument('[note...]', 'Note to write. Omit to show current scratch contents.')
   .option('-d, --dir <path>', 'Harness directory', '.')
-  .option('--clear', 'Clear scratch before writing', false)
-  .option('--show', 'Show current scratch contents', false)
-  .action(async (note: string[], opts: { dir: string; clear: boolean; show: boolean }) => {
+  .option('--clear', 'Clear scratch (and write the note if one is given)', false)
+  .option('--show', 'Show current scratch contents (alias for omitting note)', false)
+  .action(async (note: string[] | undefined, opts: { dir: string; clear: boolean; show: boolean }) => {
     const { readFileSync, writeFileSync, existsSync, mkdirSync } = await import('fs');
     const scratchPath = join(resolve(opts.dir), 'memory', 'scratch.md');
     const memoryDir = join(resolve(opts.dir), 'memory');
@@ -1952,6 +1952,23 @@ program
       mkdirSync(memoryDir, { recursive: true });
     }
 
+    const hasNote = Array.isArray(note) && note.length > 0;
+
+    // No note + no clear flag = show contents (default behavior, also explicit via --show)
+    if (!hasNote && !opts.clear) {
+      if (existsSync(scratchPath)) {
+        const content = readFileSync(scratchPath, 'utf-8');
+        console.log(content || '(empty)');
+      } else {
+        console.log('(no scratch.md)');
+      }
+      return;
+    }
+
+    // --show with a note: still show (but warn that the note was ignored)
+    if (opts.show && hasNote) {
+      console.error('Note arguments ignored because --show was passed.');
+    }
     if (opts.show) {
       if (existsSync(scratchPath)) {
         const content = readFileSync(scratchPath, 'utf-8');
@@ -1962,7 +1979,14 @@ program
       return;
     }
 
-    const noteText = note.join(' ');
+    // --clear with no note: just empty the file
+    if (!hasNote && opts.clear) {
+      writeFileSync(scratchPath, '', 'utf-8');
+      console.log('✓ Scratch cleared');
+      return;
+    }
+
+    const noteText = (note ?? []).join(' ');
 
     if (opts.clear) {
       writeFileSync(scratchPath, noteText + '\n', 'utf-8');
