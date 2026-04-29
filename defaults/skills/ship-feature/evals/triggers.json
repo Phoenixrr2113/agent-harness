@@ -1,0 +1,22 @@
+[
+  { "id": "ship-feature-train-1", "query": "Implement the new export-to-CSV feature end to end and verify it before delivery", "should_trigger": true, "split": "train" },
+  { "id": "ship-feature-train-2", "query": "Ship the bug fix for issue #482 — understand, plan, build test-first, verify, deliver", "should_trigger": true, "split": "train" },
+  { "id": "ship-feature-train-3", "query": "Take this refactor through the full understand-plan-build-verify cycle", "should_trigger": true, "split": "train" },
+  { "id": "ship-feature-train-4", "query": "Build the rate-limiter feature with small commits and run the verify scripts", "should_trigger": true, "split": "train" },
+  { "id": "ship-feature-train-5", "query": "Deliver the dark-mode toggle feature, including tests and pre-PR checks", "should_trigger": true, "split": "train" },
+  { "id": "ship-feature-train-6", "query": "Fix the failing webhook retry, write a test for it, and ship the change", "should_trigger": true, "split": "train" },
+  { "id": "ship-feature-train-neg-1", "query": "Brainstorm what shape a billing feature should take", "should_trigger": false, "split": "train" },
+  { "id": "ship-feature-train-neg-2", "query": "Just write the plan; I'll execute it later", "should_trigger": false, "split": "train" },
+  { "id": "ship-feature-train-neg-3", "query": "Review the PR — don't make changes, just comment", "should_trigger": false, "split": "train" },
+  { "id": "ship-feature-train-neg-4", "query": "Print the README and exit", "should_trigger": false, "split": "train" },
+  { "id": "ship-feature-train-neg-5", "query": "Ship the marketing site copy update — text only, no code", "should_trigger": false, "split": "train" },
+  { "id": "ship-feature-train-neg-6", "query": "What ships in the next release, according to the changelog?", "should_trigger": false, "split": "train" },
+  { "id": "ship-feature-val-1", "query": "Add the bulk-import endpoint, write tests first, run the verify scripts, then commit", "should_trigger": true, "split": "validation" },
+  { "id": "ship-feature-val-2", "query": "Take this non-trivial bug from triage to verified fix in small commits", "should_trigger": true, "split": "validation" },
+  { "id": "ship-feature-val-3", "query": "Implement and deliver the new search filters feature including pre-PR checklist", "should_trigger": true, "split": "validation" },
+  { "id": "ship-feature-val-4", "query": "Carry out a refactor of our auth middleware end-to-end with small TDD commits", "should_trigger": true, "split": "validation" },
+  { "id": "ship-feature-val-neg-1", "query": "Explain how this feature works without changing any code", "should_trigger": false, "split": "validation" },
+  { "id": "ship-feature-val-neg-2", "query": "Spawn five parallel subagents to research auth options", "should_trigger": false, "split": "validation" },
+  { "id": "ship-feature-val-neg-3", "query": "Tag and ship a release of v1.4.2 to npm — release work, not feature work", "should_trigger": false, "split": "validation" },
+  { "id": "ship-feature-val-neg-4", "query": "Write a one-line script that nudges the prod build script", "should_trigger": false, "split": "validation" }
+]

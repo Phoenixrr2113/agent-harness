@@ -365,10 +365,29 @@ harness skill new <name>
 
 This produces a `skills/<name>/` bundle pre-populated with a spec-conformant `SKILL.md`, a starter `scripts/run.sh` that already follows the JSON contract, empty `references/` and `assets/` directories, and placeholder `--help` output. The scaffolded skill passes `harness skill validate` immediately — edit the payloads and instructions to make it do real work.
 
+## Writing evals
+
+Skills can ship with two kinds of eval coverage:
+
+- **Trigger evals** (`evals/triggers.json`) — verify the model picks this skill on intended queries and skips it on near-misses
+- **Quality evals** (`evals/evals.json`) — verify the skill produces measurably better output than no skill on representative tasks
+
+The 16 default skills ship with trigger evals. High-effort defaults (delegate-to-cli, daily-reflection, ship-feature) also ship with quality evals.
+
+To author evals for a skill you're building, see the canonical reference: [skill-evals.md](skill-evals.md).
+
+Quick-start commands:
+
+- `harness skill eval-triggers <name>` — runs trigger eval, reports per-query pass/fail
+- `harness skill eval-quality <name>` — runs quality eval, reports with-vs-without-skill delta
+- `harness skill optimize-description <name>` — iteratively refines the skill's description against the trigger set
+- `harness skill optimize-quality <name>` — iteratively refines the skill's body against the quality eval
+
 ## See also
 
 - [Agent Skills specification](https://agentskills.io/specification)
 - [Best practices for skill creators](https://agentskills.io/skill-creation/best-practices)
 - [Optimizing skill descriptions](https://agentskills.io/skill-creation/optimizing-descriptions)
 - [Using scripts in skills](https://agentskills.io/skill-creation/using-scripts)
+- [Skill evals reference](skill-evals.md)
 - [Script feedback contract — design rationale](specs/2026-04-30-skill-content-rewrite-design.md)

@@ -1,0 +1,22 @@
+[
+  { "id": "planner-train-1", "query": "Decompose this open-ended task into a bounded ordered plan with acceptance checks", "should_trigger": true, "split": "train" },
+  { "id": "planner-train-2", "query": "I'm not sure where to start — produce a plan I can hand to an executor", "should_trigger": true, "split": "train" },
+  { "id": "planner-train-3", "query": "This touches four files and three subsystems — give me an ordered task list", "should_trigger": true, "split": "train" },
+  { "id": "planner-train-4", "query": "Break this multi-step migration into clear sequential tasks with acceptance criteria", "should_trigger": true, "split": "train" },
+  { "id": "planner-train-5", "query": "Ambiguous goal: 'make the upload flow nicer'. Turn it into a bounded plan", "should_trigger": true, "split": "train" },
+  { "id": "planner-train-6", "query": "Produce a goal/constraints/tasks breakdown for refactoring our queue worker", "should_trigger": true, "split": "train" },
+  { "id": "planner-train-neg-1", "query": "Write a comprehensive markdown plan to docs/plans/ following our writing-plans skill", "should_trigger": false, "split": "train" },
+  { "id": "planner-train-neg-2", "query": "Execute the plan that's already in the repo", "should_trigger": false, "split": "train" },
+  { "id": "planner-train-neg-3", "query": "Brainstorm what 'better uploads' actually means before any planning", "should_trigger": false, "split": "train" },
+  { "id": "planner-train-neg-4", "query": "Plan my vacation itinerary for Lisbon next month", "should_trigger": false, "split": "train" },
+  { "id": "planner-train-neg-5", "query": "Implement the second task in our existing plan", "should_trigger": false, "split": "train" },
+  { "id": "planner-train-neg-6", "query": "Schedule the planner sub-team to meet on Friday", "should_trigger": false, "split": "train" },
+  { "id": "planner-val-1", "query": "Take this fuzzy ask and emit goal, constraints, and an ordered task list", "should_trigger": true, "split": "validation" },
+  { "id": "planner-val-2", "query": "Sketch a stateless plan for the data-import feature so a downstream agent can execute", "should_trigger": true, "split": "validation" },
+  { "id": "planner-val-3", "query": "Lay out the steps to deprecate the v1 API across services", "should_trigger": true, "split": "validation" },
+  { "id": "planner-val-4", "query": "Convert this jumble of requirements into a bounded task plan with checks", "should_trigger": true, "split": "validation" },
+  { "id": "planner-val-neg-1", "query": "Write a long-form plan document with code samples and test guidance", "should_trigger": false, "split": "validation" },
+  { "id": "planner-val-neg-2", "query": "Start coding the first task immediately — no plan needed", "should_trigger": false, "split": "validation" },
+  { "id": "planner-val-neg-3", "query": "What's the project plan for next quarter from the leadership doc?", "should_trigger": false, "split": "validation" },
+  { "id": "planner-val-neg-4", "query": "Roll back the migration that the previous plan executed", "should_trigger": false, "split": "validation" }
+]

@@ -149,6 +149,15 @@ export async function learnFromSessions(
   apiKey?: string,
 ): Promise<LearnResult> {
   const candidates = await proposeInstincts(harnessDir, undefined, apiKey);
+
+  // Persist candidates so `harness rules promote <id>` can look them up later
+  const candidatesPath = join(harnessDir, 'memory', 'instinct-candidates.json');
+  const candidatesDir = join(harnessDir, 'memory');
+  if (!existsSync(candidatesDir)) {
+    mkdirSync(candidatesDir, { recursive: true });
+  }
+  writeFileSync(candidatesPath, JSON.stringify({ candidates }, null, 2), 'utf-8');
+
   const installed: string[] = [];
   const skipped: string[] = [];
 
@@ -280,4 +289,13 @@ export function harvestInstincts(
   }
 
   return { candidates, installed, skipped, journalsScanned: filtered.length };
+}
+
+export function loadCandidateById(harnessDir: string, id: string): InstinctCandidate | null {
+  const candidatesPath = join(harnessDir, 'memory', 'instinct-candidates.json');
+  if (!existsSync(candidatesPath)) return null;
+  const raw = readFileSync(candidatesPath, 'utf-8');
+  let parsed: { candidates?: InstinctCandidate[] };
+  try { parsed = JSON.parse(raw); } catch { return null; }
+  return parsed.candidates?.find((c) => c.id === id) ?? null;
 }

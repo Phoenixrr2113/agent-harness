@@ -99,11 +99,26 @@ function requiredSections(skill: HarnessDocument, _bundleDir: string): LintResul
   return [];
 }
 
+function evalsCoverage(skill: HarnessDocument, bundleDir: string): LintResult[] {
+  const triggersPath = join(bundleDir, 'evals', 'triggers.json');
+  if (!existsSync(triggersPath)) {
+    return [{
+      code: 'MISSING_EVALS_TRIGGERS',
+      severity: 'warn',
+      message: `Skill ${skill.name} has no evals/triggers.json — consider authoring trigger queries to validate the description`,
+      path: skill.path,
+      fixable: false,
+    }];
+  }
+  return [];
+}
+
 export const skillLints = {
   descriptionQuality,
   bodyLength,
   referencedFilesExist,
   requiredSections,
+  evalsCoverage,
 };
 
 export const ALL_SKILL_LINTS: Array<(s: HarnessDocument, b: string) => LintResult[]> = [
@@ -111,4 +126,5 @@ export const ALL_SKILL_LINTS: Array<(s: HarnessDocument, b: string) => LintResul
   bodyLength,
   referencedFilesExist,
   requiredSections,
+  evalsCoverage,
 ];

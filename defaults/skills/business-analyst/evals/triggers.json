@@ -1,0 +1,22 @@
+[
+  { "id": "business-analyst-train-1", "query": "Build a KPI framework for our SaaS retention metrics this quarter", "should_trigger": true, "split": "train" },
+  { "id": "business-analyst-train-2", "query": "Translate this raw revenue data into a strategic recommendation for the leadership team", "should_trigger": true, "split": "train" },
+  { "id": "business-analyst-train-3", "query": "Design a Tableau dashboard that surfaces churn drivers across cohorts", "should_trigger": true, "split": "train" },
+  { "id": "business-analyst-train-4", "query": "Run a predictive model on our Q1 sales pipeline and flag at-risk deals", "should_trigger": true, "split": "train" },
+  { "id": "business-analyst-train-5", "query": "Turn these messy CSVs into a Power BI executive overview with growth deltas", "should_trigger": true, "split": "train" },
+  { "id": "business-analyst-train-6", "query": "Write a data-driven story explaining why our CAC went up last month", "should_trigger": true, "split": "train" },
+  { "id": "business-analyst-train-neg-1", "query": "Refactor the database analytics module in src/analytics/", "should_trigger": false, "split": "train" },
+  { "id": "business-analyst-train-neg-2", "query": "Research the top 5 BI vendors and summarize their pricing", "should_trigger": false, "split": "train" },
+  { "id": "business-analyst-train-neg-3", "query": "Configure the Snowflake connection string in our .env.production file", "should_trigger": false, "split": "train" },
+  { "id": "business-analyst-train-neg-4", "query": "Plan how to migrate from Looker to Metabase next quarter", "should_trigger": false, "split": "train" },
+  { "id": "business-analyst-train-neg-5", "query": "Build a marketing campaign calendar for the new product launch", "should_trigger": false, "split": "train" },
+  { "id": "business-analyst-train-neg-6", "query": "Fix the SQL error in the dashboard query that's returning duplicate rows", "should_trigger": false, "split": "train" },
+  { "id": "business-analyst-val-1", "query": "Identify three operational efficiency wins from this month's ops report", "should_trigger": true, "split": "validation" },
+  { "id": "business-analyst-val-2", "query": "Recommend a north-star metric for the new product line based on this funnel data", "should_trigger": true, "split": "validation" },
+  { "id": "business-analyst-val-3", "query": "Build a competitive benchmark dashboard with industry KPIs", "should_trigger": true, "split": "validation" },
+  { "id": "business-analyst-val-4", "query": "Analyze our conversion funnel and propose two experiments leadership can run", "should_trigger": true, "split": "validation" },
+  { "id": "business-analyst-val-neg-1", "query": "Write the Python script that pulls data from BigQuery into our app", "should_trigger": false, "split": "validation" },
+  { "id": "business-analyst-val-neg-2", "query": "Schedule a meeting with the analytics vendor for next Tuesday", "should_trigger": false, "split": "validation" },
+  { "id": "business-analyst-val-neg-3", "query": "Draft an email to the CFO summarizing my career goals", "should_trigger": false, "split": "validation" },
+  { "id": "business-analyst-val-neg-4", "query": "Summarize the latest Tableau release notes in three bullets", "should_trigger": false, "split": "validation" }
+]

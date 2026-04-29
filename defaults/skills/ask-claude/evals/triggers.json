@@ -1,0 +1,22 @@
+[
+  { "id": "ask-claude-train-1", "query": "Use the local claude CLI to summarize this 2000-line log file", "should_trigger": true, "split": "train" },
+  { "id": "ask-claude-train-2", "query": "Spawn a claude subagent to refactor src/auth/session.ts and report the diff", "should_trigger": true, "split": "train" },
+  { "id": "ask-claude-train-3", "query": "Run this through my Claude subscription instead of burning the harness budget", "should_trigger": true, "split": "train" },
+  { "id": "ask-claude-train-4", "query": "Hand this large analysis off to claude-cli — output is text only", "should_trigger": true, "split": "train" },
+  { "id": "ask-claude-train-5", "query": "Have claude (the CLI) explain what this regex does and return the answer", "should_trigger": true, "split": "train" },
+  { "id": "ask-claude-train-6", "query": "Delegate the README rewrite to claude — I'll wait for the text back", "should_trigger": true, "split": "train" },
+  { "id": "ask-claude-train-neg-1", "query": "Call the Anthropic Messages API directly with a system prompt", "should_trigger": false, "split": "train" },
+  { "id": "ask-claude-train-neg-2", "query": "What does Anthropic's acceptable use policy say about derivative use?", "should_trigger": false, "split": "train" },
+  { "id": "ask-claude-train-neg-3", "query": "Tell me about Claude Shannon's information theory work", "should_trigger": false, "split": "train" },
+  { "id": "ask-claude-train-neg-4", "query": "Ask my coworker Claudia about the deployment schedule", "should_trigger": false, "split": "train" },
+  { "id": "ask-claude-train-neg-5", "query": "Use the codex CLI to draft this function", "should_trigger": false, "split": "train" },
+  { "id": "ask-claude-train-neg-6", "query": "Install the claude desktop app on my Mac", "should_trigger": false, "split": "train" },
+  { "id": "ask-claude-val-1", "query": "Offload this 800-line code review to my local claude command line", "should_trigger": true, "split": "validation" },
+  { "id": "ask-claude-val-2", "query": "Use claude in print mode to draft release notes from the commit log", "should_trigger": true, "split": "validation" },
+  { "id": "ask-claude-val-3", "query": "Have a claude subagent crunch this transcript and return bullet points", "should_trigger": true, "split": "validation" },
+  { "id": "ask-claude-val-4", "query": "Outsource this token-heavy summary to claude on my subscription", "should_trigger": true, "split": "validation" },
+  { "id": "ask-claude-val-neg-1", "query": "When was Claude 3 Opus released?", "should_trigger": false, "split": "validation" },
+  { "id": "ask-claude-val-neg-2", "query": "Open the Claude.ai web UI and paste this prompt", "should_trigger": false, "split": "validation" },
+  { "id": "ask-claude-val-neg-3", "query": "Build a wrapper around the @anthropic-ai/sdk for streaming", "should_trigger": false, "split": "validation" },
+  { "id": "ask-claude-val-neg-4", "query": "Cancel my Anthropic API subscription this month", "should_trigger": false, "split": "validation" }
+]

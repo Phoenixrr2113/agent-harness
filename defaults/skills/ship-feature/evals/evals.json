@@ -1,0 +1,34 @@
+{
+  "skill_name": "ship-feature",
+  "evals": [
+    {
+      "id": "pre-pr-checklist",
+      "prompt": "Check this branch is ready for PR.",
+      "expected_output": "A pre-PR checklist with each item checked or flagged.",
+      "files": ["evals/files/branch-state.txt"],
+      "assertions": [
+        "The output includes a checklist with at least 4 items",
+        "The output flags any failing items",
+        "The output references specific files or commands"
+      ]
+    },
+    {
+      "id": "verify-tests-pass",
+      "prompt": "Run the test suite and report pass/fail.",
+      "expected_output": "A pass/fail summary with the number of tests run.",
+      "assertions": [
+        "The output references npm test or vitest",
+        "The output reports a pass/fail status"
+      ]
+    },
+    {
+      "id": "verify-build-clean",
+      "prompt": "Verify the build is clean (no TypeScript errors, no lint warnings).",
+      "expected_output": "A status indicating tsc and lint both pass.",
+      "assertions": [
+        "The output references tsc or noEmit",
+        "The output reports clean status or specific errors"
+      ]
+    }
+  ]
+}

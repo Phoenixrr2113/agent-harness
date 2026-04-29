@@ -1,6 +1,6 @@
 {
   "name": "@agntk/agent-harness",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "A file-first agent operating system. Build AI agents by editing markdown files, not writing code.",
   "repository": {
     "type": "git",
@@ -20,6 +20,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
+    "check:evals": "tsx scripts/check-default-evals.ts",
     "clean": "rm -rf dist"
   },
   "files": [

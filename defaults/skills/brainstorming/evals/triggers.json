@@ -1,0 +1,22 @@
+[
+  { "id": "brainstorming-train-1", "query": "I want to build a side project for tracking pull-up reps — help me figure out what this should look like", "should_trigger": true, "split": "train" },
+  { "id": "brainstorming-train-2", "query": "Let's brainstorm a new onboarding flow for first-time users", "should_trigger": true, "split": "train" },
+  { "id": "brainstorming-train-3", "query": "I have a vague idea for a CLI tool — can we shape it into a design?", "should_trigger": true, "split": "train" },
+  { "id": "brainstorming-train-4", "query": "Help me explore what 'better notifications' could actually mean for this app", "should_trigger": true, "split": "train" },
+  { "id": "brainstorming-train-5", "query": "Before I start coding, let's nail down the requirements for the export feature", "should_trigger": true, "split": "train" },
+  { "id": "brainstorming-train-6", "query": "I'm not sure what I'm building yet — walk me through it conversationally", "should_trigger": true, "split": "train" },
+  { "id": "brainstorming-train-neg-1", "query": "Implement the export feature based on the spec in docs/plans/export.md", "should_trigger": false, "split": "train" },
+  { "id": "brainstorming-train-neg-2", "query": "List five marketing taglines for a productivity app", "should_trigger": false, "split": "train" },
+  { "id": "brainstorming-train-neg-3", "query": "Fix the bug where the user count drops to zero on refresh", "should_trigger": false, "split": "train" },
+  { "id": "brainstorming-train-neg-4", "query": "Write a plan for the auth migration — I already know the design", "should_trigger": false, "split": "train" },
+  { "id": "brainstorming-train-neg-5", "query": "Search the codebase for places we already do retry-with-backoff", "should_trigger": false, "split": "train" },
+  { "id": "brainstorming-train-neg-6", "query": "Set up a brainstorming session in Miro with my team next Tuesday", "should_trigger": false, "split": "train" },
+  { "id": "brainstorming-val-1", "query": "Talk through the design for a Pomodoro timer with break-skip logic before I write any code", "should_trigger": true, "split": "validation" },
+  { "id": "brainstorming-val-2", "query": "I have a hunch I want a dashboard widget — let's figure out what it actually does", "should_trigger": true, "split": "validation" },
+  { "id": "brainstorming-val-3", "query": "Help me discover what features matter for this prototype", "should_trigger": true, "split": "validation" },
+  { "id": "brainstorming-val-4", "query": "Think through what the new search feature should do before we touch the codebase", "should_trigger": true, "split": "validation" },
+  { "id": "brainstorming-val-neg-1", "query": "Apply the design we agreed on yesterday to the existing settings page", "should_trigger": false, "split": "validation" },
+  { "id": "brainstorming-val-neg-2", "query": "Generate ten product-name candidates for a Pomodoro app", "should_trigger": false, "split": "validation" },
+  { "id": "brainstorming-val-neg-3", "query": "Convert these brainstorm notes from my notebook into a markdown file", "should_trigger": false, "split": "validation" },
+  { "id": "brainstorming-val-neg-4", "query": "Run npm run build and tell me what fails", "should_trigger": false, "split": "validation" }
+]

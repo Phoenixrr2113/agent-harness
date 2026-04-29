@@ -1,0 +1,37 @@
+{
+  "skill_name": "delegate-to-cli",
+  "evals": [
+    {
+      "id": "delegate-codex-review",
+      "prompt": "Review this Python file for security issues using Codex.",
+      "expected_output": "A review report from Codex covering security concerns in the file.",
+      "files": ["evals/files/sample.py"],
+      "assertions": [
+        "The output references Codex or codex-cli",
+        "The output identifies at least one security concern",
+        "The output is presented as a structured review"
+      ]
+    },
+    {
+      "id": "delegate-claude-second-opinion",
+      "prompt": "Get a second opinion from Claude on the architectural choice in design.md.",
+      "expected_output": "A reasoned response from Claude with explicit agreement or disagreement.",
+      "files": ["evals/files/design.md"],
+      "assertions": [
+        "The output references Claude",
+        "The output takes a clear stance",
+        "The output cites specifics from design.md"
+      ]
+    },
+    {
+      "id": "delegate-handles-missing-cli",
+      "prompt": "Use foobar-cli to summarize this README.",
+      "expected_output": "An error message or fallback that informs the user the requested CLI is not installed.",
+      "files": ["evals/files/README.md"],
+      "assertions": [
+        "The output mentions foobar-cli is not available or installed",
+        "The output is presented as a structured error or graceful fallback"
+      ]
+    }
+  ]
+}

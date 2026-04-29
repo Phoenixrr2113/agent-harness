@@ -1,0 +1,22 @@
+[
+  { "id": "ask-gemini-train-1", "query": "Use the gemini CLI to fact-check this paragraph against current Google sources", "should_trigger": true, "split": "train" },
+  { "id": "ask-gemini-train-2", "query": "Have a gemini subagent summarize this 500KB markdown file and return text", "should_trigger": true, "split": "train" },
+  { "id": "ask-gemini-train-3", "query": "Run this through my Gemini subscription instead of the harness API budget", "should_trigger": true, "split": "train" },
+  { "id": "ask-gemini-train-4", "query": "Spawn gemini-cli to triage these failing snapshot tests and report findings", "should_trigger": true, "split": "train" },
+  { "id": "ask-gemini-train-5", "query": "Delegate this token-heavy doc rewrite to the gemini command line", "should_trigger": true, "split": "train" },
+  { "id": "ask-gemini-train-6", "query": "Use gemini in read mode to extract the action items from this transcript", "should_trigger": true, "split": "train" },
+  { "id": "ask-gemini-train-neg-1", "query": "Curl the Gemini REST API directly with my service-account key", "should_trigger": false, "split": "train" },
+  { "id": "ask-gemini-train-neg-2", "query": "When did NASA's Project Gemini fly its first crewed mission?", "should_trigger": false, "split": "train" },
+  { "id": "ask-gemini-train-neg-3", "query": "Set up the @google/generative-ai npm package in my Node project", "should_trigger": false, "split": "train" },
+  { "id": "ask-gemini-train-neg-4", "query": "Use claude instead of gemini for this — claude's better at code review", "should_trigger": false, "split": "train" },
+  { "id": "ask-gemini-train-neg-5", "query": "Create a Gemini horoscope chart for someone born in May", "should_trigger": false, "split": "train" },
+  { "id": "ask-gemini-train-neg-6", "query": "What new features did Google announce at I/O 2024 for Gemini?", "should_trigger": false, "split": "train" },
+  { "id": "ask-gemini-val-1", "query": "Offload this 4000-token analysis to gemini on my subscription", "should_trigger": true, "split": "validation" },
+  { "id": "ask-gemini-val-2", "query": "Have gemini draft a competitive analysis from these three docs and return the writeup", "should_trigger": true, "split": "validation" },
+  { "id": "ask-gemini-val-3", "query": "Use the google gemini CLI to explain this Python traceback", "should_trigger": true, "split": "validation" },
+  { "id": "ask-gemini-val-4", "query": "Spin up a gemini subagent to verify these citations against primary sources", "should_trigger": true, "split": "validation" },
+  { "id": "ask-gemini-val-neg-1", "query": "Disable Gemini in my Gmail sidebar — it's distracting", "should_trigger": false, "split": "validation" },
+  { "id": "ask-gemini-val-neg-2", "query": "Configure Vertex AI authentication in my GCP project", "should_trigger": false, "split": "validation" },
+  { "id": "ask-gemini-val-neg-3", "query": "What's the context window of gemini-1.5-pro?", "should_trigger": false, "split": "validation" },
+  { "id": "ask-gemini-val-neg-4", "query": "Tell me about the Gemini constellation in spring sky charts", "should_trigger": false, "split": "validation" }
+]

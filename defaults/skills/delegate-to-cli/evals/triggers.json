@@ -1,0 +1,22 @@
+[
+  { "id": "delegate-to-cli-train-1", "query": "This 3000-line refactor is going to blow my context — delegate it to a CLI subagent", "should_trigger": true, "split": "train" },
+  { "id": "delegate-to-cli-train-2", "query": "Use scripts/delegate.sh to hand this bounded task off to claude in edit mode", "should_trigger": true, "split": "train" },
+  { "id": "delegate-to-cli-train-3", "query": "Offload this text-in/text-out summary to a local CLI agent and bring back the result", "should_trigger": true, "split": "train" },
+  { "id": "delegate-to-cli-train-4", "query": "This is bounded and large — spawn a codex subprocess and consume its output", "should_trigger": true, "split": "train" },
+  { "id": "delegate-to-cli-train-5", "query": "Run delegate.sh with gemini in read mode to analyze this log dump", "should_trigger": true, "split": "train" },
+  { "id": "delegate-to-cli-train-6", "query": "Don't do this inline — delegate it to a CLI tool, the output is just text", "should_trigger": true, "split": "train" },
+  { "id": "delegate-to-cli-train-neg-1", "query": "Have you reviewed the new pricing tiers from the leadership memo?", "should_trigger": false, "split": "train" },
+  { "id": "delegate-to-cli-train-neg-2", "query": "What does the codex.toml file in this repo configure?", "should_trigger": false, "split": "train" },
+  { "id": "delegate-to-cli-train-neg-3", "query": "Run npm test and tell me what fails", "should_trigger": false, "split": "train" },
+  { "id": "delegate-to-cli-train-neg-4", "query": "Write a CLI tool from scratch that wraps our internal API", "should_trigger": false, "split": "train" },
+  { "id": "delegate-to-cli-train-neg-5", "query": "Summarize this short paragraph in two sentences", "should_trigger": false, "split": "train" },
+  { "id": "delegate-to-cli-train-neg-6", "query": "Delegate this task to my coworker on Slack", "should_trigger": false, "split": "train" },
+  { "id": "delegate-to-cli-val-1", "query": "Hand off the bulk JSDoc generation to a CLI subagent so I can keep planning", "should_trigger": true, "split": "validation" },
+  { "id": "delegate-to-cli-val-2", "query": "This file rewrite is bounded and large — perfect for delegate.sh", "should_trigger": true, "split": "validation" },
+  { "id": "delegate-to-cli-val-3", "query": "Send this work to a subprocess CLI agent; I just need the patch back", "should_trigger": true, "split": "validation" },
+  { "id": "delegate-to-cli-val-4", "query": "Spawn a subagent via the CLI for this 12k-token task and return the diff", "should_trigger": true, "split": "validation" },
+  { "id": "delegate-to-cli-val-neg-1", "query": "Approve the PR my coworker Claude opened yesterday", "should_trigger": false, "split": "validation" },
+  { "id": "delegate-to-cli-val-neg-2", "query": "Use the gemini API directly with my API key to fetch embeddings", "should_trigger": false, "split": "validation" },
+  { "id": "delegate-to-cli-val-neg-3", "query": "Set up CI to run lint and tests on every push", "should_trigger": false, "split": "validation" },
+  { "id": "delegate-to-cli-val-neg-4", "query": "What's the difference between subprocess and shell=True in Python?", "should_trigger": false, "split": "validation" }
+]

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { buildActivateSkillTool } from '../../src/runtime/skill-activation.js';
+import { buildActivateSkillTool, getModelInvokableSkills } from '../../src/runtime/skill-activation.js';
 
 function makeFixture(): { dir: string; harnessDir: string } {
   const harnessDir = mkdtempSync(join(tmpdir(), 'activation-'));
@@ -50,5 +50,41 @@ describe('activate_skill tool', () => {
     await tool!.execute({ name: 'research' });
     const result2 = await tool!.execute({ name: 'research' });
     expect(result2).toMatch(/already loaded|already activated/i);
+  });
+});
+
+function makeSkill(harnessDir: string, name: string): void {
+  const dir = join(harnessDir, 'skills', name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, 'SKILL.md'),
+    `---\nname: ${name}\ndescription: Pretend skill named ${name} for excludeSkillNames test ${Math.random()}\n---\nBody.`,
+  );
+}
+
+describe('buildActivateSkillTool — excludeSkillNames', () => {
+  it('excludes named skills from the enum', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'as-'));
+    makeSkill(dir, 'alpha');
+    makeSkill(dir, 'beta');
+    const tool = buildActivateSkillTool(dir, { excludeSkillNames: ['alpha'] });
+    expect(tool).not.toBeNull();
+    const skills = getModelInvokableSkills(dir, { excludeSkillNames: ['alpha'] });
+    expect(skills.map((s) => s.name)).toEqual(['beta']);
+  });
+
+  it('returns null if all skills are excluded', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'as-'));
+    makeSkill(dir, 'only-one');
+    const tool = buildActivateSkillTool(dir, { excludeSkillNames: ['only-one'] });
+    expect(tool).toBeNull();
+  });
+
+  it('default options leave all skills available', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'as-'));
+    makeSkill(dir, 'one');
+    makeSkill(dir, 'two');
+    const skills = getModelInvokableSkills(dir);
+    expect(skills.map((s) => s.name).sort()).toEqual(['one', 'two']);
   });
 });

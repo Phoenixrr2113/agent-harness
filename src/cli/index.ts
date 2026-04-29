@@ -3198,6 +3198,169 @@ skillCmd
     process.exit(filtered.some((r) => r.severity === 'error') ? 1 : 0);
   });
 
+skillCmd
+  .command('eval-triggers <name>')
+  .description('Run trigger eval for a skill against its evals/triggers.json')
+  .option('--runs <n>', 'Runs per query (default 3)', (v) => parseInt(v, 10), 3)
+  .option('--split <split>', 'train | validation | all (default all)', 'all')
+  .option('--harness <dir>', 'Harness directory', process.cwd())
+  .action(async (name: string, opts: { runs: number; split: string; harness: string }) => {
+    const { runTriggerEval } = await import('../runtime/evals/triggers.js');
+    const { buildLiveTriggerEvalRunner } = await import('../runtime/evals/agent-runner.js');
+    const split = opts.split as 'train' | 'validation' | 'all';
+    if (!['train', 'validation', 'all'].includes(split)) {
+      console.error(`Invalid split: ${opts.split}. Must be train, validation, or all.`);
+      process.exit(1);
+    }
+    const runner = await buildLiveTriggerEvalRunner(opts.harness);
+    const result = await runTriggerEval({
+      harnessDir: opts.harness,
+      skillName: name,
+      runs: opts.runs,
+      split,
+      runner,
+    });
+    console.log(`\nSkill: ${result.skill}`);
+    console.log(`Split: ${result.split}`);
+    console.log(`Runs/query: ${result.runs_per_query}`);
+    console.log(`\nResults:`);
+    for (const r of result.results) {
+      const flag = r.passed ? 'PASS' : 'FAIL';
+      const expectStr = r.should_trigger ? 'should trigger' : 'should NOT trigger';
+      console.log(`  [${flag}] ${r.id} (${expectStr}): ${r.trigger_rate.toFixed(2)}`);
+    }
+    console.log(`\nSummary: ${result.summary.passed}/${result.summary.total} passed (${(result.summary.pass_rate * 100).toFixed(1)}%)`);
+    if (result.summary.failed > 0) process.exit(1);
+  });
+
+skillCmd
+  .command('eval-quality <name>')
+  .description('Run quality eval for a skill: with-skill vs baseline')
+  .option('--baseline <kind>', 'none | previous (default none)', 'none')
+  .option('--harness <dir>', 'Harness directory', process.cwd())
+  .action(async (name: string, opts: { baseline: string; harness: string }) => {
+    const { runQualityEval } = await import('../runtime/evals/quality.js');
+    const { buildLiveQualityEvalRunner, buildLiveLlmGrader } = await import('../runtime/evals/agent-runner.js');
+    const baseline = (opts.baseline as 'none' | 'previous');
+    if (!['none', 'previous'].includes(baseline)) {
+      console.error(`Invalid baseline: ${opts.baseline}. Must be none or previous.`);
+      process.exit(1);
+    }
+    const runner = await buildLiveQualityEvalRunner(opts.harness);
+    const llmGrader = await buildLiveLlmGrader(opts.harness);
+    const result = await runQualityEval({
+      harnessDir: opts.harness,
+      skillName: name,
+      baseline,
+      runner,
+      llmGrader,
+    });
+    console.log(`\nSkill: ${result.skill}`);
+    console.log(`Iteration: ${result.iteration}`);
+    console.log(`Baseline: ${result.baseline}\n`);
+    console.log(`with_skill   pass_rate=${result.with_skill.pass_rate.mean.toFixed(2)} tokens=${Math.round(result.with_skill.tokens.mean)} duration_ms=${Math.round(result.with_skill.duration_ms.mean)}`);
+    console.log(`without_skill pass_rate=${result.without_skill.pass_rate.mean.toFixed(2)} tokens=${Math.round(result.without_skill.tokens.mean)} duration_ms=${Math.round(result.without_skill.duration_ms.mean)}`);
+    console.log(`\ndelta: pass_rate=${result.delta.pass_rate.toFixed(2)} tokens=${Math.round(result.delta.tokens)} duration_ms=${Math.round(result.delta.duration_ms)}`);
+  });
+
+skillCmd
+  .command('optimize-description <name>')
+  .description('Iteratively refine a skill description against trigger eval set')
+  .option('--max-iterations <n>', 'Max revision iterations (default 5)', (v) => parseInt(v, 10), 5)
+  .option('--runs <n>', 'Runs per query (default 3)', (v) => parseInt(v, 10), 3)
+  .option('--dry-run', 'Compute best description but do not write')
+  .option('--harness <dir>', 'Harness directory', process.cwd())
+  .action(async (name: string, opts: { maxIterations: number; runs: number; dryRun: boolean; harness: string }) => {
+    const { optimizeDescription } = await import('../runtime/evals/optimize-description.js');
+    const { buildLiveTriggerEvalRunner, buildLiveDescriptionProposer } = await import('../runtime/evals/agent-runner.js');
+    const runner = await buildLiveTriggerEvalRunner(opts.harness);
+    const propose = await buildLiveDescriptionProposer(opts.harness);
+    const result = await optimizeDescription({
+      harnessDir: opts.harness,
+      skillName: name,
+      maxIterations: opts.maxIterations,
+      runs: opts.runs,
+      runner,
+      proposeDescription: propose,
+      dryRun: opts.dryRun,
+    });
+    console.log(`\nBest iteration: ${result.bestIteration.iteration}`);
+    console.log(`  validation pass_rate: ${result.bestIteration.validationResult.summary.pass_rate.toFixed(2)}`);
+    console.log(`  description: ${result.bestIteration.description}\n`);
+    console.log(`History (validation pass_rate by iteration):`);
+    for (const h of result.history) {
+      console.log(`  iter ${h.iteration}: ${h.validationResult.summary.pass_rate.toFixed(2)}`);
+    }
+    console.log(`\n${result.applied ? 'Applied to SKILL.md.' : 'Dry run — SKILL.md unchanged.'}`);
+  });
+
+skillCmd
+  .command('optimize-quality <name>')
+  .description('Iteratively refine a skill body against quality eval signals')
+  .option('--max-iterations <n>', 'Max iterations (default 3)', (v) => parseInt(v, 10), 3)
+  .option('--auto-approve', 'Apply each iteration without prompting')
+  .option('--harness <dir>', 'Harness directory', process.cwd())
+  .action(async (name: string, opts: { maxIterations: number; autoApprove: boolean; harness: string }) => {
+    const { optimizeQuality } = await import('../runtime/evals/optimize-quality.js');
+    const { buildLiveQualityEvalRunner, buildLiveLlmGrader, buildLiveBodyProposer } = await import('../runtime/evals/agent-runner.js');
+    const qualityRunner = await buildLiveQualityEvalRunner(opts.harness);
+    const llmGrader = await buildLiveLlmGrader(opts.harness);
+    const proposeBody = await buildLiveBodyProposer(opts.harness);
+    const result = await optimizeQuality({
+      harnessDir: opts.harness,
+      skillName: name,
+      maxIterations: opts.maxIterations,
+      qualityRunner,
+      proposeBody,
+      llmGrader,
+      autoApprove: opts.autoApprove,
+    });
+    console.log(`\nIterations: ${result.iterations.length}`);
+    for (const it of result.iterations) {
+      console.log(`  ${it.iteration}: with_skill ${it.with_skill.pass_rate.mean.toFixed(2)} | without_skill ${it.without_skill.pass_rate.mean.toFixed(2)} | delta ${it.delta.pass_rate.toFixed(2)}`);
+    }
+    console.log(`\n${result.applied ? 'Changes applied.' : 'No changes applied (auto-approve disabled).'}`);
+  });
+
+// --- RULES ---
+const rulesCmd = program
+  .command('rules')
+  .description('Manage rules (including agent-learned candidates)');
+
+rulesCmd
+  .command('promote <candidate-id>')
+  .description('Promote an agent-learned rule candidate after eval gate')
+  .option('--no-eval-gate', 'Skip eval gate (power users)')
+  .option('--harness <dir>', 'Harness directory', process.cwd())
+  .action(async (candidateId: string, opts: { evalGate: boolean; harness: string }) => {
+    const { promoteRule } = await import('../runtime/promote-rule.js');
+    const { buildLiveRulePromoter } = await import('../runtime/evals/agent-runner.js');
+    const { loadCandidateById } = await import('../runtime/instinct-learner.js');
+    const candidate = loadCandidateById(opts.harness, candidateId);
+    if (!candidate) {
+      console.error(`Candidate not found: ${candidateId}. Run 'harness learn' first to discover candidates.`);
+      process.exit(1);
+    }
+    const live = await buildLiveRulePromoter(opts.harness);
+    const result = await promoteRule({
+      harnessDir: opts.harness,
+      candidate,
+      noEvalGate: !opts.evalGate, // Commander negates --no-eval-gate to evalGate=false
+      runTriggerEval: live.runTriggerEval,
+      runQualityEval: live.runQualityEval,
+      generateQueries: live.generateQueries,
+    });
+    if (result.promoted) {
+      console.log(`Promoted: ${candidateId}`);
+      console.log(`Reason: ${result.reason}`);
+      if (result.rulePath) console.log(`Rule file: ${result.rulePath}`);
+    } else {
+      console.log(`NOT promoted: ${candidateId}`);
+      console.log(`Reason: ${result.reason}`);
+      process.exit(1);
+    }
+  });
+
 // --- AGENTS (DEPRECATED — sub-agent primitives have been removed) ---
 program
   .command('agents')
