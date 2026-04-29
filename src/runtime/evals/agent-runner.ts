@@ -9,6 +9,7 @@ import type { AIToolSet } from '../tool-executor.js';
 import type { TriggerEvalAgentRunner } from './triggers.js';
 import type { LlmGrader } from './grading.js';
 import type { QualityEvalAgentRunner } from './quality.js';
+import type { ProposeDescriptionFn } from './optimize-description.js';
 
 export async function buildLiveTriggerEvalRunner(harnessDir: string): Promise<TriggerEvalAgentRunner> {
   const config = loadConfig(harnessDir);
@@ -108,5 +109,40 @@ Reply with EXACTLY this JSON shape (no other text):
       passed: parsed.passed === true,
       evidence: typeof parsed.evidence === 'string' ? parsed.evidence : 'no evidence',
     };
+  };
+}
+
+export async function buildLiveDescriptionProposer(harnessDir: string): Promise<ProposeDescriptionFn> {
+  const config = loadConfig(harnessDir);
+  const model = getSummaryModel(config);
+
+  return async ({ currentDescription, skillBody, failingQueries }) => {
+    const failingText = failingQueries
+      .map((f) => `- "${f.query}" (should ${f.should_trigger ? 'trigger' : 'NOT trigger'})`)
+      .join('\n');
+    const prompt = `Revise this skill description so the model triggers it more reliably on intended queries and skips it on near-misses.
+
+Current description: ${currentDescription}
+
+Skill body (for context):
+${skillBody.slice(0, 1500)}
+
+Failing queries from this iteration:
+${failingText}
+
+Guidelines:
+- Imperative phrasing
+- Be pushy about WHEN to use it (use this when..., never use this when...)
+- Focus on intent, not surface keywords
+- 1-3 sentences
+
+Return ONLY the new description, no quotes, no other text.`;
+
+    const result = await generateText({
+      model,
+      system: 'You optimize skill descriptions for trigger reliability. Return only the new description text.',
+      prompt,
+    });
+    return result.text.trim();
   };
 }

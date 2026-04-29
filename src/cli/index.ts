@@ -3263,6 +3263,37 @@ skillCmd
     console.log(`\ndelta: pass_rate=${result.delta.pass_rate.toFixed(2)} tokens=${Math.round(result.delta.tokens)} duration_ms=${Math.round(result.delta.duration_ms)}`);
   });
 
+skillCmd
+  .command('optimize-description <name>')
+  .description('Iteratively refine a skill description against trigger eval set')
+  .option('--max-iterations <n>', 'Max revision iterations (default 5)', (v) => parseInt(v, 10), 5)
+  .option('--runs <n>', 'Runs per query (default 3)', (v) => parseInt(v, 10), 3)
+  .option('--dry-run', 'Compute best description but do not write')
+  .option('--harness <dir>', 'Harness directory', process.cwd())
+  .action(async (name: string, opts: { maxIterations: number; runs: number; dryRun: boolean; harness: string }) => {
+    const { optimizeDescription } = await import('../runtime/evals/optimize-description.js');
+    const { buildLiveTriggerEvalRunner, buildLiveDescriptionProposer } = await import('../runtime/evals/agent-runner.js');
+    const runner = await buildLiveTriggerEvalRunner(opts.harness);
+    const propose = await buildLiveDescriptionProposer(opts.harness);
+    const result = await optimizeDescription({
+      harnessDir: opts.harness,
+      skillName: name,
+      maxIterations: opts.maxIterations,
+      runs: opts.runs,
+      runner,
+      proposeDescription: propose,
+      dryRun: opts.dryRun,
+    });
+    console.log(`\nBest iteration: ${result.bestIteration.iteration}`);
+    console.log(`  validation pass_rate: ${result.bestIteration.validationResult.summary.pass_rate.toFixed(2)}`);
+    console.log(`  description: ${result.bestIteration.description}\n`);
+    console.log(`History (validation pass_rate by iteration):`);
+    for (const h of result.history) {
+      console.log(`  iter ${h.iteration}: ${h.validationResult.summary.pass_rate.toFixed(2)}`);
+    }
+    console.log(`\n${result.applied ? 'Applied to SKILL.md.' : 'Dry run — SKILL.md unchanged.'}`);
+  });
+
 // --- AGENTS (DEPRECATED — sub-agent primitives have been removed) ---
 program
   .command('agents')
