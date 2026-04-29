@@ -29,6 +29,14 @@ export interface DriftReport {
 
 export interface ExportContext {
   harnessDir: string;
+  /**
+   * The host project root. For a standalone harness install, this equals
+   * `harnessDir`. For a subdirectory install (e.g. `<project>/.harness/`),
+   * this is the parent — `dirname(harnessDir)` — so adapters writing
+   * project-level files (`AGENTS.md`, `GEMINI.md`) and the project-context
+   * loader reading those files agree on the same location.
+   */
+  projectRoot: string;
   targetDir: string;
   skills: HarnessDocument[];
   rules: HarnessDocument[];

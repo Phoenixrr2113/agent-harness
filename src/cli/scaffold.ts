@@ -5,12 +5,7 @@ import { writeDefaultConfig } from '../core/config.js';
 
 const DIRECTORIES = [
   'rules',
-  'instincts',
   'skills',
-  'playbooks',
-  'workflows',
-  'tools',
-  'agents',
   'intake',
   'memory/sessions',
   'memory/journal',
@@ -77,7 +72,7 @@ function copyDirRecursive(srcDir: string, destDir: string, vars: TemplateVars): 
  */
 function copyPrimitivesFrom(srcRoot: string, targetDir: string, vars: TemplateVars): void {
   if (!existsSync(srcRoot)) return;
-  const primitiveDirs = ['rules', 'instincts', 'skills', 'playbooks', 'agents', 'tools', 'workflows'];
+  const primitiveDirs = ['rules', 'skills'];
   for (const dir of primitiveDirs) {
     const srcDir = join(srcRoot, dir);
     if (!existsSync(srcDir)) continue;
@@ -216,12 +211,12 @@ Use it for a few days with varied prompts. Then:
 
 \`\`\`bash
 harness journal              # synthesize today's sessions and find patterns
-harness learn --install      # promote learned patterns into instincts
+harness learn --install      # promote learned patterns into agent-authored rules
 \`\`\`
 
 The agent gets measurably better the more you use it. Every interaction
-is journaled, patterns become instincts, and instincts change behavior
-on the next run. **No retraining, no fine-tuning, no code.** You're
+is journaled, patterns become agent-authored rules in \`rules/\`, and those
+rules change behavior on the next run. **No retraining, no fine-tuning, no code.** You're
 editing markdown.
 
 ## What's in this folder
@@ -231,13 +226,8 @@ editing markdown.
 | \`IDENTITY.md\`    | human | Identity. Who is this agent? Frozen. |
 | \`config.yaml\`    | human | Model, runtime, MCP servers, budgets |
 | \`memory/state.md\` | mixed | Live state: mode, goals, last interaction |
-| \`rules/\`         | human | Hard boundaries the agent must respect |
-| \`skills/\`        | mixed | Capabilities + how to think about using them |
-| \`playbooks/\`     | mixed | Adaptive guidance for outcomes |
-| \`instincts/\`     | agent | Reflexive behaviors learned from sessions |
-| \`workflows/\`     | infra | Cron-driven automations |
-| \`tools/\`         | extern | HTTP/API tool definitions |
-| \`agents/\`        | extern | Sub-agent roster |
+| \`rules/\`         | mixed | Boundaries (human-authored) and learned reflexes (agent-authored, marked \`author: agent\`) |
+| \`skills/\`        | mixed | Capabilities + how to think about using them. Triggers (\`prepare-call\`, \`subagent\`, etc.) and schedules live in \`metadata.harness-trigger\` / \`metadata.harness-schedule\` |
 | \`memory/sessions/\` | agent | Auto-captured interaction records |
 | \`memory/journal/\`  | infra | Daily synthesized reflections |
 
@@ -261,7 +251,7 @@ Tools come from MCP servers — install one with \`harness mcp install\`.
 
 - \`harness validate\` — check the harness structure for errors
 - \`harness doctor\` — same, but auto-fix what it can
-- \`harness contradictions\` — check rules and instincts for conflicts
+- \`harness contradictions\` — check rules for conflicts
 - \`harness dead-primitives\` — find files you haven't used in a while
 
 The agent journal in \`memory/journal/\` is the most interesting place
@@ -295,7 +285,7 @@ memory/journal/*
  * Scans for primitives and reflects the real structure.
  */
 export function generateSystemMd(harnessDir: string, agentName: string): string {
-  const primitiveDirs = ['rules', 'instincts', 'skills', 'playbooks', 'workflows', 'tools', 'agents'];
+  const primitiveDirs = ['rules', 'skills'];
   const sections: string[] = [];
 
   sections.push(`# System\n`);
@@ -352,8 +342,8 @@ export function generateSystemMd(harnessDir: string, agentName: string): string 
   sections.push(`## File Ownership
 | Owner | Files | Can Modify |
 |-------|-------|------------|
-| Human | IDENTITY.md, rules/*, config.yaml | Only human edits |
-| Agent | instincts/*, memory/sessions/*, memory/state.md (goals) | During/after interactions |
+| Human | IDENTITY.md, rules/* (without \`author: agent\`), skills/*, config.yaml | Only human edits |
+| Agent | rules/* (with \`author: agent\`), memory/sessions/*, memory/state.md (goals) | During/after interactions |
 | Infrastructure | */_index.md, memory/journal/* | Auto-scripts only |\n`);
 
   // Context loading strategy

@@ -271,10 +271,10 @@ describe('web-server', () => {
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(Array.isArray(data)).toBe(true);
-      // Should contain rules, instincts, etc.
+      // Should contain the post-collapse primitives + identity file
       const names = data.map((n: { name: string }) => n.name);
       expect(names).toContain('rules');
-      expect(names).toContain('instincts');
+      expect(names).toContain('skills');
       expect(names).toContain('IDENTITY.md');
     });
 

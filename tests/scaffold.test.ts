@@ -26,12 +26,8 @@ describe('harness init (scaffolding)', () => {
 
     const expectedDirs = [
       'rules',
-      'instincts',
       'skills',
-      'playbooks',
-      'workflows',
-      'tools',
-      'agents',
+      'intake',
       'memory',
       'memory/sessions',
       'memory/journal',
@@ -40,6 +36,15 @@ describe('harness init (scaffolding)', () => {
     for (const dir of expectedDirs) {
       const dirPath = join(agentDir, dir);
       expect(existsSync(dirPath), `Directory ${dir} should exist`).toBe(true);
+    }
+
+    // Legacy primitive directories from pre-spec-#2 collapse must NOT be created
+    const legacyDirs = ['instincts', 'playbooks', 'workflows', 'tools', 'agents'];
+    for (const dir of legacyDirs) {
+      expect(
+        existsSync(join(agentDir, dir)),
+        `Legacy directory ${dir}/ should NOT be created (collapsed in spec #2)`,
+      ).toBe(false);
     }
   });
 
@@ -317,11 +322,12 @@ describe('harness init (scaffolding)', () => {
       expect(systemMd).toContain('IDENTITY.md');
       expect(systemMd).toContain('memory/state.md');
 
-      // Should list actual primitive directories with file counts
+      // Should list actual primitive directories (post spec-#2 collapse: rules + skills only)
       expect(systemMd).toContain('`rules/`');
-      expect(systemMd).toContain('`instincts/`');
       expect(systemMd).toContain('`skills/`');
-      expect(systemMd).toContain('`playbooks/`');
+      // Legacy primitive sections must NOT appear
+      expect(systemMd).not.toContain('`instincts/`');
+      expect(systemMd).not.toContain('`playbooks/`');
 
       // Should show actual primitive names (from defaults)
       expect(systemMd).toContain('operations');

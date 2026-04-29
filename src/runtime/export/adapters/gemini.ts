@@ -93,7 +93,7 @@ async function exportAll(ctx: ExportContext): Promise<ExportReport> {
 
   // Identity at project root: GEMINI.md sibling to .gemini/ (matches the
   // CLAUDE.md / AGENTS.md convention used by other native adapters).
-  const geminiMdPath = join(ctx.harnessDir, 'GEMINI.md');
+  const geminiMdPath = join(ctx.projectRoot, 'GEMINI.md');
   const body = composeIdentityDocument(ctx.identity.content, ctx.rules);
   const hash = computeContentHash(body);
   const stamped = embedProvenance(body, {
@@ -142,7 +142,7 @@ async function detectDrift(ctx: ExportContext): Promise<DriftReport> {
   }
 
   // GEMINI.md drift
-  const geminiMdPath = join(ctx.harnessDir, 'GEMINI.md');
+  const geminiMdPath = join(ctx.projectRoot, 'GEMINI.md');
   if (existsSync(geminiMdPath)) {
     const content = readFileSync(geminiMdPath, 'utf-8');
     const marker = extractProvenance(content, 'markdown-comment');
