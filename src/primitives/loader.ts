@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, existsSync, statSync } from 'fs';
 import { join, extname, basename } from 'path';
 import matter from 'gray-matter';
-import { FrontmatterSchema, CORE_PRIMITIVE_DIRS, type HarnessDocument, type Frontmatter, type NonSkillFrontmatter } from '../core/types.js';
+import { FrontmatterSchema, CORE_PRIMITIVE_DIRS, type HarnessDocument, type Frontmatter } from '../core/types.js';
 
 export interface ParseError {
   path: string;
@@ -120,7 +120,7 @@ export function parseHarnessDocument(filePath: string, bundleDir?: string): Harn
       : undefined,
     body,
     raw,
-    frontmatter: frontmatter as unknown as NonSkillFrontmatter,
+    frontmatter,
   };
   if (bundleDir) doc.bundleDir = bundleDir;
   return doc;
