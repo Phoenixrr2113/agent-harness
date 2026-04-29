@@ -1,4 +1,4 @@
-import { readdirSync, existsSync, statSync, mkdirSync, renameSync, unlinkSync, readFileSync, writeFileSync } from 'fs';
+import { readdirSync, existsSync, statSync, mkdirSync, renameSync, unlinkSync, rmSync, readFileSync, writeFileSync } from 'fs';
 import { join, dirname, basename } from 'path';
 import matter from 'gray-matter';
 
@@ -9,7 +9,12 @@ export type MigrationKind =
   | 'bundle-flat-skill'
   | 'rewrite-skill-frontmatter'
   | 'convert-allowed-tools-to-string'
-  | 'strip-l0-l1-comments';
+  | 'strip-l0-l1-comments'
+  | 'move-instinct-to-rule'
+  | 'move-playbook-to-skill'
+  | 'move-workflow-to-skill'
+  | 'move-agent-to-skill'
+  | 'cleanup-empty-primitive-dir';
 
 export interface MigrationFinding {
   kind: MigrationKind;
@@ -126,6 +131,35 @@ export function checkMigrations(harnessDir: string): MigrationReport {
           findings.push({ kind: 'strip-l0-l1-comments', path: skillMd });
         }
       }
+    }
+  }
+
+  // Scan old primitive directories that collapse into skills/ or rules/
+  const PRIMITIVE_DIRS_TO_COLLAPSE = ['instincts', 'playbooks', 'workflows', 'agents'] as const;
+  const kindByDir: Record<string, MigrationKind> = {
+    instincts: 'move-instinct-to-rule',
+    playbooks: 'move-playbook-to-skill',
+    workflows: 'move-workflow-to-skill',
+    agents: 'move-agent-to-skill',
+  };
+
+  for (const oldKind of PRIMITIVE_DIRS_TO_COLLAPSE) {
+    const oldDir = join(harnessDir, oldKind);
+    if (!existsSync(oldDir) || !statSync(oldDir).isDirectory()) continue;
+    for (const entry of readdirSync(oldDir)) {
+      const entryPath = join(oldDir, entry);
+      if (!statSync(entryPath).isFile() || !entry.endsWith('.md')) continue;
+      findings.push({ kind: kindByDir[oldKind], path: entryPath });
+    }
+  }
+
+  // Detect now-empty primitive directories that can be removed
+  for (const oldKind of [...PRIMITIVE_DIRS_TO_COLLAPSE, 'tools'] as const) {
+    const oldDir = join(harnessDir, oldKind);
+    if (!existsSync(oldDir) || !statSync(oldDir).isDirectory()) continue;
+    const entries = readdirSync(oldDir);
+    if (entries.length === 0) {
+      findings.push({ kind: 'cleanup-empty-primitive-dir', path: oldDir });
     }
   }
 
@@ -290,6 +324,91 @@ export function applyMigrations(harnessDir: string, report: MigrationReport): Ap
           skipped.push({ ...finding, reason: 'consolidated into rewrite-skill-frontmatter' });
           break;
         }
+        case 'move-instinct-to-rule': {
+          const flatPath = finding.path;
+          const baseName = basename(flatPath, '.md');
+          const newDir = join(harnessDir, 'rules');
+          mkdirSync(newDir, { recursive: true });
+          const newPath = join(newDir, `${baseName}.md`);
+          if (existsSync(newPath)) {
+            skipped.push({ ...finding, reason: `rules/${baseName}.md exists; instinct left in place` });
+            break;
+          }
+          const raw = readFileSync(flatPath, 'utf-8');
+          const { data, content } = matter(raw);
+          data.author = 'agent';
+          if (!data.metadata || typeof data.metadata !== 'object') data.metadata = {};
+          (data.metadata as Record<string, unknown>)['harness-source'] = 'learned';
+          writeFileSync(newPath, matter.stringify(content, data), 'utf-8');
+          unlinkSync(flatPath);
+          applied.push(finding);
+          break;
+        }
+        case 'move-playbook-to-skill': {
+          const flatPath = finding.path;
+          const baseName = basename(flatPath, '.md');
+          const newBundleDir = join(harnessDir, 'skills', baseName);
+          if (existsSync(newBundleDir)) {
+            skipped.push({ ...finding, reason: `skills/${baseName}/ exists; playbook left in place` });
+            break;
+          }
+          mkdirSync(newBundleDir, { recursive: true });
+          renameSync(flatPath, join(newBundleDir, 'SKILL.md'));
+          applied.push(finding);
+          break;
+        }
+        case 'move-workflow-to-skill': {
+          const flatPath = finding.path;
+          const baseName = basename(flatPath, '.md');
+          const newBundleDir = join(harnessDir, 'skills', baseName);
+          if (existsSync(newBundleDir)) {
+            skipped.push({ ...finding, reason: `skills/${baseName}/ exists; workflow left in place` });
+            break;
+          }
+          const raw = readFileSync(flatPath, 'utf-8');
+          const { data, content } = matter(raw);
+          if (!data.metadata || typeof data.metadata !== 'object') data.metadata = {};
+          const wfMeta = data.metadata as Record<string, unknown>;
+          if (data.schedule !== undefined) { wfMeta['harness-schedule'] = String(data.schedule); delete data.schedule; }
+          if (data.durable !== undefined) { wfMeta['harness-durable'] = String(data.durable); delete data.durable; }
+          if (data.max_retries !== undefined) { wfMeta['harness-max-retries'] = String(data.max_retries); delete data.max_retries; }
+          if (data.retry_delay_ms !== undefined) { wfMeta['harness-retry-delay-ms'] = String(data.retry_delay_ms); delete data.retry_delay_ms; }
+          if (data.channel !== undefined) { wfMeta['harness-channel'] = String(data.channel); delete data.channel; }
+          mkdirSync(newBundleDir, { recursive: true });
+          writeFileSync(join(newBundleDir, 'SKILL.md'), matter.stringify(content, data), 'utf-8');
+          unlinkSync(flatPath);
+          applied.push(finding);
+          break;
+        }
+        case 'move-agent-to-skill': {
+          const flatPath = finding.path;
+          const baseName = basename(flatPath, '.md');
+          const newBundleDir = join(harnessDir, 'skills', baseName);
+          if (existsSync(newBundleDir)) {
+            skipped.push({ ...finding, reason: `skills/${baseName}/ exists; agent left in place` });
+            break;
+          }
+          const raw = readFileSync(flatPath, 'utf-8');
+          const { data, content } = matter(raw);
+          if (!data.metadata || typeof data.metadata !== 'object') data.metadata = {};
+          const agentMeta = data.metadata as Record<string, unknown>;
+          agentMeta['harness-trigger'] = 'subagent';
+          if (data.model !== undefined) { agentMeta['harness-model'] = String(data.model); delete data.model; }
+          if (Array.isArray(data.active_tools)) {
+            agentMeta['harness-active-tools'] = (data.active_tools as string[]).join(',');
+            delete data.active_tools;
+          }
+          mkdirSync(newBundleDir, { recursive: true });
+          writeFileSync(join(newBundleDir, 'SKILL.md'), matter.stringify(content, data), 'utf-8');
+          unlinkSync(flatPath);
+          applied.push(finding);
+          break;
+        }
+        case 'cleanup-empty-primitive-dir': {
+          rmSync(finding.path, { recursive: true, force: true });
+          applied.push(finding);
+          break;
+        }
         default: {
           // Exhaustiveness guard
           const _exhaustive: never = finding.kind;
@@ -299,6 +418,34 @@ export function applyMigrations(harnessDir: string, report: MigrationReport): Ap
       }
     } catch (err) {
       errors.push({ ...finding, reason: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  // Post-pass: after moving files out of old primitive directories, remove
+  // any that are now empty. This covers the case where a single applyMigrations
+  // call both moves files out AND cleans up the resulting empty directory.
+  const OLD_PRIMITIVE_DIRS = ['instincts', 'playbooks', 'workflows', 'agents', 'tools'];
+  for (const dirName of OLD_PRIMITIVE_DIRS) {
+    const dirPath = join(harnessDir, dirName);
+    if (!existsSync(dirPath) || !statSync(dirPath).isDirectory()) continue;
+    const entries = readdirSync(dirPath);
+    if (entries.length === 0) {
+      try {
+        rmSync(dirPath, { recursive: true, force: true });
+        // Only record as applied if it wasn't already in the report (dedup guard)
+        const alreadyApplied = applied.some(
+          (f) => f.kind === 'cleanup-empty-primitive-dir' && f.path === dirPath
+        );
+        if (!alreadyApplied) {
+          applied.push({ kind: 'cleanup-empty-primitive-dir', path: dirPath });
+        }
+      } catch (err) {
+        errors.push({
+          kind: 'cleanup-empty-primitive-dir',
+          path: dirPath,
+          reason: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }
 

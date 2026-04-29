@@ -279,3 +279,92 @@ Body.`,
     expect(rewriteCount).toBe(1);
   });
 });
+
+describe('applyMigrations — primitive type collapse', () => {
+  it('moves instincts/foo.md → rules/foo.md with author: agent', () => {
+    const dir = mkdtempSync(join(tmpdir(), `mig-collapse-${Math.random().toString(36).slice(2, 10)}-`));
+    mkdirSync(join(dir, 'instincts'), { recursive: true });
+    writeFileSync(
+      join(dir, 'instincts', 'lead-with-answer.md'),
+      `---\nname: lead-with-answer\ndescription: Lead with the answer.\n---\nLead with the answer.`,
+      'utf-8'
+    );
+
+    applyMigrations(dir, checkMigrations(dir));
+
+    expect(existsSync(join(dir, 'instincts', 'lead-with-answer.md'))).toBe(false);
+    const newPath = join(dir, 'rules', 'lead-with-answer.md');
+    expect(existsSync(newPath)).toBe(true);
+    const after = matter(readFileSync(newPath, 'utf-8'));
+    expect(after.data.author).toBe('agent');
+    expect((after.data.metadata as Record<string, unknown>)?.['harness-source']).toBe('learned');
+  });
+
+  it('moves playbooks/foo.md → skills/foo/SKILL.md', () => {
+    const dir = mkdtempSync(join(tmpdir(), `mig-collapse-${Math.random().toString(36).slice(2, 10)}-`));
+    mkdirSync(join(dir, 'playbooks'), { recursive: true });
+    writeFileSync(
+      join(dir, 'playbooks', 'ship-feature.md'),
+      `---\nname: ship-feature\ndescription: Ship a feature.\n---\nWorkflow.`,
+      'utf-8'
+    );
+
+    applyMigrations(dir, checkMigrations(dir));
+
+    expect(existsSync(join(dir, 'playbooks', 'ship-feature.md'))).toBe(false);
+    expect(existsSync(join(dir, 'skills', 'ship-feature', 'SKILL.md'))).toBe(true);
+  });
+
+  it('moves workflows/foo.md → skills/foo/SKILL.md with metadata.harness-schedule', () => {
+    const dir = mkdtempSync(join(tmpdir(), `mig-collapse-${Math.random().toString(36).slice(2, 10)}-`));
+    mkdirSync(join(dir, 'workflows'), { recursive: true });
+    writeFileSync(
+      join(dir, 'workflows', 'daily-reflection.md'),
+      `---\nname: daily-reflection\ndescription: Daily reflection.\nschedule: "0 22 * * *"\n---\nBody.`,
+      'utf-8'
+    );
+
+    applyMigrations(dir, checkMigrations(dir));
+
+    expect(existsSync(join(dir, 'workflows', 'daily-reflection.md'))).toBe(false);
+    const newPath = join(dir, 'skills', 'daily-reflection', 'SKILL.md');
+    expect(existsSync(newPath)).toBe(true);
+    const after = matter(readFileSync(newPath, 'utf-8'));
+    expect(after.data).not.toHaveProperty('schedule');
+    expect((after.data.metadata as Record<string, unknown>)?.['harness-schedule']).toBe('0 22 * * *');
+  });
+
+  it('moves agents/foo.md → skills/foo/SKILL.md with harness-trigger: subagent', () => {
+    const dir = mkdtempSync(join(tmpdir(), `mig-collapse-${Math.random().toString(36).slice(2, 10)}-`));
+    mkdirSync(join(dir, 'agents'), { recursive: true });
+    writeFileSync(
+      join(dir, 'agents', 'summarizer.md'),
+      `---\nname: summarizer\ndescription: Summarize text.\nmodel: fast\n---\nBody.`,
+      'utf-8'
+    );
+
+    applyMigrations(dir, checkMigrations(dir));
+
+    expect(existsSync(join(dir, 'agents', 'summarizer.md'))).toBe(false);
+    const newPath = join(dir, 'skills', 'summarizer', 'SKILL.md');
+    expect(existsSync(newPath)).toBe(true);
+    const after = matter(readFileSync(newPath, 'utf-8'));
+    expect(after.data).not.toHaveProperty('model');
+    expect((after.data.metadata as Record<string, unknown>)?.['harness-trigger']).toBe('subagent');
+    expect((after.data.metadata as Record<string, unknown>)?.['harness-model']).toBe('fast');
+  });
+
+  it('removes empty primitive directories after migration', () => {
+    const dir = mkdtempSync(join(tmpdir(), `mig-collapse-${Math.random().toString(36).slice(2, 10)}-`));
+    mkdirSync(join(dir, 'instincts'), { recursive: true });
+    writeFileSync(
+      join(dir, 'instincts', 'foo.md'),
+      `---\nname: foo\ndescription: A.\n---\nBody.`,
+      'utf-8'
+    );
+
+    applyMigrations(dir, checkMigrations(dir));
+
+    expect(existsSync(join(dir, 'instincts'))).toBe(false);
+  });
+});
