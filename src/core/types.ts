@@ -259,6 +259,18 @@ export interface Primitive {
 }
 
 // --- Config ---
+export const ExportTargetSchema = z.object({
+  provider: z.enum(['claude', 'codex', 'cursor', 'copilot', 'gemini', 'agents']),
+  path: z.string().min(1),
+  auto: z.boolean().optional().default(false),
+});
+
+export const ExportConfigSchema = z.object({
+  enabled: z.boolean().optional().default(false),
+  targets: z.array(ExportTargetSchema).optional().default([]),
+  on_drift: z.enum(['warn', 'fail', 'ignore']).optional().default('warn'),
+});
+
 export const HarnessConfigSchema = z.object({
   agent: z.object({
     name: z.string().min(1),
@@ -568,6 +580,12 @@ export const HarnessConfigSchema = z.object({
     on_unknown_license: 'warn',
     on_proprietary: 'block',
   }),
+  /**
+   * Provider integration: export harness primitives (skills, rules, identity)
+   * to ecosystem providers like Claude Code, Cursor, Codex, etc. Disabled by
+   * default — opt-in via `enabled: true` and configured `targets`.
+   */
+  export: ExportConfigSchema.optional(),
 }).passthrough();
 
 export type HarnessConfig = z.infer<typeof HarnessConfigSchema>;
