@@ -589,6 +589,79 @@ program
         }
       }
 
+      // Provider integration detection (spec #5): if the project root has
+      // existing agent tooling (.claude/, .cursor/, .github/copilot-instructions.md,
+      // AGENTS.md/CLAUDE.md/GEMINI.md, etc.), offer to wire up `harness export`
+      // sync via config.yaml. Non-interactive runs skip the prompt.
+      try {
+        const { detectExistingProviders } = await import('./scaffold.js');
+        // The project root is the harness's parent if the harness was scaffolded
+        // into a subdirectory; otherwise the harness IS the project root.
+        const projectRootCandidate = dirname(targetDir);
+        const detected = detectExistingProviders(projectRootCandidate);
+        if (detected.length > 0 && process.stdin.isTTY && !opts.yes) {
+          console.log(`\n✓ Detected existing agent tooling in this project:`);
+          for (const d of detected) {
+            console.log(`  ${d.provider}  →  ${d.evidencePath}`);
+          }
+          console.log(`\nThe harness can keep these in sync with your skills and rules.`);
+          console.log(`Configure 'harness export' targets in config.yaml? [Y/n]`);
+          const readline = await import('readline');
+          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+          const answer = await new Promise<string>((resolve) => {
+            rl.question('  > ', (ans) => { rl.close(); resolve(ans.trim().toLowerCase()); });
+          });
+          if (answer === '' || answer === 'y' || answer === 'yes') {
+            const targetMap: Record<string, string> = {
+              claude: '.claude',
+              codex: '.codex',
+              cursor: '.cursor',
+              copilot: '.github',
+              gemini: '.gemini',
+              agents: '.agents',
+            };
+            const exportTargets = detected.map((d) =>
+              `    - provider: ${d.provider}\n      path: "${targetMap[d.provider]}"\n      auto: false`
+            ).join('\n');
+            const configPath = join(targetDir, 'config.yaml');
+            const existingConfig = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : '';
+            // Only append if not already present (idempotent)
+            if (!existingConfig.includes('\nexport:')) {
+              const block = `\nexport:\n  enabled: true\n  on_drift: warn\n  targets:\n${exportTargets}\n`;
+              writeFileSync(configPath, existingConfig.trimEnd() + '\n' + block, 'utf-8');
+              console.log(`  ✓ wrote export config for: ${detected.map((d) => d.provider).join(', ')}`);
+              console.log(`  → run 'harness export' to generate the provider files`);
+            } else {
+              console.log(`  ↷ export block already present in config.yaml; skipping`);
+            }
+          } else {
+            console.log(`  ↷ skipped sync setup`);
+          }
+        }
+      } catch (err) {
+        console.log(`  ✗ provider detection failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      // Surface a model-config heads-up so users with no API keys aren't
+      // surprised by the first `harness run` failing. If neither
+      // OPENROUTER_API_KEY (default provider) nor a fallback like
+      // ANTHROPIC_API_KEY/OPENAI_API_KEY/CEREBRAS_API_KEY is set, point at
+      // the local Ollama path explicitly.
+      const hasAnyApiKey = Boolean(
+        process.env.OPENROUTER_API_KEY ||
+        process.env.ANTHROPIC_API_KEY ||
+        process.env.OPENAI_API_KEY ||
+        process.env.CEREBRAS_API_KEY,
+      );
+      if (!hasAnyApiKey) {
+        console.log(`\n⚠ No API key detected for the default model (openrouter/anthropic/claude-sonnet-4).`);
+        console.log(`  To use a hosted model: export OPENROUTER_API_KEY=...`);
+        console.log(`  To use a free local model with Ollama:`);
+        console.log(`    1. Install Ollama (https://ollama.com) and run: ollama pull qwen3:1.7b`);
+        console.log(`    2. cd ${targetDir} && harness config set model.provider ollama`);
+        console.log(`    3. harness config set model.id qwen3:1.7b`);
+      }
+
       console.log(`\nNext steps — try these in order:`);
       console.log(`  cd ${targetDir}`);
       console.log(`  harness run "What can you do?"           # see what's loaded`);
@@ -1487,7 +1560,8 @@ program
   .option('--migrate', 'apply detected migrations', false)
   .option('--fix', 'apply auto-fixable lints (e.g., chmod +x scripts)', false)
   .option('--check-drift', 'Also check for drift across configured export targets', false)
-  .action(async (opts: { dir: string; check: boolean; migrate: boolean; fix: boolean; checkDrift: boolean }) => {
+  .option('--dry-run', 'with --migrate or --fix, preview changes without applying', false)
+  .action(async (opts: { dir: string; check: boolean; migrate: boolean; fix: boolean; checkDrift: boolean; dryRun: boolean }) => {
     const { checkMigrations, applyMigrations } = await import('../runtime/migration.js');
     const { runLints, applyFixes } = await import('../runtime/doctor.js');
     const dir = resolve(opts.dir);
@@ -1555,6 +1629,10 @@ program
       if (opts.migrate) {
         if (report.findings.length === 0) {
           console.log('No migrations needed.');
+        } else if (opts.dryRun) {
+          console.log(`\nDry run — would apply ${report.findings.length} migration(s):`);
+          for (const f of report.findings) console.log(`  + ${f.kind}: ${f.path}`);
+          console.log(`\nRe-run without --dry-run to apply.`);
         } else {
           const result = applyMigrations(dir, report);
           console.log(`\nMigrations applied: ${result.applied.length}`);
@@ -1573,9 +1651,16 @@ program
 
       // Apply auto-fixable lints if requested
       if (opts.fix) {
-        const { applied, remaining } = await applyFixes(dir, lintResults);
-        const manualCount = remaining.filter((r) => r.severity !== 'info').length;
-        console.log(`\nApplied ${applied} auto-fix(es). ${manualCount} remaining (manual review needed).`);
+        if (opts.dryRun) {
+          const fixable = lintResults.filter((r) => r.fixable);
+          console.log(`\nDry run — would auto-fix ${fixable.length} lint(s):`);
+          for (const r of fixable) console.log(`  + ${r.code}: ${r.message}`);
+          console.log(`\nRe-run without --dry-run to apply.`);
+        } else {
+          const { applied, remaining } = await applyFixes(dir, lintResults);
+          const manualCount = remaining.filter((r) => r.severity !== 'info').length;
+          console.log(`\nApplied ${applied} auto-fix(es). ${manualCount} remaining (manual review needed).`);
+        }
       }
 
       if (report.findings.length === 0 && lintResults.length === 0) {

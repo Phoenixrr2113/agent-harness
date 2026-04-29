@@ -22,6 +22,7 @@ function buildCtx(harnessDir: string): ExportContext {
   const identity = loadIdentity(harnessDir);
   return {
     harnessDir,
+    projectRoot: harnessDir,
     targetDir: join(harnessDir, '.gemini'),
     skills: all.get('skills') ?? [],
     rules: all.get('rules') ?? [],

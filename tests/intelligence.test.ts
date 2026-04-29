@@ -52,6 +52,10 @@ describe('intelligence', () => {
   }
 
   function createInstinct(id: string, content: string): void {
+    // Legacy `instincts/` directory is no longer scaffolded by `harness init`
+    // (per spec #2 collapse), but the runtime still reads from it for
+    // backward-compat with pre-collapse harnesses. Tests create the dir.
+    mkdirSync(join(harnessDir, 'instincts'), { recursive: true });
     writeFileSync(
       join(harnessDir, 'instincts', `${id}.md`),
       `---\nid: ${id}\ntags: [test]\ncreated: 2024-01-01\nauthor: agent\nstatus: active\nrelated: []\ndescription: "${content.split('\n')[0]}"\n---\n\n${content}`,

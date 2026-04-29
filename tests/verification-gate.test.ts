@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { scaffoldHarness } from '../src/cli/scaffold.js';
@@ -27,6 +27,10 @@ describe('verification-gate', () => {
     tmpBase = mkdtempSync(join(tmpdir(), 'vgate-'));
     testDir = join(tmpBase, 'test-agent');
     scaffoldHarness(testDir, 'test-agent', { template: 'base' });
+    // Legacy `playbooks/` is no longer scaffolded by `harness init`
+    // (per spec #2 collapse), but the runtime still reads from it for
+    // backward-compat with pre-collapse harnesses. Tests create the dir.
+    mkdirSync(join(testDir, 'playbooks'), { recursive: true });
   });
 
   afterEach(() => {

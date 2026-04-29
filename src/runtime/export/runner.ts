@@ -1,5 +1,7 @@
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, existsSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 import { loadAllPrimitives } from '../../primitives/loader.js';
 import { loadIdentity } from '../context-loader.js';
 import { getAdapter } from './registry.js';
@@ -13,14 +15,88 @@ export interface RunExportOptions {
   force?: boolean;
 }
 
-function harnessVersion(harnessDir: string): string {
-  try {
-    const raw = readFileSync(join(harnessDir, 'package.json'), 'utf-8');
-    const pkg = JSON.parse(raw) as { name?: string; version?: string };
-    return `${pkg.name ?? 'agent-harness'}@${pkg.version ?? 'unknown'}`;
-  } catch {
-    return 'agent-harness@unknown';
+/**
+ * Default target directory for each provider. Resolved relative to harnessDir
+ * unless the user passes --target. Per-provider defaults match the canonical
+ * paths that each upstream tool reads from (copilot's `.github/`, etc.).
+ */
+const DEFAULT_PROVIDER_TARGET: Record<ProviderName, string> = {
+  claude: '.claude',
+  codex: '.codex',
+  cursor: '.cursor',
+  copilot: '.github',
+  gemini: '.gemini',
+  agents: '.agents',
+};
+
+/**
+ * Resolve the running CLI's package version. The bundle is flat in dist/, so
+ * we walk multiple candidate paths and validate via pkg.name (per CLAUDE.md §10).
+ * Falls back to 'agent-harness@unknown' only when running outside any package.
+ */
+function resolveCliVersion(): string {
+  const here = fileURLToPath(import.meta.url);
+  const require = createRequire(import.meta.url);
+  const candidates = [
+    '../../package.json',           // src/runtime/export/runner.ts → repo root
+    '../../../package.json',         // dist/runtime/export/runner.js → repo root (ESM bundles)
+    '../package.json',               // dist/cli/index.js (flat tsup output) → repo root
+  ];
+  for (const candidate of candidates) {
+    try {
+      const pkg = require(candidate) as { name?: string; version?: string };
+      if (pkg.name === '@agntk/agent-harness' && pkg.version) {
+        return `${pkg.name}@${pkg.version}`;
+      }
+    } catch {
+      // try next
+    }
   }
+  // Walk up from import.meta.url looking for a sibling package.json
+  let dir = dirname(here);
+  for (let i = 0; i < 6; i++) {
+    const pkgPath = join(dir, 'package.json');
+    if (existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { name?: string; version?: string };
+        if (pkg.name === '@agntk/agent-harness' && pkg.version) {
+          return `${pkg.name}@${pkg.version}`;
+        }
+      } catch {
+        // try parent
+      }
+    }
+    dir = dirname(dir);
+  }
+  return 'agent-harness@unknown';
+}
+
+const _CLI_VERSION = resolveCliVersion();
+
+function harnessVersion(_harnessDir: string): string {
+  return _CLI_VERSION;
+}
+
+export function defaultTargetFor(provider: ProviderName): string {
+  return DEFAULT_PROVIDER_TARGET[provider];
+}
+
+/**
+ * Resolve the host project root. If `harnessDir`'s parent has any
+ * project-level sentinel (AGENTS.md, CLAUDE.md, GEMINI.md, package.json,
+ * .git), treat it as a subdirectory install and return the parent.
+ * Otherwise treat the harness directory itself as the project root.
+ */
+export function detectProjectRoot(harnessDir: string): string {
+  const parent = dirname(harnessDir);
+  if (parent === harnessDir) return harnessDir; // already at filesystem root
+  const sentinels = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md', 'package.json', '.git'];
+  for (const f of sentinels) {
+    if (existsSync(join(parent, f))) {
+      return parent;
+    }
+  }
+  return harnessDir;
 }
 
 function buildContext(harnessDir: string, targetDir: string): ExportContext {
@@ -28,6 +104,7 @@ function buildContext(harnessDir: string, targetDir: string): ExportContext {
   const identity = loadIdentity(harnessDir);
   return {
     harnessDir,
+    projectRoot: detectProjectRoot(harnessDir),
     targetDir,
     skills: all.get('skills') ?? [],
     rules: all.get('rules') ?? [],
@@ -45,7 +122,7 @@ export async function runExport(opts: RunExportOptions): Promise<ExportReport[]>
     if (!adapter) {
       throw new Error(`unknown provider: ${name}`);
     }
-    const targetDir = targetPath ?? `.${name}`;
+    const targetDir = targetPath ?? defaultTargetFor(name);
     const ctx = buildContext(harnessDir, targetDir);
     if (dryRun) {
       reports.push({ provider: name, written: [], skipped: [], warnings: ['dry-run: no files written'] });
@@ -67,7 +144,7 @@ export async function runDrift(harnessDir: string, providers: ProviderName[], ta
   for (const name of providers) {
     const adapter = getAdapter(name);
     if (!adapter) throw new Error(`unknown provider: ${name}`);
-    const targetDir = targetPath ?? `.${name}`;
+    const targetDir = targetPath ?? defaultTargetFor(name);
     const ctx = buildContext(harnessDir, targetDir);
     const report = await adapter.detectDrift(ctx);
     out.push({ provider: name, findings: report.findings });
@@ -84,7 +161,7 @@ export async function runPrune(harnessDir: string, providers: ProviderName[], ta
       out.push({ provider: name, removed: [] });
       continue;
     }
-    const targetDir = targetPath ?? `.${name}`;
+    const targetDir = targetPath ?? defaultTargetFor(name);
     const ctx = buildContext(harnessDir, targetDir);
     const result = await adapter.prune(ctx);
     out.push({ provider: name, removed: result.removed });
@@ -96,7 +173,7 @@ export async function runResync(harnessDir: string, provider: ProviderName, prov
   const adapter = getAdapter(provider);
   if (!adapter) throw new Error(`unknown provider: ${provider}`);
   if (!adapter.resyncFile) throw new Error(`provider ${provider} does not support resync`);
-  const targetDir = targetPath ?? `.${provider}`;
+  const targetDir = targetPath ?? defaultTargetFor(provider);
   const ctx = buildContext(harnessDir, targetDir);
   return adapter.resyncFile(ctx, providerFile);
 }

@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { runExport } from '../../../src/runtime/export/runner.js';
+import { runExport, defaultTargetFor } from '../../../src/runtime/export/runner.js';
 import { registerAdapter, clearRegistry } from '../../../src/runtime/export/registry.js';
-import type { ProviderAdapter } from '../../../src/runtime/export/types.js';
+import type { ProviderAdapter, ExportContext } from '../../../src/runtime/export/types.js';
 
 function tmp(): string { return mkdtempSync(join(tmpdir(), 'rxr-')); }
 
@@ -51,5 +51,71 @@ describe('runExport', () => {
     expect(exportAll).not.toHaveBeenCalled();
     expect(reports[0].written).toEqual([]);
     expect(reports[0].warnings.some((w) => /dry-run/i.test(w))).toBe(true);
+  });
+
+  it('uses defaultTargetFor when targetPath is omitted', async () => {
+    const dir = tmp();
+    makeFakeHarness(dir);
+    let observedTargetDir = '';
+    const exportAll = vi.fn(async (ctx: ExportContext) => {
+      observedTargetDir = ctx.targetDir;
+      return { provider: 'copilot' as const, written: [], skipped: [], warnings: [] };
+    });
+    registerAdapter({ name: 'copilot', exportAll, detectDrift: async () => ({ provider: 'copilot', findings: [] }) });
+    await runExport({ harnessDir: dir, providers: ['copilot'] });
+    // copilot's canonical target is .github, NOT .copilot
+    expect(observedTargetDir).toBe('.github');
+  });
+
+  it('threads CLI version into ExportContext.harnessVersion (not "@unknown")', async () => {
+    const dir = tmp();
+    makeFakeHarness(dir);
+    let observedVersion = '';
+    const exportAll = vi.fn(async (ctx: ExportContext) => {
+      observedVersion = ctx.harnessVersion;
+      return { provider: 'claude' as const, written: [], skipped: [], warnings: [] };
+    });
+    registerAdapter({ name: 'claude', exportAll, detectDrift: async () => ({ provider: 'claude', findings: [] }) });
+    await runExport({ harnessDir: dir, providers: ['claude'] });
+    expect(observedVersion).toMatch(/^@agntk\/agent-harness@\d+\.\d+\.\d+/);
+  });
+});
+
+describe('defaultTargetFor', () => {
+  it('maps copilot to .github (not .copilot)', () => {
+    expect(defaultTargetFor('copilot')).toBe('.github');
+  });
+  it('maps the rest to .<name>', () => {
+    expect(defaultTargetFor('claude')).toBe('.claude');
+    expect(defaultTargetFor('codex')).toBe('.codex');
+    expect(defaultTargetFor('cursor')).toBe('.cursor');
+    expect(defaultTargetFor('gemini')).toBe('.gemini');
+    expect(defaultTargetFor('agents')).toBe('.agents');
+  });
+});
+
+describe('detectProjectRoot', () => {
+  it('returns harnessDir when no project sentinel exists at parent', async () => {
+    const { detectProjectRoot } = await import('../../../src/runtime/export/runner.js');
+    const dir = tmp();
+    expect(detectProjectRoot(dir)).toBe(dir);
+  });
+
+  it('returns parent when AGENTS.md sits at parent', async () => {
+    const { detectProjectRoot } = await import('../../../src/runtime/export/runner.js');
+    const projectDir = tmp();
+    const harnessDir = join(projectDir, '.harness');
+    mkdirSync(harnessDir);
+    writeFileSync(join(projectDir, 'AGENTS.md'), '# Existing project guidance');
+    expect(detectProjectRoot(harnessDir)).toBe(projectDir);
+  });
+
+  it('returns parent when package.json sits at parent (subdirectory install)', async () => {
+    const { detectProjectRoot } = await import('../../../src/runtime/export/runner.js');
+    const projectDir = tmp();
+    const harnessDir = join(projectDir, '.harness');
+    mkdirSync(harnessDir);
+    writeFileSync(join(projectDir, 'package.json'), '{"name":"my-project"}');
+    expect(detectProjectRoot(harnessDir)).toBe(projectDir);
   });
 });
