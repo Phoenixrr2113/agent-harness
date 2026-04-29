@@ -1477,14 +1477,53 @@ program
     }
   });
 
-// --- DOCTOR (validate + batch auto-fix) ---
+// --- DOCTOR (validate + batch auto-fix + migration check/apply) ---
 program
   .command('doctor')
   .description('Validate harness and auto-fix all fixable issues in one pass')
   .option('-d, --dir <path>', 'Harness directory', '.')
-  .action(async (opts: { dir: string }) => {
-    const { doctorHarness } = await import('../runtime/validator.js');
+  .option('--check', 'report migration findings only, do not modify files', false)
+  .option('--migrate', 'apply detected migrations', false)
+  .action(async (opts: { dir: string; check: boolean; migrate: boolean }) => {
+    const { checkMigrations, applyMigrations } = await import('../runtime/migration.js');
     const dir = resolve(opts.dir);
+
+    // --check or --migrate: run the migration flow only (CI-friendly, process-exit-oriented)
+    if (opts.check || opts.migrate) {
+      const report = checkMigrations(dir);
+
+      if (report.findings.length === 0) {
+        console.log('Harness is clean -- no migrations needed.');
+        process.exit(0);
+      }
+
+      if (opts.migrate) {
+        const result = applyMigrations(dir, report);
+        console.log(`Applied: ${result.applied.length}`);
+        for (const f of result.applied) console.log(`  + ${f.kind}: ${f.path}`);
+        if (result.skipped.length > 0) {
+          console.log(`Skipped: ${result.skipped.length}`);
+          for (const f of result.skipped) console.log(`  ~ ${f.kind}: ${f.path} (${f.reason})`);
+        }
+        if (result.errors.length > 0) {
+          console.log(`Errors: ${result.errors.length}`);
+          for (const f of result.errors) console.log(`  ! ${f.kind}: ${f.path} (${f.reason})`);
+          process.exit(1);
+        }
+        process.exit(0);
+      }
+
+      // --check (or default with findings): report and exit 1 for CI
+      console.log(`Found ${report.findings.length} migration(s):`);
+      for (const f of report.findings) {
+        console.log(`  - ${f.kind}: ${f.path}`);
+      }
+      console.log(`\nRun 'harness doctor --migrate' to apply.`);
+      process.exit(1);
+    }
+
+    // Default (no flags): preserve existing doctorHarness behavior
+    const { doctorHarness } = await import('../runtime/validator.js');
 
     console.log(`\nRunning doctor on: ${dir}\n`);
     const result = doctorHarness(dir);
@@ -1522,6 +1561,16 @@ program
     const fixLabel = result.fixes.length > 0 ? `, ${result.fixes.length} fixed` : '';
     console.log(`\nSummary: ${result.ok.length} ok, ${result.warnings.length} warnings, ${result.errors.length} errors${fixLabel}`);
     console.log(`Primitives: ${result.totalPrimitives}\n`);
+
+    // Also report migration findings in default mode
+    const migrationReport = checkMigrations(dir);
+    if (migrationReport.findings.length > 0) {
+      console.log(`Migration findings: ${migrationReport.findings.length}`);
+      for (const f of migrationReport.findings) {
+        console.log(`  - ${f.kind}: ${f.path}`);
+      }
+      console.log(`\nRun 'harness doctor --migrate' to apply.\n`);
+    }
 
     if (result.errors.length > 0) {
       process.exit(1);
