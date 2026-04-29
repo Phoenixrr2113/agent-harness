@@ -115,4 +115,13 @@ describe('normalizeFrontmatter — non-skills', () => {
     );
     expect(result.id).toBe('operations');
   });
+
+  it('returns undefined metadata when none provided (non-skills)', () => {
+    const result = normalizeFrontmatter(
+      { name: 'foo', description: 'A rule.' },
+      'rules',
+      '/path/to/foo'
+    );
+    expect(result.metadata).toBeUndefined();
+  });
 });

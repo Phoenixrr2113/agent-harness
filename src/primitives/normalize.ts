@@ -80,7 +80,9 @@ export function normalizeFrontmatter(
     : (typeof raw.updated === 'string' ? raw.updated : undefined);
   const related = isSkill ? parseList(meta['harness-related']) : parseList(raw.related);
 
-  const finalMetadata = isSkill ? stripHarnessKeys(meta) : meta;
+  const finalMetadata = isSkill
+    ? stripHarnessKeys(meta)
+    : (Object.keys(meta).length === 0 ? undefined : meta);
 
   return {
     id,
