@@ -63,9 +63,39 @@ export function checkMigrations(harnessDir: string): MigrationReport {
       const entryPath = join(skillsDir, entry);
       const entryStats = statSync(entryPath);
 
-      // Flat skill files need bundling
+      // Flat skill files need bundling. Also inspect their frontmatter now so
+      // the rewrite findings are queued for the SKILL.md path the file will
+      // occupy after bundling. The bundle step runs before the rewrite step
+      // (insertion order is preserved through applyMigrations), so the file
+      // will exist at the expected path when the rewrite executes.
       if (entryStats.isFile() && entry.endsWith('.md')) {
         findings.push({ kind: 'bundle-flat-skill', path: entryPath });
+
+        const baseName = basename(entryPath, '.md');
+        const futureSKILLmd = join(skillsDir, baseName, 'SKILL.md');
+
+        let flatParsed: ReturnType<typeof matter>;
+        try {
+          const flatRaw = readFileSync(entryPath, 'utf-8');
+          flatParsed = matter(flatRaw);
+        } catch {
+          continue;
+        }
+
+        const { data: flatData, content: flatContent } = flatParsed;
+        const NON_SPEC_TOP_LEVEL_KEYS_FLAT = ['id', 'tags', 'status', 'author', 'created', 'updated', 'related'];
+
+        if (NON_SPEC_TOP_LEVEL_KEYS_FLAT.some((k) => k in flatData)) {
+          findings.push({ kind: 'rewrite-skill-frontmatter', path: futureSKILLmd });
+        }
+
+        if (Array.isArray(flatData['allowed-tools'])) {
+          findings.push({ kind: 'convert-allowed-tools-to-string', path: futureSKILLmd });
+        }
+
+        if (/<!--\s*L[01]:/.test(flatContent)) {
+          findings.push({ kind: 'strip-l0-l1-comments', path: futureSKILLmd });
+        }
       }
 
       // Inspect bundled skill directories for frontmatter that needs rewriting
