@@ -1,0 +1,22 @@
+[
+  { "id": "daily-reflection-train-1", "query": "Synthesize what I worked on today and write the journal entry", "should_trigger": true, "split": "train" },
+  { "id": "daily-reflection-train-2", "query": "End-of-day reflection — pull from the day's sessions and capture rule candidates", "should_trigger": true, "split": "train" },
+  { "id": "daily-reflection-train-3", "query": "What did I accomplish today? Save it to memory/journal/", "should_trigger": true, "split": "train" },
+  { "id": "daily-reflection-train-4", "query": "Run the 18:00 reflection now — I'm wrapping up early", "should_trigger": true, "split": "train" },
+  { "id": "daily-reflection-train-5", "query": "Summarize today's work, what's still open, and any patterns worth turning into rules", "should_trigger": true, "split": "train" },
+  { "id": "daily-reflection-train-6", "query": "Time for the daily wrap-up — extract lessons from recent sessions", "should_trigger": true, "split": "train" },
+  { "id": "daily-reflection-train-neg-1", "query": "Reflect on whether using Postgres was the right call for this project", "should_trigger": false, "split": "train" },
+  { "id": "daily-reflection-train-neg-2", "query": "Plan tomorrow's standup agenda", "should_trigger": false, "split": "train" },
+  { "id": "daily-reflection-train-neg-3", "query": "Read journal/2026-04-25.md and tell me what was decided", "should_trigger": false, "split": "train" },
+  { "id": "daily-reflection-train-neg-4", "query": "Write a weekly retrospective covering the last 5 days", "should_trigger": false, "split": "train" },
+  { "id": "daily-reflection-train-neg-5", "query": "Summarize this PDF I just dropped in", "should_trigger": false, "split": "train" },
+  { "id": "daily-reflection-train-neg-6", "query": "What time is sunset today in Tampa Bay?", "should_trigger": false, "split": "train" },
+  { "id": "daily-reflection-val-1", "query": "Wrap up the day — write today's journal and propose any new rules from patterns", "should_trigger": true, "split": "validation" },
+  { "id": "daily-reflection-val-2", "query": "Run the scheduled reflection workflow ahead of schedule", "should_trigger": true, "split": "validation" },
+  { "id": "daily-reflection-val-3", "query": "Capture today's session highlights into the journal directory", "should_trigger": true, "split": "validation" },
+  { "id": "daily-reflection-val-4", "query": "Tell me what I learned today and persist it as a journal entry", "should_trigger": true, "split": "validation" },
+  { "id": "daily-reflection-val-neg-1", "query": "Show me the journal entries from last week", "should_trigger": false, "split": "validation" },
+  { "id": "daily-reflection-val-neg-2", "query": "Reflect this image vertically using ImageMagick", "should_trigger": false, "split": "validation" },
+  { "id": "daily-reflection-val-neg-3", "query": "Add a daily-cron rule to back up the database at midnight", "should_trigger": false, "split": "validation" },
+  { "id": "daily-reflection-val-neg-4", "query": "Journal a new feature idea I just thought of", "should_trigger": false, "split": "validation" }
+]

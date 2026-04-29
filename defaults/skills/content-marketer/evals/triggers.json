@@ -1,0 +1,22 @@
+[
+  { "id": "content-marketer-train-1", "query": "Build a content marketing strategy for our developer tool launch with SEO and email touchpoints", "should_trigger": true, "split": "train" },
+  { "id": "content-marketer-train-2", "query": "Draft an SEO-optimized blog post that ranks for 'feature flag rollout best practices'", "should_trigger": true, "split": "train" },
+  { "id": "content-marketer-train-3", "query": "Plan a six-week omnichannel campaign covering LinkedIn, email, and YouTube Shorts", "should_trigger": true, "split": "train" },
+  { "id": "content-marketer-train-4", "query": "Set up a topical content cluster for 'incident response' tied to our hub page", "should_trigger": true, "split": "train" },
+  { "id": "content-marketer-train-5", "query": "Recommend a conversion-focused content funnel for cold traffic to a free trial", "should_trigger": true, "split": "train" },
+  { "id": "content-marketer-train-6", "query": "Write three Twitter threads designed to drive subscriptions to our newsletter", "should_trigger": true, "split": "train" },
+  { "id": "content-marketer-train-neg-1", "query": "Build a CMS with a Markdown-driven blog feature in Next.js", "should_trigger": false, "split": "train" },
+  { "id": "content-marketer-train-neg-2", "query": "Fix the SEO meta tags missing from our /pricing route", "should_trigger": false, "split": "train" },
+  { "id": "content-marketer-train-neg-3", "query": "Refactor our marketing-site React components to use Server Components", "should_trigger": false, "split": "train" },
+  { "id": "content-marketer-train-neg-4", "query": "Analyze our churn data and propose retention improvements", "should_trigger": false, "split": "train" },
+  { "id": "content-marketer-train-neg-5", "query": "Summarize this whitepaper into bullet points", "should_trigger": false, "split": "train" },
+  { "id": "content-marketer-train-neg-6", "query": "Plan an internal team offsite for the marketing org", "should_trigger": false, "split": "train" },
+  { "id": "content-marketer-val-1", "query": "Map our top-of-funnel content gaps and propose a Q3 editorial calendar", "should_trigger": true, "split": "validation" },
+  { "id": "content-marketer-val-2", "query": "Repurpose this case study into an ebook, webinar outline, and three social posts", "should_trigger": true, "split": "validation" },
+  { "id": "content-marketer-val-3", "query": "Draft email subject lines and CTAs for our re-engagement nurture sequence", "should_trigger": true, "split": "validation" },
+  { "id": "content-marketer-val-4", "query": "Recommend pillar content topics that match buyer intent for B2B SRE teams", "should_trigger": true, "split": "validation" },
+  { "id": "content-marketer-val-neg-1", "query": "Update Mailchimp API keys in our environment config", "should_trigger": false, "split": "validation" },
+  { "id": "content-marketer-val-neg-2", "query": "Write release notes for the v2.3 launch", "should_trigger": false, "split": "validation" },
+  { "id": "content-marketer-val-neg-3", "query": "Implement Open Graph tags on our marketing pages so they preview nicely", "should_trigger": false, "split": "validation" },
+  { "id": "content-marketer-val-neg-4", "query": "Brainstorm a name for our internal Slack channel", "should_trigger": false, "split": "validation" }
+]

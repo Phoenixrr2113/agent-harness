@@ -1,0 +1,22 @@
+[
+  { "id": "research-train-1", "query": "Find authoritative sources comparing Postgres logical replication vs streaming for our setup", "should_trigger": true, "split": "train" },
+  { "id": "research-train-2", "query": "Verify what the official Stripe docs say about idempotency keys for refunds", "should_trigger": true, "split": "train" },
+  { "id": "research-train-3", "query": "Cross-reference the latest Next.js 15 release notes against the migration guide", "should_trigger": true, "split": "train" },
+  { "id": "research-train-4", "query": "Dig into primary sources on whether OAuth 2.1 is finalized — don't guess", "should_trigger": true, "split": "train" },
+  { "id": "research-train-5", "query": "I need a researched recommendation on which vector DB fits our scale, with sources", "should_trigger": true, "split": "train" },
+  { "id": "research-train-6", "query": "Check the official Tailwind v4 docs to confirm how the new config format works", "should_trigger": true, "split": "train" },
+  { "id": "research-train-neg-1", "query": "Find the bug in this function that's returning undefined", "should_trigger": false, "split": "train" },
+  { "id": "research-train-neg-2", "query": "Search the codebase for places we already implement retry logic", "should_trigger": false, "split": "train" },
+  { "id": "research-train-neg-3", "query": "Research how my coworkers feel about the new branch policy", "should_trigger": false, "split": "train" },
+  { "id": "research-train-neg-4", "query": "Find the file that defines our database schema", "should_trigger": false, "split": "train" },
+  { "id": "research-train-neg-5", "query": "Summarize this Stack Overflow answer for me", "should_trigger": false, "split": "train" },
+  { "id": "research-train-neg-6", "query": "Investigate why the test is flaking on CI", "should_trigger": false, "split": "train" },
+  { "id": "research-val-1", "query": "Verify against current docs whether the AWS SDK v3 supports retries with backoff out of the box", "should_trigger": true, "split": "validation" },
+  { "id": "research-val-2", "query": "I want a confidence-leveled recommendation on Bun vs Node for production APIs, with citations", "should_trigger": true, "split": "validation" },
+  { "id": "research-val-3", "query": "Cross-check three primary sources on TLS 1.3 deployment status in 2026", "should_trigger": true, "split": "validation" },
+  { "id": "research-val-4", "query": "Look up the Anthropic API changelog and confirm whether prompt caching changed in the latest release", "should_trigger": true, "split": "validation" },
+  { "id": "research-val-neg-1", "query": "Find the cheapest flight to Lisbon next week", "should_trigger": false, "split": "validation" },
+  { "id": "research-val-neg-2", "query": "Look through the diff and tell me what changed", "should_trigger": false, "split": "validation" },
+  { "id": "research-val-neg-3", "query": "Read the README and answer my question from it", "should_trigger": false, "split": "validation" },
+  { "id": "research-val-neg-4", "query": "Decide which library to use — I trust your gut, no need to verify", "should_trigger": false, "split": "validation" }
+]

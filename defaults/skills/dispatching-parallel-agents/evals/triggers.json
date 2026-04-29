@@ -1,0 +1,22 @@
+[
+  { "id": "dispatching-parallel-agents-train-1", "query": "I have three unrelated test files failing — investigate them in parallel", "should_trigger": true, "split": "train" },
+  { "id": "dispatching-parallel-agents-train-2", "query": "Spawn parallel subagents to triage the four bugs in different subsystems", "should_trigger": true, "split": "train" },
+  { "id": "dispatching-parallel-agents-train-3", "query": "Dispatch independent agents to research auth, billing, and notifications concurrently", "should_trigger": true, "split": "train" },
+  { "id": "dispatching-parallel-agents-train-4", "query": "These two refactors don't share files — run them in parallel agents", "should_trigger": true, "split": "train" },
+  { "id": "dispatching-parallel-agents-train-5", "query": "Fan out: one agent per subsystem, isolated context, report back", "should_trigger": true, "split": "train" },
+  { "id": "dispatching-parallel-agents-train-6", "query": "Five independent docs need rewriting — parallelize across subagents", "should_trigger": true, "split": "train" },
+  { "id": "dispatching-parallel-agents-train-neg-1", "query": "Refactor this one file across three sequential commits", "should_trigger": false, "split": "train" },
+  { "id": "dispatching-parallel-agents-train-neg-2", "query": "These two tasks share state — do them carefully in order", "should_trigger": false, "split": "train" },
+  { "id": "dispatching-parallel-agents-train-neg-3", "query": "Set up Promise.all to fetch from three endpoints in my code", "should_trigger": false, "split": "train" },
+  { "id": "dispatching-parallel-agents-train-neg-4", "query": "Investigate this single bug step by step", "should_trigger": false, "split": "train" },
+  { "id": "dispatching-parallel-agents-train-neg-5", "query": "Run pytest with the -n 4 flag for parallel test execution", "should_trigger": false, "split": "train" },
+  { "id": "dispatching-parallel-agents-train-neg-6", "query": "Delegate this single bounded task to one CLI subagent", "should_trigger": false, "split": "train" },
+  { "id": "dispatching-parallel-agents-val-1", "query": "Two independent module audits to do — let's parallel-dispatch them", "should_trigger": true, "split": "validation" },
+  { "id": "dispatching-parallel-agents-val-2", "query": "I have four unrelated debugging questions — split them across agents", "should_trigger": true, "split": "validation" },
+  { "id": "dispatching-parallel-agents-val-3", "query": "Run the search-codebase task and the read-docs task as concurrent subagents", "should_trigger": true, "split": "validation" },
+  { "id": "dispatching-parallel-agents-val-4", "query": "Investigate three different test regressions in parallel — they're all isolated", "should_trigger": true, "split": "validation" },
+  { "id": "dispatching-parallel-agents-val-neg-1", "query": "Configure a thread pool for the worker process", "should_trigger": false, "split": "validation" },
+  { "id": "dispatching-parallel-agents-val-neg-2", "query": "Run this one task — it's small and focused", "should_trigger": false, "split": "validation" },
+  { "id": "dispatching-parallel-agents-val-neg-3", "query": "These three steps depend on each other — do them serially", "should_trigger": false, "split": "validation" },
+  { "id": "dispatching-parallel-agents-val-neg-4", "query": "Park the dispatcher service while we redeploy", "should_trigger": false, "split": "validation" }
+]

@@ -1,0 +1,22 @@
+[
+  { "id": "summarizer-train-1", "query": "Condense this 4000-line meeting transcript into a structured summary with action items", "should_trigger": true, "split": "train" },
+  { "id": "summarizer-train-2", "query": "Summarize this changelog dump into a 2-3 sentence overview plus key points", "should_trigger": true, "split": "train" },
+  { "id": "summarizer-train-3", "query": "Pull the decisions and action items out of this design doc", "should_trigger": true, "split": "train" },
+  { "id": "summarizer-train-4", "query": "Give me a structured summary of these support-ticket logs from yesterday", "should_trigger": true, "split": "train" },
+  { "id": "summarizer-train-5", "query": "Compress this PDF transcript into bullet points, decisions, and follow-ups", "should_trigger": true, "split": "train" },
+  { "id": "summarizer-train-6", "query": "Stateless summary, please — turn this 50KB log into a digest", "should_trigger": true, "split": "train" },
+  { "id": "summarizer-train-neg-1", "query": "Synthesize today's sessions into a journal entry under memory/journal/", "should_trigger": false, "split": "train" },
+  { "id": "summarizer-train-neg-2", "query": "Research what experts say about this topic before summarizing anything", "should_trigger": false, "split": "train" },
+  { "id": "summarizer-train-neg-3", "query": "Write a marketing summary that promotes our new feature", "should_trigger": false, "split": "train" },
+  { "id": "summarizer-train-neg-4", "query": "Run a SQL aggregation that counts orders by status", "should_trigger": false, "split": "train" },
+  { "id": "summarizer-train-neg-5", "query": "Quickly skim this and respond to the email — don't write a structured summary", "should_trigger": false, "split": "train" },
+  { "id": "summarizer-train-neg-6", "query": "Summary of why this PR exists, but make it casual conversation", "should_trigger": false, "split": "train" },
+  { "id": "summarizer-val-1", "query": "Distill this sprawling Slack thread into structured key points and decisions", "should_trigger": true, "split": "validation" },
+  { "id": "summarizer-val-2", "query": "Take this lengthy article and emit a 2-3 sentence overview plus action items", "should_trigger": true, "split": "validation" },
+  { "id": "summarizer-val-3", "query": "Compress this raw call transcript into a structured digest with follow-ups", "should_trigger": true, "split": "validation" },
+  { "id": "summarizer-val-4", "query": "Reduce these meeting notes to a tidy structured summary I can paste into Notion", "should_trigger": true, "split": "validation" },
+  { "id": "summarizer-val-neg-1", "query": "Reflect on the day and write to the journal", "should_trigger": false, "split": "validation" },
+  { "id": "summarizer-val-neg-2", "query": "Summarize the brainstorm into an actionable design", "should_trigger": false, "split": "validation" },
+  { "id": "summarizer-val-neg-3", "query": "Translate this English article into French and keep the original length", "should_trigger": false, "split": "validation" },
+  { "id": "summarizer-val-neg-4", "query": "Generate three blog-post titles that summarize what we shipped", "should_trigger": false, "split": "validation" }
+]

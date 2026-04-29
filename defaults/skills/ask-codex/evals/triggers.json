@@ -1,0 +1,22 @@
+[
+  { "id": "ask-codex-train-1", "query": "Use the codex CLI to add JSDoc comments to every exported function in this file", "should_trigger": true, "split": "train" },
+  { "id": "ask-codex-train-2", "query": "Hand this refactor to codex — runs on my ChatGPT subscription, not the API budget", "should_trigger": true, "split": "train" },
+  { "id": "ask-codex-train-3", "query": "Spawn a codex subagent to triage these 30 TypeScript errors", "should_trigger": true, "split": "train" },
+  { "id": "ask-codex-train-4", "query": "Have codex draft a unit test for the rate-limiter and return the file diff", "should_trigger": true, "split": "train" },
+  { "id": "ask-codex-train-5", "query": "Delegate this 2k-line cleanup to codex; just return the final patch", "should_trigger": true, "split": "train" },
+  { "id": "ask-codex-train-6", "query": "Run codex in edit mode to migrate this module to async/await", "should_trigger": true, "split": "train" },
+  { "id": "ask-codex-train-neg-1", "query": "What's the difference between OpenAI Codex (the 2021 model) and GPT-4o?", "should_trigger": false, "split": "train" },
+  { "id": "ask-codex-train-neg-2", "query": "Read the codex.toml config in the project root and explain it", "should_trigger": false, "split": "train" },
+  { "id": "ask-codex-train-neg-3", "query": "Cancel my ChatGPT Plus subscription on openai.com", "should_trigger": false, "split": "train" },
+  { "id": "ask-codex-train-neg-4", "query": "Use the OpenAI Python SDK to call gpt-4o-mini with structured outputs", "should_trigger": false, "split": "train" },
+  { "id": "ask-codex-train-neg-5", "query": "What is a codex in medieval manuscript history?", "should_trigger": false, "split": "train" },
+  { "id": "ask-codex-train-neg-6", "query": "Use claude to handle this delegation — not codex this time", "should_trigger": false, "split": "train" },
+  { "id": "ask-codex-val-1", "query": "Spin up codex to convert this CommonJS file to ESM and report back", "should_trigger": true, "split": "validation" },
+  { "id": "ask-codex-val-2", "query": "Offload the boilerplate-heavy DTO generation to codex on my OpenAI subscription", "should_trigger": true, "split": "validation" },
+  { "id": "ask-codex-val-3", "query": "Have a codex subagent rename this variable across all 14 occurrences", "should_trigger": true, "split": "validation" },
+  { "id": "ask-codex-val-4", "query": "Use the openai codex command to inline these helper functions", "should_trigger": true, "split": "validation" },
+  { "id": "ask-codex-val-neg-1", "query": "Update my OpenAI API key in .env.production", "should_trigger": false, "split": "validation" },
+  { "id": "ask-codex-val-neg-2", "query": "What did the codex paper from 2021 say about HumanEval pass@1?", "should_trigger": false, "split": "validation" },
+  { "id": "ask-codex-val-neg-3", "query": "Set up GitHub Copilot in my IDE", "should_trigger": false, "split": "validation" },
+  { "id": "ask-codex-val-neg-4", "query": "Use ask-gemini for this — codex's quota is exhausted today", "should_trigger": false, "split": "validation" }
+]

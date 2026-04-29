@@ -1,0 +1,22 @@
+[
+  { "id": "example-web-search-train-1", "query": "Show me the example HTTP tool template so I can copy it for my own service", "should_trigger": true, "split": "train" },
+  { "id": "example-web-search-train-2", "query": "I want to scaffold a new HTTP-backed tool — open the example-web-search reference", "should_trigger": true, "split": "train" },
+  { "id": "example-web-search-train-3", "query": "Use the example web search tool definition as a starting point for our internal API", "should_trigger": true, "split": "train" },
+  { "id": "example-web-search-train-4", "query": "Read the fictional web-search tool template and explain its auth pattern", "should_trigger": true, "split": "train" },
+  { "id": "example-web-search-train-5", "query": "Adapt the example-web-search scaffolding to a real provider", "should_trigger": true, "split": "train" },
+  { "id": "example-web-search-train-6", "query": "Open the placeholder HTTP tool that ships in defaults/skills as a template", "should_trigger": true, "split": "train" },
+  { "id": "example-web-search-train-neg-1", "query": "Search the web for current React 19 release notes", "should_trigger": false, "split": "train" },
+  { "id": "example-web-search-train-neg-2", "query": "Implement a real Brave Search API integration in our app", "should_trigger": false, "split": "train" },
+  { "id": "example-web-search-train-neg-3", "query": "Use a web-search MCP server to look up Postgres docs", "should_trigger": false, "split": "train" },
+  { "id": "example-web-search-train-neg-4", "query": "Set WEB_SEARCH_API_KEY in production secrets", "should_trigger": false, "split": "train" },
+  { "id": "example-web-search-train-neg-5", "query": "What's the best paid web-search API for AI agents right now?", "should_trigger": false, "split": "train" },
+  { "id": "example-web-search-train-neg-6", "query": "Find example test fixtures in the repo for HTTP tools", "should_trigger": false, "split": "train" },
+  { "id": "example-web-search-val-1", "query": "Show me the non-executable scaffolding tool I should clone for my new HTTP integration", "should_trigger": true, "split": "validation" },
+  { "id": "example-web-search-val-2", "query": "Pull up the example tool definition file with status example", "should_trigger": true, "split": "validation" },
+  { "id": "example-web-search-val-3", "query": "I want the template HTTP tool — the one that's intentionally a placeholder", "should_trigger": true, "split": "validation" },
+  { "id": "example-web-search-val-4", "query": "Use the example-web-search bundle as a copy-and-rename starter for our internal lookup tool", "should_trigger": true, "split": "validation" },
+  { "id": "example-web-search-val-neg-1", "query": "Run a web search for Anthropic's recent product announcements", "should_trigger": false, "split": "validation" },
+  { "id": "example-web-search-val-neg-2", "query": "Add fallback when the search API rate-limits us", "should_trigger": false, "split": "validation" },
+  { "id": "example-web-search-val-neg-3", "query": "Compare Tavily vs Exa vs Brave for agent search", "should_trigger": false, "split": "validation" },
+  { "id": "example-web-search-val-neg-4", "query": "Write an example unit test for the search service", "should_trigger": false, "split": "validation" }
+]

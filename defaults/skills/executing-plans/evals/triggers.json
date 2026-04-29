@@ -1,0 +1,22 @@
+[
+  { "id": "executing-plans-train-1", "query": "Execute the plan at docs/plans/2026-04-22-billing-refactor.md task by task", "should_trigger": true, "split": "train" },
+  { "id": "executing-plans-train-2", "query": "Run through this implementation plan with checkpoints between tasks", "should_trigger": true, "split": "train" },
+  { "id": "executing-plans-train-3", "query": "Carry out the plan I wrote yesterday — review each task before coding", "should_trigger": true, "split": "train" },
+  { "id": "executing-plans-train-4", "query": "I have a plan markdown file ready — start working through it sequentially", "should_trigger": true, "split": "train" },
+  { "id": "executing-plans-train-5", "query": "Implement the spec at docs/plans/auth-migration.md with review pauses", "should_trigger": true, "split": "train" },
+  { "id": "executing-plans-train-6", "query": "Process my written plan one task at a time and report after each", "should_trigger": true, "split": "train" },
+  { "id": "executing-plans-train-neg-1", "query": "Write a plan for the auth migration — I haven't started one yet", "should_trigger": false, "split": "train" },
+  { "id": "executing-plans-train-neg-2", "query": "Brainstorm the design for a new feature before any plan exists", "should_trigger": false, "split": "train" },
+  { "id": "executing-plans-train-neg-3", "query": "Run the test suite and tell me which suites pass", "should_trigger": false, "split": "train" },
+  { "id": "executing-plans-train-neg-4", "query": "Schedule a meeting next Monday to review last quarter's plan", "should_trigger": false, "split": "train" },
+  { "id": "executing-plans-train-neg-5", "query": "Critique this plan markdown for missing edge cases — don't run it", "should_trigger": false, "split": "train" },
+  { "id": "executing-plans-train-neg-6", "query": "Implement just one of these tasks; ignore the rest of the plan", "should_trigger": false, "split": "train" },
+  { "id": "executing-plans-val-1", "query": "Walk through and build out the tasks listed in plan.md, checking in after each", "should_trigger": true, "split": "validation" },
+  { "id": "executing-plans-val-2", "query": "Take the plan file I committed earlier and ship it task-by-task", "should_trigger": true, "split": "validation" },
+  { "id": "executing-plans-val-3", "query": "Use my docs/plans/notifications.md as the source of truth and start executing", "should_trigger": true, "split": "validation" },
+  { "id": "executing-plans-val-4", "query": "Begin implementing the plan — pause for review at every checkpoint marker", "should_trigger": true, "split": "validation" },
+  { "id": "executing-plans-val-neg-1", "query": "Convert this informal idea into a real implementation plan", "should_trigger": false, "split": "validation" },
+  { "id": "executing-plans-val-neg-2", "query": "Read this Notion page about Q3 OKRs", "should_trigger": false, "split": "validation" },
+  { "id": "executing-plans-val-neg-3", "query": "Explain what this code does at a high level", "should_trigger": false, "split": "validation" },
+  { "id": "executing-plans-val-neg-4", "query": "Figure out why the deploy plan is missing in the runbook", "should_trigger": false, "split": "validation" }
+]

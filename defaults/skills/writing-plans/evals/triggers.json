@@ -1,0 +1,22 @@
+[
+  { "id": "writing-plans-train-1", "query": "Write a comprehensive implementation plan for the auth migration and save it to docs/plans/", "should_trigger": true, "split": "train" },
+  { "id": "writing-plans-train-2", "query": "Turn this approved design into a markdown plan with bite-sized TDD tasks", "should_trigger": true, "split": "train" },
+  { "id": "writing-plans-train-3", "query": "Create a multi-step plan an engineer with no codebase context could follow", "should_trigger": true, "split": "train" },
+  { "id": "writing-plans-train-4", "query": "Draft the plan file — DRY, YAGNI, frequent commits, file paths included", "should_trigger": true, "split": "train" },
+  { "id": "writing-plans-train-5", "query": "We have requirements for the new search feature; write the implementation plan", "should_trigger": true, "split": "train" },
+  { "id": "writing-plans-train-6", "query": "Save a YYYY-MM-DD-named plan to docs/plans/ for the upcoming refactor", "should_trigger": true, "split": "train" },
+  { "id": "writing-plans-train-neg-1", "query": "Decompose this open-ended ask into a bounded plan I can hand off — quick, not detailed", "should_trigger": false, "split": "train" },
+  { "id": "writing-plans-train-neg-2", "query": "Execute the plan that already exists in docs/plans/auth.md", "should_trigger": false, "split": "train" },
+  { "id": "writing-plans-train-neg-3", "query": "Brainstorm the design before any plan exists", "should_trigger": false, "split": "train" },
+  { "id": "writing-plans-train-neg-4", "query": "Write release notes for v2.5", "should_trigger": false, "split": "train" },
+  { "id": "writing-plans-train-neg-5", "query": "Plan a team offsite for the engineering org", "should_trigger": false, "split": "train" },
+  { "id": "writing-plans-train-neg-6", "query": "Write the code for this feature directly — skip the plan", "should_trigger": false, "split": "train" },
+  { "id": "writing-plans-val-1", "query": "From this spec, produce a thorough plan covering files to touch, tests, and docs", "should_trigger": true, "split": "validation" },
+  { "id": "writing-plans-val-2", "query": "Author a step-by-step implementation plan markdown for the migration", "should_trigger": true, "split": "validation" },
+  { "id": "writing-plans-val-3", "query": "Document the upcoming work as a plan a junior engineer could pick up", "should_trigger": true, "split": "validation" },
+  { "id": "writing-plans-val-4", "query": "Generate the plan file with TDD tasks, commit cadence, and verification steps", "should_trigger": true, "split": "validation" },
+  { "id": "writing-plans-val-neg-1", "query": "Run the existing plan at docs/plans/notifications.md task by task", "should_trigger": false, "split": "validation" },
+  { "id": "writing-plans-val-neg-2", "query": "Edit this plan to remove the rollback section", "should_trigger": false, "split": "validation" },
+  { "id": "writing-plans-val-neg-3", "query": "Suggest improvements to the planning template our team uses", "should_trigger": false, "split": "validation" },
+  { "id": "writing-plans-val-neg-4", "query": "Compress this 800-line plan into bullet points", "should_trigger": false, "split": "validation" }
+]
