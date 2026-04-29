@@ -10,7 +10,7 @@ import type {
   AgentStreamResult,
   AgentState,
 } from './types.js';
-import { getModel, generate, streamGenerateWithDetails } from '../llm/provider.js';
+import { getModel, generateWithAgent, streamWithAgent } from '../llm/provider.js';
 import { buildLoadedContext } from '../runtime/context-loader.js';
 import { loadState, saveState } from '../runtime/state.js';
 import { createSessionId, writeSession, type SessionRecord } from '../runtime/sessions.js';
@@ -156,7 +156,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
         : undefined;
       let result;
       try {
-        result = await generate({
+        result = await generateWithAgent({
           model,
           system: systemPrompt,
           prompt,
@@ -166,6 +166,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
           ...(prepareStep ? { prepareStep } : {}),
           ...(triggerHandlers.onStepFinish ? { onStepFinish: triggerHandlers.onStepFinish } : {}),
           ...(triggerHandlers.onFinish ? { onFinish: triggerHandlers.onFinish } : {}),
+          ...(triggerHandlers.prepareCall ? { prepareCall: triggerHandlers.prepareCall } : {}),
         });
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
@@ -299,7 +300,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
 
         let streamResult;
         try {
-          streamResult = streamGenerateWithDetails({
+          streamResult = streamWithAgent({
             model,
             system: systemPrompt,
             prompt,
@@ -309,6 +310,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
             ...(prepareStep ? { prepareStep } : {}),
             ...(triggerHandlers.onStepFinish ? { onStepFinish: triggerHandlers.onStepFinish } : {}),
             ...(triggerHandlers.onFinish ? { onFinish: triggerHandlers.onFinish } : {}),
+            ...(triggerHandlers.prepareCall ? { prepareCall: triggerHandlers.prepareCall } : {}),
           });
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));

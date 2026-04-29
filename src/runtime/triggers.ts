@@ -111,8 +111,10 @@ export function runTriggerScript(opts: RunTriggerScriptOptions): Promise<Trigger
 export interface ComposedHandlers {
   /**
    * prepareCall: mutate call settings before each run. Requires ToolLoopAgent.
-   * Not wired into createHarness in this release (generateText does not have
-   * a prepareCall hook). See DONE_WITH_CONCERNS in Task 6.
+   * Wired into createHarness via generateWithAgent() / streamWithAgent() which
+   * construct a ToolLoopAgent internally. Skills with harness-trigger: prepare-call
+   * fire once per agent.generate()/stream() call and can modify instructions,
+   * tools, activeTools, and providerOptions.
    */
   prepareCall?: (settings: Record<string, unknown>) => Promise<Record<string, unknown>>;
   /**
@@ -186,8 +188,7 @@ function mergeSettings(
 export function composeTriggerHandlers(harnessDir: string): ComposedHandlers {
   const handlers: ComposedHandlers = {};
 
-  // prepare-call — NOTE: not wired in this release; requires ToolLoopAgent.
-  // The handler is composed so callers that DO use ToolLoopAgent can consume it.
+  // prepare-call — wired via ToolLoopAgent in generateWithAgent()/streamWithAgent().
   const prepareCallSkills = getSkillsForTrigger(harnessDir, 'prepare-call');
   if (prepareCallSkills.length > 0) {
     handlers.prepareCall = async (settings) => {

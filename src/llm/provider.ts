@@ -1,7 +1,7 @@
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
-import { generateText, streamText, stepCountIs, wrapLanguageModel, type LanguageModel, type LanguageModelMiddleware } from 'ai';
+import { generateText, streamText, stepCountIs, wrapLanguageModel, ToolLoopAgent, type LanguageModel, type LanguageModelMiddleware, type PrepareStepFunction, type ToolSet } from 'ai';
 import type { ModelMessage } from '@ai-sdk/provider-utils';
 import type { HarnessConfig, ToolCallInfo } from '../core/types.js';
 import type { AIToolSet } from '../runtime/tool-executor.js';
@@ -498,6 +498,155 @@ export function streamGenerateWithDetails(opts: GenerateOptions): StreamGenerate
 
   return {
     textStream: result.textStream,
+    usage: totalUsage,
+    toolCalls,
+    steps,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// ToolLoopAgent-based execution paths — required for prepareCall wiring
+// ---------------------------------------------------------------------------
+
+/**
+ * Extended options for agent-based generation. Identical to GenerateOptions
+ * but adds `prepareCall` — a ToolLoopAgent-only lifecycle hook that fires once
+ * per agent.generate() call and can mutate instructions, tools, activeTools,
+ * and providerOptions before the first step begins.
+ */
+export interface AgentGenerateOptions extends GenerateOptions {
+  /**
+   * prepareCall hook from composeTriggerHandlers. Called once per generate()
+   * invocation, before any steps run. Can mutate: instructions, tools,
+   * activeTools, providerOptions. Skills with harness-trigger: prepare-call
+   * are composed into this function.
+   *
+   * The ToolLoopAgent passes typed settings; we bridge to the trigger handler's
+   * generic Record<string, unknown> shape.
+   */
+  prepareCall?: (settings: Record<string, unknown>) => Promise<Record<string, unknown>>;
+}
+
+/**
+ * Adapt the prepareStep shape from `createReflectionPrepareStep` (which returns
+ * `{ system?: string } | undefined`) to `PrepareStepFunction` (which must return
+ * `PrepareStepResult | PromiseLike<PrepareStepResult>`).
+ */
+function adaptPrepareStep(
+  fn: (args: { stepNumber: number; steps: unknown[] }) => { system?: string } | undefined,
+): PrepareStepFunction<ToolSet> {
+  return (opts) => {
+    const result = fn({ stepNumber: opts.stepNumber, steps: opts.steps });
+    return result ?? {};
+  };
+}
+
+/**
+ * Build a ToolLoopAgent<never, ToolSet> from AgentGenerateOptions.
+ * Using `never` for CALL_OPTIONS so agent.generate/stream don't require an
+ * `options` field. The `prepareCall` handler is bridged via `unknown` cast
+ * because the trigger handler returns `Record<string, unknown>` while the SDK
+ * expects the full typed settings shape — at runtime the object is compatible.
+ */
+function buildAgent(opts: AgentGenerateOptions): ToolLoopAgent<never, ToolSet> {
+  const hasTools = opts.tools && Object.keys(opts.tools).length > 0;
+  const hasActive = hasTools && opts.activeTools && opts.activeTools.length > 0;
+  const callSettings = buildCallSettings(opts);
+
+  // Build the prepareCall bridge: trigger handler returns Record<string, unknown>,
+  // ToolLoopAgent expects the full typed pick — cast via unknown.
+  type AgentSettings = ConstructorParameters<typeof ToolLoopAgent<never, ToolSet>>[0];
+  type PrepareCallFn = NonNullable<AgentSettings['prepareCall']>;
+
+  const prepareCallBridge: PrepareCallFn | undefined = opts.prepareCall
+    ? async (options) => {
+        const merged = await opts.prepareCall!(options as Record<string, unknown>);
+        return merged as unknown as Awaited<ReturnType<PrepareCallFn>>;
+      }
+    : undefined;
+
+  const settings: AgentSettings = {
+    model: opts.model,
+    instructions: opts.system,
+    ...(opts.maxOutputTokens !== undefined ? { maxOutputTokens: opts.maxOutputTokens } : {}),
+    ...(callSettings.maxRetries !== undefined ? { maxRetries: callSettings.maxRetries } : {}),
+    ...(hasTools ? { tools: opts.tools as ToolSet } : {}),
+    ...(hasActive ? { activeTools: opts.activeTools as string[] } : {}),
+    ...(hasTools ? { stopWhen: callSettings.stopWhen } : {}),
+    ...(opts.prepareStep ? { prepareStep: adaptPrepareStep(opts.prepareStep) } : {}),
+    ...(opts.onStepFinish ? { onStepFinish: opts.onStepFinish as AgentSettings['onStepFinish'] } : {}),
+    ...(opts.onFinish ? { onFinish: opts.onFinish as AgentSettings['onFinish'] } : {}),
+    ...(prepareCallBridge ? { prepareCall: prepareCallBridge } : {}),
+  };
+
+  return new ToolLoopAgent<never, ToolSet>(settings);
+}
+
+/** Build call parameters shared by generate() and stream(). */
+function buildAgentCallParams(opts: AgentGenerateOptions) {
+  return {
+    prompt: opts.prompt,
+    ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
+    ...(opts.timeoutMs !== undefined ? { timeout: { totalMs: opts.timeoutMs } } : {}),
+  } as const;
+}
+
+/**
+ * Build and run a ToolLoopAgent for non-streaming generation. The agent is
+ * constructed fresh on every call (settings are per-invocation). This enables
+ * the `prepareCall` hook — a ToolLoopAgent-only lifecycle event that fires
+ * before any LLM step and can inject instructions / tools / providerOptions.
+ */
+export async function generateWithAgent(opts: AgentGenerateOptions): Promise<GenerateResult> {
+  const agent = buildAgent(opts);
+  const result = await agent.generate(buildAgentCallParams(opts));
+  const usage = result.totalUsage ?? result.usage;
+
+  return {
+    text: result.text,
+    usage: extractUsage(usage),
+    toolCalls: extractToolCalls(result),
+    steps: result.steps?.length ?? 1,
+  };
+}
+
+/**
+ * Build and run a ToolLoopAgent for streaming generation. Returns the same
+ * StreamGenerateResult shape as streamGenerateWithDetails, so callers are
+ * unchanged. The `prepareCall` hook fires before any LLM step.
+ *
+ * ToolLoopAgent.stream() returns a Promise<StreamTextResult>, so the textStream
+ * is an async generator that awaits the promise then iterates. We cache the
+ * stream promise so all four consumers (textStream, usage, toolCalls, steps)
+ * share the same underlying call.
+ */
+export function streamWithAgent(opts: AgentGenerateOptions): StreamGenerateResult {
+  const agent = buildAgent(opts);
+  const callParams = buildAgentCallParams(opts);
+
+  // Eagerly start and cache the agent.stream() Promise so all consumers
+  // share the same underlying LLM call.
+  const streamResultPromise = agent.stream(callParams);
+
+  async function* textStream(): AsyncIterable<string> {
+    const streamResult = await streamResultPromise;
+    for await (const chunk of streamResult.textStream) {
+      yield chunk;
+    }
+  }
+
+  const totalUsage = streamResultPromise
+    .then((r) => r.totalUsage ?? r.usage)
+    .then((u) => extractUsage(u));
+  const toolCalls = streamResultPromise
+    .then((r) => r.steps)
+    .then((s) => extractToolCalls({ steps: s }));
+  const steps = streamResultPromise
+    .then((r) => r.steps)
+    .then((s) => s?.length ?? 1);
+
+  return {
+    textStream: textStream(),
     usage: totalUsage,
     toolCalls,
     steps,
