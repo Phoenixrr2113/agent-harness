@@ -46,7 +46,7 @@ describe('graph', () => {
 
   it('should build graph from connected primitives', () => {
     writeFileSync(join(TEST_DIR, 'rules', 'ops.md'), makePrimitive('ops', ['code-review']), 'utf-8');
-    writeFileSync(join(TEST_DIR, 'skills', 'code-review.md'), makePrimitive('code-review', ['ops']), 'utf-8');
+    writeFileSync(join(TEST_DIR, 'rules', 'code-review.md'), makePrimitive('code-review', ['ops']), 'utf-8');
 
     const graph = buildDependencyGraph(TEST_DIR);
     expect(graph.nodes).toHaveLength(2);
@@ -81,8 +81,8 @@ describe('graph', () => {
     writeFileSync(join(TEST_DIR, 'rules', 'a.md'), makePrimitive('a', ['b']), 'utf-8');
     writeFileSync(join(TEST_DIR, 'rules', 'b.md'), makePrimitive('b', ['a']), 'utf-8');
     // Cluster 2: c <-> d
-    writeFileSync(join(TEST_DIR, 'skills', 'c.md'), makePrimitive('c', ['d']), 'utf-8');
-    writeFileSync(join(TEST_DIR, 'skills', 'd.md'), makePrimitive('d', ['c']), 'utf-8');
+    writeFileSync(join(TEST_DIR, 'instincts', 'c.md'), makePrimitive('c', ['d']), 'utf-8');
+    writeFileSync(join(TEST_DIR, 'instincts', 'd.md'), makePrimitive('d', ['c']), 'utf-8');
     // Orphan: e
     writeFileSync(join(TEST_DIR, 'tools', 'e.md'), makePrimitive('e'), 'utf-8');
 
@@ -102,8 +102,8 @@ describe('graph', () => {
 
   it('should compute graph stats', () => {
     writeFileSync(join(TEST_DIR, 'rules', 'ops.md'), makePrimitive('ops', ['code-review', 'research']), 'utf-8');
-    writeFileSync(join(TEST_DIR, 'skills', 'code-review.md'), makePrimitive('code-review', ['ops']), 'utf-8');
-    writeFileSync(join(TEST_DIR, 'skills', 'research.md'), makePrimitive('research', ['ops']), 'utf-8');
+    writeFileSync(join(TEST_DIR, 'rules', 'code-review.md'), makePrimitive('code-review', ['ops']), 'utf-8');
+    writeFileSync(join(TEST_DIR, 'rules', 'research.md'), makePrimitive('research', ['ops']), 'utf-8');
 
     const stats = getGraphStats(TEST_DIR);
     expect(stats.totalNodes).toBe(3);

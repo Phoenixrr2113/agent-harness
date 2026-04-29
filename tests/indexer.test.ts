@@ -64,9 +64,9 @@ describe('buildIndex', () => {
   });
 
   it('should capture tags from frontmatter', () => {
-    writePrimitive(testDir, 'skills', 'multi-tag', { tags: ['skill', 'coding', 'typescript'] });
+    writePrimitive(testDir, 'rules', 'multi-tag', { tags: ['skill', 'coding', 'typescript'] });
 
-    const entries = buildIndex(testDir, 'skills');
+    const entries = buildIndex(testDir, 'rules');
     expect(entries).toHaveLength(1);
     expect(entries[0].tags).toEqual(['skill', 'coding', 'typescript']);
   });
