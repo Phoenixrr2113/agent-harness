@@ -20,6 +20,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
+    "check:evals": "tsx scripts/check-default-evals.ts",
     "clean": "rm -rf dist"
   },
   "files": [
