@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'fs';
 import { basename, relative, join } from 'path';
 import matter from 'gray-matter';
-import { getPrimitiveDirs } from '../core/types.js';
+import { getPrimitiveDirs, SkillFrontmatterSchema } from '../core/types.js';
 
 // --- Types ---
 
@@ -264,6 +264,99 @@ export function autoProcessFile(
   }
 
   return result;
+}
+
+// --- Strict Skill Validation ---
+
+/**
+ * Options for processSkillOnSave.
+ */
+export interface ProcessSkillOptions {
+  /**
+   * Async function to generate a description from the first body paragraph.
+   * Typically wraps summary_model. When absent, no auto-generation occurs.
+   */
+  generateDescription?: (body: string) => Promise<string>;
+}
+
+/**
+ * Result of processSkillOnSave.
+ */
+export interface ProcessSkillResult {
+  status: 'processed' | 'unchanged' | 'error';
+  detail?: string;
+}
+
+/**
+ * Validate a skill file against the strict SkillFrontmatterSchema.
+ *
+ * If `description` is missing and `opts.generateDescription` is provided,
+ * generates one from the first body paragraph and writes it back to disk.
+ *
+ * Returns:
+ *  - 'processed'  — file was valid (or made valid) and written back
+ *  - 'unchanged'  — file was already valid, no write needed
+ *  - 'error'      — validation failed and could not be fixed
+ */
+export async function processSkillOnSave(
+  skillPath: string,
+  opts: ProcessSkillOptions,
+): Promise<ProcessSkillResult> {
+  let raw: string;
+  try {
+    raw = readFileSync(skillPath, 'utf-8');
+  } catch (err) {
+    return {
+      status: 'error',
+      detail: `Failed to read file: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  let parsed: ReturnType<typeof matter>;
+  try {
+    parsed = matter(raw);
+  } catch (err) {
+    return {
+      status: 'error',
+      detail: `Failed to parse frontmatter: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const data = { ...parsed.data } as Record<string, unknown>;
+  const content = parsed.content;
+  let changed = false;
+
+  // Generate description if missing and a generator is available
+  if (!data.description && opts.generateDescription) {
+    const firstParagraph = content.split(/\n\s*\n/)[0]?.trim() ?? '';
+    if (firstParagraph) {
+      const generated = await opts.generateDescription(firstParagraph);
+      if (generated && generated.length <= 1024) {
+        data.description = generated;
+        changed = true;
+      }
+    }
+  }
+
+  // Validate against the strict skill schema
+  const parseResult = SkillFrontmatterSchema.safeParse(data);
+  if (!parseResult.success) {
+    return { status: 'error', detail: parseResult.error.message };
+  }
+
+  if (changed) {
+    try {
+      writeFileSync(skillPath, matter.stringify(content, data), 'utf-8');
+    } catch (err) {
+      return {
+        status: 'error',
+        detail: `Failed to write file: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+    return { status: 'processed' };
+  }
+
+  return { status: 'unchanged' };
 }
 
 /**

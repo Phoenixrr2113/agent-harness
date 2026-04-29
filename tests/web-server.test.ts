@@ -275,15 +275,15 @@ describe('web-server', () => {
       const names = data.map((n: { name: string }) => n.name);
       expect(names).toContain('rules');
       expect(names).toContain('instincts');
-      expect(names).toContain('CORE.md');
+      expect(names).toContain('IDENTITY.md');
     });
 
     it('GET /api/files/* should read a file', async () => {
       const { app } = createWebApp(harnessDir);
-      const res = await fetch(app, '/api/files/CORE.md');
+      const res = await fetch(app, '/api/files/IDENTITY.md');
       expect(res.status).toBe(200);
       const data = await res.json();
-      expect(data.path).toBe('CORE.md');
+      expect(data.path).toBe('IDENTITY.md');
       expect(data.content).toContain('test-agent');
       expect(data.size).toBeGreaterThan(0);
       expect(data.modified).toBeDefined();
@@ -324,11 +324,11 @@ describe('web-server', () => {
 
     it('PUT /api/files/* should allow writing core files', async () => {
       const { app } = createWebApp(harnessDir);
-      const originalCore = readFileSync(join(harnessDir, 'CORE.md'), 'utf-8');
-      const res = await fetch(app, '/api/files/CORE.md', {
+      const originalIdentity = readFileSync(join(harnessDir, 'IDENTITY.md'), 'utf-8');
+      const res = await fetch(app, '/api/files/IDENTITY.md', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: originalCore + '\n\n## Extra Section' }),
+        body: JSON.stringify({ content: originalIdentity + '\n\n## Extra Section' }),
       });
       expect(res.status).toBe(200);
     });

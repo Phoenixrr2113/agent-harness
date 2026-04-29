@@ -521,7 +521,7 @@ describe('intelligence', () => {
       expect(result.gateName).toBe('pre-boot');
       expect(result.checks.length).toBeGreaterThanOrEqual(2);
 
-      // CORE.md should pass (scaffold creates it)
+      // IDENTITY.md should pass (scaffold creates it)
       const coreCheck = result.checks.find((c) => c.name === 'core-md');
       expect(coreCheck).toBeDefined();
       expect(coreCheck!.status).toBe('pass');
@@ -533,9 +533,9 @@ describe('intelligence', () => {
       expect(['pass', 'fail']).toContain(configCheck!.status);
     });
 
-    it('should fail pre-boot gate when CORE.md is missing', () => {
+    it('should fail pre-boot gate when IDENTITY.md is missing', () => {
       const fs = require('fs');
-      fs.unlinkSync(join(harnessDir, 'CORE.md'));
+      fs.unlinkSync(join(harnessDir, 'IDENTITY.md'));
 
       const result = runGate('pre-boot', harnessDir);
 

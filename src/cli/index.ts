@@ -107,7 +107,7 @@ function formatError(err: unknown): string {
 }
 
 function requireHarness(dir: string): void {
-  if (!existsSync(join(dir, 'CORE.md')) && !existsSync(join(dir, 'config.yaml'))) {
+  if (!existsSync(join(dir, 'IDENTITY.md')) && !existsSync(join(dir, 'CORE.md')) && !existsSync(join(dir, 'config.yaml'))) {
     console.error(`Error: No harness found in ${dir}`);
     console.error(`Run "harness init <name>" to create one.`);
     process.exit(1);
@@ -156,7 +156,7 @@ program
   .option('-t, --template <name>', 'Config template (base, claude-opus, gpt4, local, dev)', 'base')
   .option('-p, --purpose <description>', 'Agent purpose description')
   .option('-i, --interactive', 'Force interactive mode', false)
-  .option('--generate', 'Generate CORE.md using LLM (requires API key)', false)
+  .option('--generate', 'Generate IDENTITY.md using LLM (requires API key)', false)
   .option('--no-discover-mcp', 'Skip MCP server auto-discovery')
   .option('--no-discover-env', 'Skip environment variable scanning')
   .option('--no-discover-project', 'Skip project context detection')
@@ -196,7 +196,7 @@ program
           // Check if an API key is available for LLM generation
           const hasKey = !!(process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY);
           if (hasKey) {
-            const gen = await askQuestion(rl, '  Generate CORE.md using AI? (y/n)', 'y');
+            const gen = await askQuestion(rl, '  Generate IDENTITY.md using AI? (y/n)', 'y');
             shouldGenerate = gen.toLowerCase() === 'y' || gen.toLowerCase() === 'yes';
           }
         }
@@ -223,13 +223,13 @@ program
     }
 
     try {
-      // Generate CORE.md via LLM if requested
+      // Generate IDENTITY.md via LLM if requested
       let coreContent: string | undefined;
       if (shouldGenerate && purpose) {
-        console.log('Generating CORE.md...');
+        console.log('Generating IDENTITY.md...');
         try {
           coreContent = await generateCoreMd(agentName, purpose, {});
-          console.log('✓ CORE.md generated via LLM');
+          console.log('✓ IDENTITY.md generated via LLM');
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);
           console.log(`  LLM generation failed: ${message}`);

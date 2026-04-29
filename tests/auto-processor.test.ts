@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { autoProcessFile, autoProcessAll } from '../src/runtime/auto-processor.js';
+import { autoProcessFile, autoProcessAll, processSkillOnSave } from '../src/runtime/auto-processor.js';
 
 describe('auto-processor', () => {
   let harnessDir: string;
@@ -280,6 +280,117 @@ Content here.
       expect(l0Pos).not.toBe(-1);
       expect(l1Pos).not.toBe(-1);
       expect(l0Pos).toBeLessThan(l1Pos);
+    });
+  });
+
+  describe('processSkillOnSave — strict skill validation', () => {
+    it('generates description from body when missing', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'autoproc-skill-test-'));
+      mkdirSync(join(dir, 'skills', 'foo'), { recursive: true });
+      const skillPath = join(dir, 'skills', 'foo', 'SKILL.md');
+      writeFileSync(
+        skillPath,
+        `---\nname: foo-skill\n---\nFirst paragraph of the body.\n\nSecond paragraph.`,
+        'utf-8',
+      );
+
+      const result = await processSkillOnSave(skillPath, {
+        generateDescription: async () => 'Auto-generated description from first paragraph.',
+      });
+
+      expect(result.status).toBe('processed');
+      const after = readFileSync(skillPath, 'utf-8');
+      expect(after).toMatch(/description:.*Auto-generated description/);
+
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('reports error when validation fails and no fix-up possible', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'autoproc-skill-test-'));
+      mkdirSync(join(dir, 'skills', 'foo'), { recursive: true });
+      const skillPath = join(dir, 'skills', 'foo', 'SKILL.md');
+      writeFileSync(
+        skillPath,
+        `---\nname: foo-skill\n---\n`,
+        'utf-8',
+      );
+
+      // No generator and no non-empty body paragraph to lift from
+      const result = await processSkillOnSave(skillPath, {});
+
+      expect(result.status).toBe('error');
+
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('leaves valid skill unchanged', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'autoproc-skill-test-'));
+      mkdirSync(join(dir, 'skills', 'foo'), { recursive: true });
+      const skillPath = join(dir, 'skills', 'foo', 'SKILL.md');
+      const initialContent = `---\nname: foo-skill\ndescription: Already has a description.\n---\nBody content.`;
+      writeFileSync(skillPath, initialContent, 'utf-8');
+
+      const result = await processSkillOnSave(skillPath, {});
+
+      expect(result.status).toBe('unchanged');
+      expect(readFileSync(skillPath, 'utf-8')).toBe(initialContent);
+
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('does not generate description when body is empty', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'autoproc-skill-test-'));
+      mkdirSync(join(dir, 'skills', 'foo'), { recursive: true });
+      const skillPath = join(dir, 'skills', 'foo', 'SKILL.md');
+      writeFileSync(skillPath, `---\nname: foo-skill\n---\n   \n`, 'utf-8');
+
+      let generatorCalled = false;
+      const result = await processSkillOnSave(skillPath, {
+        generateDescription: async () => {
+          generatorCalled = true;
+          return 'Should not be called.';
+        },
+      });
+
+      expect(generatorCalled).toBe(false);
+      expect(result.status).toBe('error');
+
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('rejects description longer than 1024 characters', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'autoproc-skill-test-'));
+      mkdirSync(join(dir, 'skills', 'foo'), { recursive: true });
+      const skillPath = join(dir, 'skills', 'foo', 'SKILL.md');
+      writeFileSync(
+        skillPath,
+        `---\nname: foo-skill\n---\nBody paragraph here.`,
+        'utf-8',
+      );
+
+      const tooLong = 'x'.repeat(1025);
+      const result = await processSkillOnSave(skillPath, {
+        generateDescription: async () => tooLong,
+      });
+
+      // Too-long description is not written, so validation still fails
+      expect(result.status).toBe('error');
+
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('reports error for missing name field', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'autoproc-skill-test-'));
+      mkdirSync(join(dir, 'skills', 'foo'), { recursive: true });
+      const skillPath = join(dir, 'skills', 'foo', 'SKILL.md');
+      // description present but name missing
+      writeFileSync(skillPath, `---\ndescription: Has description but no name.\n---\nBody.`, 'utf-8');
+
+      const result = await processSkillOnSave(skillPath, {});
+
+      expect(result.status).toBe('error');
+
+      rmSync(dir, { recursive: true, force: true });
     });
   });
 

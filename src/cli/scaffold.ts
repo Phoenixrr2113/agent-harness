@@ -90,9 +90,9 @@ function loadTemplate(templateName: string, fileName: string, vars: TemplateVars
 
 export interface ScaffoldOptions {
   template?: string;
-  /** Custom CORE.md content — overrides template */
+  /** Custom IDENTITY.md content — overrides template */
   coreContent?: string;
-  /** Agent purpose description (stored as comment in CORE.md when no LLM generation) */
+  /** Agent purpose description (stored as comment in IDENTITY.md when no LLM generation) */
   purpose?: string;
 }
 
@@ -110,13 +110,13 @@ export function scaffoldHarness(targetDir: string, agentName: string, options?: 
     mkdirSync(join(targetDir, dir), { recursive: true });
   }
 
-  // --- CORE.md (custom > template > inline fallback) ---
+  // --- IDENTITY.md (custom > template > inline fallback) ---
   if (options?.coreContent) {
-    writeFileSync(join(targetDir, 'CORE.md'), options.coreContent);
+    writeFileSync(join(targetDir, 'IDENTITY.md'), options.coreContent);
   } else {
-    const templateContent = loadTemplate(template, 'CORE.md', vars);
+    const templateContent = loadTemplate(template, 'IDENTITY.md', vars);
     writeFileSync(
-      join(targetDir, 'CORE.md'),
+      join(targetDir, 'IDENTITY.md'),
       templateContent ?? applyTemplate(`# {{AGENT_NAME}}
 
 ## Purpose
@@ -138,44 +138,15 @@ export function scaffoldHarness(targetDir: string, agentName: string, options?: 
     );
   }
 
-  // --- SYSTEM.md (from template, or inline fallback) ---
-  const systemContent = loadTemplate(template, 'SYSTEM.md', vars);
-  writeFileSync(
-    join(targetDir, 'SYSTEM.md'),
-    systemContent ?? `# System
-
-You are ${vars.agentName}. This file defines how you boot and operate.
-
-## Boot Sequence
-1. Load CORE.md — your identity (never changes)
-2. Load state.md — where you left off
-3. Load memory/scratch.md — current working memory
-4. Load indexes — scan all primitive directories
-5. Load relevant files based on current task
-
-## File Ownership
-| Owner | Files | Can Modify |
-|-------|-------|------------|
-| Human | CORE.md, rules/*, config.yaml | Only human edits |
-| Agent | instincts/*, memory/sessions/*, state.md (goals) | During/after interactions |
-| Infrastructure | */_index.md, memory/journal/* | Auto-scripts only |
-
-## Context Loading Strategy
-- L0 (~5 tokens): One-line summary — decides relevance
-- L1 (~50-100 tokens): Paragraph — enough to work with
-- L2 (full body): Complete content — loaded only when actively needed
-- Always load CORE + state + scratch first
-- Load primitives at the appropriate level based on token budget
-`
-  );
+  // SYSTEM.md is no longer emitted — it is generated content, not authored content.
 
   // --- config.yaml (from template, or use writeDefaultConfig) ---
   const configContent = loadTemplate(template, 'config.yaml', vars);
   writeFileSync(join(targetDir, 'config.yaml'), configContent ?? writeDefaultConfig(targetDir, agentName));
 
-  // --- state.md ---
+  // --- memory/state.md ---
   writeFileSync(
-    join(targetDir, 'state.md'),
+    join(targetDir, 'memory', 'state.md'),
     `# Agent State
 
 ## Mode
@@ -229,10 +200,9 @@ editing markdown.
 
 | File / dir | Owner | What it is |
 |---|---|---|
-| \`CORE.md\`        | human | Identity. Who is this agent? Frozen. |
-| \`SYSTEM.md\`      | human | Boot instructions. How does it operate? |
+| \`IDENTITY.md\`    | human | Identity. Who is this agent? Frozen. |
 | \`config.yaml\`    | human | Model, runtime, MCP servers, budgets |
-| \`state.md\`       | mixed | Live state: mode, goals, last interaction |
+| \`memory/state.md\` | mixed | Live state: mode, goals, last interaction |
 | \`rules/\`         | human | Hard boundaries the agent must respect |
 | \`skills/\`        | mixed | Capabilities + how to think about using them |
 | \`playbooks/\`     | mixed | Adaptive guidance for outcomes |
@@ -305,8 +275,8 @@ export function generateSystemMd(harnessDir: string, agentName: string): string 
 
   // Boot sequence
   sections.push(`## Boot Sequence
-1. Load CORE.md — your identity (never changes)
-2. Load state.md — where you left off
+1. Load IDENTITY.md — your identity (never changes)
+2. Load memory/state.md — where you left off
 3. Load memory/scratch.md — current working memory
 4. Load indexes — scan all primitive directories
 5. Load relevant files based on current task\n`);
@@ -344,8 +314,8 @@ export function generateSystemMd(harnessDir: string, agentName: string): string 
   sections.push(`## File Ownership
 | Owner | Files | Can Modify |
 |-------|-------|------------|
-| Human | CORE.md, rules/*, config.yaml | Only human edits |
-| Agent | instincts/*, memory/sessions/*, state.md (goals) | During/after interactions |
+| Human | IDENTITY.md, rules/*, config.yaml | Only human edits |
+| Agent | instincts/*, memory/sessions/*, memory/state.md (goals) | During/after interactions |
 | Infrastructure | */_index.md, memory/journal/* | Auto-scripts only |\n`);
 
   // Context loading strategy
@@ -361,7 +331,7 @@ export function generateSystemMd(harnessDir: string, agentName: string): string 
 }
 
 /**
- * Generate a rich CORE.md using an LLM, given an agent name and purpose description.
+ * Generate a rich IDENTITY.md using an LLM, given an agent name and purpose description.
  * Returns the generated markdown content, or throws on failure.
  */
 export async function generateCoreMd(
@@ -388,7 +358,7 @@ export async function generateCoreMd(
 The document defines who the agent is, what it does, its values, and its ethical boundaries.
 Write in first person from the agent's perspective. Be specific and practical, not generic.
 Output ONLY the markdown content, no code fences.`,
-      prompt: `Create a CORE.md identity document for an AI agent with:
+      prompt: `Create an IDENTITY.md document for an AI agent with:
 - Name: ${agentName}
 - Purpose: ${purpose}
 

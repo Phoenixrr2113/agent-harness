@@ -427,7 +427,7 @@ export function createWebApp(harnessDir: string, options?: CreateWebAppOptions):
 
     // Only allow editing within primitive dirs + top-level md/yaml files
     const allowedPrefixes = ['rules/', 'instincts/', 'skills/', 'playbooks/', 'workflows/', 'tools/', 'agents/'];
-    const allowedFiles = ['CORE.md', 'SYSTEM.md', 'state.md', 'config.yaml'];
+    const allowedFiles = ['IDENTITY.md', 'CORE.md', 'config.yaml', 'memory/state.md', 'state.md'];
     const isAllowed = allowedPrefixes.some((p) => relPath.startsWith(p)) || allowedFiles.includes(relPath);
     if (!isAllowed) {
       return c.json({ error: 'Cannot edit files outside primitive directories and core files' }, 403);

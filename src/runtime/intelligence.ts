@@ -1251,14 +1251,15 @@ export type GateDefinition = {
 export const BUILTIN_GATES: GateDefinition[] = [
   {
     name: 'pre-boot',
-    description: 'Checks before agent boot: config valid, CORE.md exists, API key available',
+    description: 'Checks before agent boot: config valid, IDENTITY.md exists, API key available',
     check: (harnessDir: string) => {
       const checks: GateCheck[] = [];
 
-      // CORE.md exists
-      checks.push(existsSync(join(harnessDir, 'CORE.md'))
-        ? { name: 'core-md', description: 'CORE.md exists', status: 'pass', message: 'CORE.md present' }
-        : { name: 'core-md', description: 'CORE.md exists', status: 'fail', message: 'Missing CORE.md — required for agent identity' });
+      // IDENTITY.md exists (falls back to legacy CORE.md)
+      const hasIdentity = existsSync(join(harnessDir, 'IDENTITY.md')) || existsSync(join(harnessDir, 'CORE.md'));
+      checks.push(hasIdentity
+        ? { name: 'core-md', description: 'IDENTITY.md exists', status: 'pass', message: 'IDENTITY.md present' }
+        : { name: 'core-md', description: 'IDENTITY.md exists', status: 'fail', message: 'Missing IDENTITY.md — required for agent identity' });
 
       // Config valid
       try {

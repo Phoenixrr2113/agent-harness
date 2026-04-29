@@ -47,10 +47,9 @@ describe('harness init (scaffolding)', () => {
     scaffoldHarness(agentDir, 'test-agent');
 
     const expectedFiles = [
-      'CORE.md',
-      'SYSTEM.md',
+      'IDENTITY.md',
       'config.yaml',
-      'state.md',
+      'memory/state.md',
       '.gitignore',
       'memory/scratch.md',
     ];
@@ -59,6 +58,11 @@ describe('harness init (scaffolding)', () => {
       const filePath = join(agentDir, file);
       expect(existsSync(filePath), `File ${file} should exist`).toBe(true);
     }
+
+    // These files must NOT be created
+    expect(existsSync(join(agentDir, 'CORE.md')), 'CORE.md must not be created').toBe(false);
+    expect(existsSync(join(agentDir, 'SYSTEM.md')), 'SYSTEM.md must not be created').toBe(false);
+    expect(existsSync(join(agentDir, 'state.md')), 'top-level state.md must not be created').toBe(false);
   });
 
   it('should create default primitives', () => {
@@ -86,30 +90,20 @@ describe('harness init (scaffolding)', () => {
     expect(existsSync(join(agentDir, 'memory/journal/.gitkeep'))).toBe(true);
   });
 
-  it('should include agent name in CORE.md', () => {
+  it('should include agent name in IDENTITY.md', () => {
     scaffoldHarness(agentDir, 'test-agent');
 
-    const coreContent = readFileSync(join(agentDir, 'CORE.md'), 'utf-8');
-    expect(coreContent).toContain('test-agent');
-    expect(coreContent).toContain('Purpose');
-    expect(coreContent).toContain('Values');
-    expect(coreContent).toContain('Ethics');
+    const identityContent = readFileSync(join(agentDir, 'IDENTITY.md'), 'utf-8');
+    expect(identityContent).toContain('test-agent');
+    expect(identityContent).toContain('Purpose');
+    expect(identityContent).toContain('Values');
+    expect(identityContent).toContain('Ethics');
   });
 
-  it('should include agent name in SYSTEM.md', () => {
+  it('should create memory/state.md with correct structure', () => {
     scaffoldHarness(agentDir, 'test-agent');
 
-    const systemContent = readFileSync(join(agentDir, 'SYSTEM.md'), 'utf-8');
-    expect(systemContent).toContain('test-agent');
-    expect(systemContent).toContain('Boot Sequence');
-    expect(systemContent).toContain('File Ownership');
-    expect(systemContent).toContain('Context Loading Strategy');
-  });
-
-  it('should create state.md with correct structure', () => {
-    scaffoldHarness(agentDir, 'test-agent');
-
-    const stateContent = readFileSync(join(agentDir, 'state.md'), 'utf-8');
+    const stateContent = readFileSync(join(agentDir, 'memory/state.md'), 'utf-8');
     expect(stateContent).toContain('## Mode');
     expect(stateContent).toContain('## Goals');
     expect(stateContent).toContain('## Active Workflows');
@@ -246,15 +240,12 @@ describe('harness init (scaffolding)', () => {
     it('should scaffold with assistant template', () => {
       scaffoldHarness(agentDir, 'my-assistant', { template: 'assistant' });
 
-      const core = readFileSync(join(agentDir, 'CORE.md'), 'utf-8');
-      expect(core).toContain('my-assistant');
-      expect(core).toContain('personal assistant');
-      expect(core).toContain('Reliability');
+      const identity = readFileSync(join(agentDir, 'IDENTITY.md'), 'utf-8');
+      expect(identity).toContain('my-assistant');
+      expect(identity).toContain('personal assistant');
+      expect(identity).toContain('Reliability');
 
-      const system = readFileSync(join(agentDir, 'SYSTEM.md'), 'utf-8');
-      expect(system).toContain('my-assistant');
-      expect(system).toContain('Boot Sequence');
-      expect(system).toContain('File Ownership');
+      expect(existsSync(join(agentDir, 'SYSTEM.md'))).toBe(false);
 
       const config = readFileSync(join(agentDir, 'config.yaml'), 'utf-8');
       expect(config).toContain('name: my-assistant');
@@ -264,39 +255,35 @@ describe('harness init (scaffolding)', () => {
     it('should scaffold with code-reviewer template', () => {
       scaffoldHarness(agentDir, 'my-reviewer', { template: 'code-reviewer' });
 
-      const core = readFileSync(join(agentDir, 'CORE.md'), 'utf-8');
-      expect(core).toContain('my-reviewer');
-      expect(core).toContain('code review');
-      expect(core).toContain('Security-first');
+      const identity = readFileSync(join(agentDir, 'IDENTITY.md'), 'utf-8');
+      expect(identity).toContain('my-reviewer');
+      expect(identity).toContain('code review');
+      expect(identity).toContain('Security-first');
 
-      const system = readFileSync(join(agentDir, 'SYSTEM.md'), 'utf-8');
-      expect(system).toContain('my-reviewer');
-      expect(system).toContain('Review Process');
-      expect(system).toContain('Feedback Format');
-      expect(system).toContain('Critical');
+      expect(existsSync(join(agentDir, 'SYSTEM.md'))).toBe(false);
 
       const config = readFileSync(join(agentDir, 'config.yaml'), 'utf-8');
       expect(config).toContain('name: my-reviewer');
       expect(config).toContain('scratchpad_budget: 15000');
     });
 
-    it('should use custom purpose in CORE.md', () => {
+    it('should use custom purpose in IDENTITY.md', () => {
       scaffoldHarness(agentDir, 'my-bot', { purpose: 'I help developers write better tests.' });
 
-      const core = readFileSync(join(agentDir, 'CORE.md'), 'utf-8');
-      expect(core).toContain('my-bot');
-      expect(core).toContain('I help developers write better tests.');
+      const identity = readFileSync(join(agentDir, 'IDENTITY.md'), 'utf-8');
+      expect(identity).toContain('my-bot');
+      expect(identity).toContain('I help developers write better tests.');
     });
 
     it('should use custom coreContent when provided', () => {
-      const customCore = '# Custom Agent\n\nThis is a fully custom CORE.md.';
+      const customCore = '# Custom Agent\n\nThis is a fully custom IDENTITY.md.';
       scaffoldHarness(agentDir, 'custom-agent', { coreContent: customCore });
 
-      const core = readFileSync(join(agentDir, 'CORE.md'), 'utf-8');
-      expect(core).toBe(customCore);
+      const identity = readFileSync(join(agentDir, 'IDENTITY.md'), 'utf-8');
+      expect(identity).toBe(customCore);
       // Should NOT contain the template boilerplate
-      expect(core).not.toContain('Values');
-      expect(core).not.toContain('Ethics');
+      expect(identity).not.toContain('Values');
+      expect(identity).not.toContain('Ethics');
     });
 
     it('should prefer coreContent over purpose', () => {
@@ -306,40 +293,37 @@ describe('harness init (scaffolding)', () => {
         coreContent: customCore,
       });
 
-      const core = readFileSync(join(agentDir, 'CORE.md'), 'utf-8');
-      expect(core).toBe(customCore);
-      expect(core).not.toContain('This should be ignored');
+      const identity = readFileSync(join(agentDir, 'IDENTITY.md'), 'utf-8');
+      expect(identity).toBe(customCore);
+      expect(identity).not.toContain('This should be ignored');
     });
 
     it('should fall back to base template for unknown template name', () => {
       scaffoldHarness(agentDir, 'test-agent', { template: 'nonexistent' });
 
       // Should still create files using inline fallbacks
-      expect(existsSync(join(agentDir, 'CORE.md'))).toBe(true);
-      expect(existsSync(join(agentDir, 'SYSTEM.md'))).toBe(true);
+      expect(existsSync(join(agentDir, 'IDENTITY.md'))).toBe(true);
+      expect(existsSync(join(agentDir, 'SYSTEM.md'))).toBe(false);
       expect(existsSync(join(agentDir, 'config.yaml'))).toBe(true);
     });
 
     it('should substitute {{AGENT_NAME}} in all template files', () => {
       scaffoldHarness(agentDir, 'agent-x', { template: 'assistant' });
 
-      const core = readFileSync(join(agentDir, 'CORE.md'), 'utf-8');
-      const system = readFileSync(join(agentDir, 'SYSTEM.md'), 'utf-8');
+      const identity = readFileSync(join(agentDir, 'IDENTITY.md'), 'utf-8');
       const config = readFileSync(join(agentDir, 'config.yaml'), 'utf-8');
 
       // Should contain the substituted name, not the placeholder
-      expect(core).not.toContain('{{AGENT_NAME}}');
-      expect(system).not.toContain('{{AGENT_NAME}}');
+      expect(identity).not.toContain('{{AGENT_NAME}}');
       expect(config).not.toContain('{{AGENT_NAME}}');
 
-      expect(core).toContain('agent-x');
-      expect(system).toContain('agent-x');
+      expect(identity).toContain('agent-x');
       expect(config).toContain('name: agent-x');
     });
   });
 
   describe('generateSystemMd', () => {
-    it('should generate SYSTEM.md from directory structure', () => {
+    it('should generate system content from directory structure', () => {
       scaffoldHarness(agentDir, 'sys-agent');
 
       const systemMd = generateSystemMd(agentDir, 'sys-agent');
@@ -350,6 +334,10 @@ describe('harness init (scaffolding)', () => {
       expect(systemMd).toContain('## Directory Structure');
       expect(systemMd).toContain('## File Ownership');
       expect(systemMd).toContain('## Context Loading Strategy');
+
+      // Boot sequence references IDENTITY.md and memory/state.md
+      expect(systemMd).toContain('IDENTITY.md');
+      expect(systemMd).toContain('memory/state.md');
 
       // Should list actual primitive directories with file counts
       expect(systemMd).toContain('`rules/`');
