@@ -1,6 +1,8 @@
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import { loadAllPrimitives } from '../primitives/loader.js';
+import type { HarnessDocument } from '../core/types.js';
 
 export interface TriggerScriptResult {
   status: 'ok' | 'error' | 'blocked';
@@ -100,4 +102,178 @@ export function runTriggerScript(opts: RunTriggerScriptOptions): Promise<Trigger
 
     child.stdin.end(JSON.stringify(payload));
   });
+}
+
+// ---------------------------------------------------------------------------
+// Trigger composition — AI SDK lifecycle handlers
+// ---------------------------------------------------------------------------
+
+export interface ComposedHandlers {
+  /**
+   * prepareCall: mutate call settings before each run. Requires ToolLoopAgent.
+   * Not wired into createHarness in this release (generateText does not have
+   * a prepareCall hook). See DONE_WITH_CONCERNS in Task 6.
+   */
+  prepareCall?: (settings: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  /**
+   * prepareStep: mutate step settings before each step in the tool-use loop.
+   * Wired through provider.ts GenerateOptions.prepareStep.
+   */
+  prepareStep?: (settings: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  /** onStepFinish: observation callback after each step. No merge. */
+  onStepFinish?: (stepResult: unknown) => Promise<void>;
+  /** onFinish: observation callback after the run completes. No merge. */
+  onFinish?: (runResult: unknown) => Promise<void>;
+}
+
+const TRIGGER_KINDS = [
+  'prepare-call',
+  'prepare-step',
+  'step-finish',
+  'run-finish',
+  'repair-tool-call',
+  'tool-pre',
+  'tool-post',
+  'stop-condition',
+  'stream-transform',
+  'subagent',
+] as const;
+type TriggerKind = (typeof TRIGGER_KINDS)[number];
+
+function getSkillsForTrigger(harnessDir: string, kind: TriggerKind): HarnessDocument[] {
+  const all = loadAllPrimitives(harnessDir);
+  const skills = (all.get('skills') ?? []).filter((s) => {
+    if (s.status === 'archived' || s.status === 'deprecated') return false;
+    return s.metadata?.['harness-trigger'] === kind;
+  });
+  // Sort by harness-trigger-priority (default 100), then by name
+  skills.sort((a, b) => {
+    const pa = Number(a.metadata?.['harness-trigger-priority'] ?? 100);
+    const pb = Number(b.metadata?.['harness-trigger-priority'] ?? 100);
+    if (pa !== pb) return pa - pb;
+    return a.name.localeCompare(b.name);
+  });
+  return skills;
+}
+
+function mergeSettings(
+  current: Record<string, unknown>,
+  scriptResult: TriggerScriptResult,
+): Record<string, unknown> {
+  if (scriptResult.status !== 'ok' || !scriptResult.result) return current;
+  const r = scriptResult.result as Record<string, unknown>;
+  const merged = { ...current };
+  // String fields: append (instructions)
+  if (typeof r.instructions === 'string') {
+    const prev = typeof merged.instructions === 'string' ? merged.instructions + '\n\n' : '';
+    merged.instructions = prev + r.instructions;
+  }
+  // Object fields: shallow merge (tools)
+  if (r.tools !== null && r.tools !== undefined && typeof r.tools === 'object' && !Array.isArray(r.tools)) {
+    merged.tools = { ...(merged.tools as Record<string, unknown> ?? {}), ...(r.tools as Record<string, unknown>) };
+  }
+  // Array fields: replace (activeTools)
+  if (Array.isArray(r.activeTools)) {
+    merged.activeTools = r.activeTools;
+  }
+  // providerOptions: shallow merge
+  if (r.providerOptions !== null && r.providerOptions !== undefined && typeof r.providerOptions === 'object' && !Array.isArray(r.providerOptions)) {
+    merged.providerOptions = { ...(merged.providerOptions as Record<string, unknown> ?? {}), ...(r.providerOptions as Record<string, unknown>) };
+  }
+  return merged;
+}
+
+export function composeTriggerHandlers(harnessDir: string): ComposedHandlers {
+  const handlers: ComposedHandlers = {};
+
+  // prepare-call — NOTE: not wired in this release; requires ToolLoopAgent.
+  // The handler is composed so callers that DO use ToolLoopAgent can consume it.
+  const prepareCallSkills = getSkillsForTrigger(harnessDir, 'prepare-call');
+  if (prepareCallSkills.length > 0) {
+    handlers.prepareCall = async (settings) => {
+      let merged = { ...settings };
+      for (const skill of prepareCallSkills) {
+        if (!skill.bundleDir) continue;
+        const r = await runTriggerScript({
+          bundleDir: skill.bundleDir,
+          trigger: 'prepare-call',
+          payload: { settings: merged },
+        });
+        if (r.status === 'error' && r.error?.action === 'abort') {
+          throw new Error(`prepare-call aborted by ${skill.name}: ${r.error.message}`);
+        }
+        if (r.status === 'error') {
+          process.stderr.write(`[triggers] prepare-call error in ${skill.name}: ${r.error?.message ?? 'unknown'}\n`);
+          // proceed with unmodified settings
+          continue;
+        }
+        merged = mergeSettings(merged, r);
+      }
+      return merged;
+    };
+  }
+
+  // prepare-step
+  const prepareStepSkills = getSkillsForTrigger(harnessDir, 'prepare-step');
+  if (prepareStepSkills.length > 0) {
+    handlers.prepareStep = async (settings) => {
+      let merged = { ...settings };
+      for (const skill of prepareStepSkills) {
+        if (!skill.bundleDir) continue;
+        const r = await runTriggerScript({
+          bundleDir: skill.bundleDir,
+          trigger: 'prepare-step',
+          payload: { settings: merged },
+        });
+        if (r.status === 'error' && r.error?.action === 'abort') {
+          throw new Error(`prepare-step aborted by ${skill.name}: ${r.error.message}`);
+        }
+        if (r.status === 'error') {
+          process.stderr.write(`[triggers] prepare-step error in ${skill.name}: ${r.error?.message ?? 'unknown'}\n`);
+          continue;
+        }
+        merged = mergeSettings(merged, r);
+      }
+      return merged;
+    };
+  }
+
+  // step-finish — observation only
+  const stepFinishSkills = getSkillsForTrigger(harnessDir, 'step-finish');
+  if (stepFinishSkills.length > 0) {
+    handlers.onStepFinish = async (stepResult) => {
+      for (const skill of stepFinishSkills) {
+        if (!skill.bundleDir) continue;
+        const r = await runTriggerScript({
+          bundleDir: skill.bundleDir,
+          trigger: 'step-finish',
+          payload: { stepResult },
+        });
+        if (r.status === 'error') {
+          process.stderr.write(`[triggers] step-finish error in ${skill.name}: ${r.error?.message ?? 'unknown'}\n`);
+        }
+        // step-finish is observation-only; result is ignored
+      }
+    };
+  }
+
+  // run-finish — observation only
+  const runFinishSkills = getSkillsForTrigger(harnessDir, 'run-finish');
+  if (runFinishSkills.length > 0) {
+    handlers.onFinish = async (runResult) => {
+      for (const skill of runFinishSkills) {
+        if (!skill.bundleDir) continue;
+        const r = await runTriggerScript({
+          bundleDir: skill.bundleDir,
+          trigger: 'run-finish',
+          payload: { runResult },
+        });
+        if (r.status === 'error') {
+          process.stderr.write(`[triggers] run-finish error in ${skill.name}: ${r.error?.message ?? 'unknown'}\n`);
+        }
+      }
+    };
+  }
+
+  return handlers;
 }

@@ -21,6 +21,7 @@ import { applyContentFilters } from '../runtime/content-filters.js';
 import { buildToolSet, type AIToolSet } from '../runtime/tool-executor.js';
 import { createMcpManager, type McpManager } from '../runtime/mcp.js';
 import { buildActivateSkillTool } from '../runtime/skill-activation.js';
+import { composeTriggerHandlers, type ComposedHandlers } from '../runtime/triggers.js';
 import { tool as aiTool } from 'ai';
 
 export function createHarness(options: CreateHarnessOptions): HarnessAgent {
@@ -48,6 +49,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
   let booted = false;
   let toolSet: AIToolSet = {};
   let mcpManager: McpManager | undefined;
+  let triggerHandlers: ComposedHandlers = {};
 
   const agent: HarnessAgent = {
     name: config.agent.name,
@@ -77,6 +79,10 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
       }
 
       toolSet = buildToolSet(dir, options.toolExecutor, mcpTools);
+
+      // Compose trigger handlers from skills tagged with harness-trigger
+      triggerHandlers = composeTriggerHandlers(dir);
+
       const activateTool = buildActivateSkillTool(dir);
       if (activateTool) {
         toolSet['activate_skill'] = aiTool({
@@ -158,6 +164,8 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
           timeoutMs: config.model.timeout_ms,
           ...(hasTools ? { tools: toolSet, maxToolSteps: options.toolExecutor?.maxToolCalls ?? 25, ...(options.activeTools ? { activeTools: options.activeTools } : {}) } : {}),
           ...(prepareStep ? { prepareStep } : {}),
+          ...(triggerHandlers.onStepFinish ? { onStepFinish: triggerHandlers.onStepFinish } : {}),
+          ...(triggerHandlers.onFinish ? { onFinish: triggerHandlers.onFinish } : {}),
         });
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
@@ -299,6 +307,8 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
             timeoutMs: config.model.timeout_ms,
             ...(hasTools ? { tools: toolSet, maxToolSteps: options.toolExecutor?.maxToolCalls ?? 25, ...(options.activeTools ? { activeTools: options.activeTools } : {}) } : {}),
             ...(prepareStep ? { prepareStep } : {}),
+            ...(triggerHandlers.onStepFinish ? { onStepFinish: triggerHandlers.onStepFinish } : {}),
+            ...(triggerHandlers.onFinish ? { onFinish: triggerHandlers.onFinish } : {}),
           });
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));

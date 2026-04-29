@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync, mkdirSync, chmodSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { runTriggerScript } from '../../src/runtime/triggers.js';
+import { runTriggerScript, composeTriggerHandlers } from '../../src/runtime/triggers.js';
 
 function makeSkillBundle(name: string, scriptContent: string): { harnessDir: string; bundleDir: string } {
   const harnessDir = mkdtempSync(join(tmpdir(), 'triggers-'));
@@ -77,5 +77,28 @@ describe('runTriggerScript', () => {
     const r = result.result as { trigger: string; payload: { foo: string } };
     expect(r.trigger).toBe('prepare-call');
     expect(r.payload.foo).toBe('bar');
+  });
+});
+
+describe('composeTriggerHandlers', () => {
+  it('returns no-op handlers when no skills are tagged', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'triggers-empty-'));
+    const handlers = composeTriggerHandlers(dir);
+    expect(handlers.prepareCall).toBeUndefined();
+    expect(handlers.onStepFinish).toBeUndefined();
+  });
+
+  it('returns a prepareCall handler when at least one skill has prepare-call trigger', () => {
+    const { harnessDir } = makeSkillBundle(
+      'inject',
+      `#!/usr/bin/env bash\necho '{"status":"ok","result":{"instructions":"injected"}}'`
+    );
+    const handlers = composeTriggerHandlers(harnessDir);
+    expect(handlers.prepareCall).toBeDefined();
+    // Calling it should run the script and merge its output
+    return handlers.prepareCall!({ options: {}, model: {}, instructions: 'base' } as Record<string, unknown>).then((settings) => {
+      // The script returned { result: { instructions: 'injected' } } — appended/merged
+      expect(settings.instructions).toContain('injected');
+    });
   });
 });

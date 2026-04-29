@@ -290,6 +290,18 @@ export interface GenerateOptions extends CallOptions {
    * prompt for reflection). Usually supplied by `createReflectionPrepareStep`.
    */
   prepareStep?: (args: { stepNumber: number; steps: unknown[] }) => { system?: string } | undefined;
+  /**
+   * AI SDK onStepFinish hook — called after each step (LLM call) in the
+   * tool-use loop. Used by trigger skills with harness-trigger: step-finish.
+   * Observation only — return value is ignored.
+   */
+  onStepFinish?: (event: unknown) => Promise<void> | void;
+  /**
+   * AI SDK onFinish hook — called when all steps are finished.
+   * Used by trigger skills with harness-trigger: run-finish.
+   * Observation only — return value is ignored.
+   */
+  onFinish?: (event: unknown) => Promise<void> | void;
 }
 
 export interface GenerateWithMessagesOptions extends CallOptions {
@@ -310,6 +322,10 @@ export interface GenerateWithMessagesOptions extends CallOptions {
    * AI SDK prepareStep hook — see GenerateOptions.prepareStep.
    */
   prepareStep?: (args: { stepNumber: number; steps: unknown[] }) => { system?: string } | undefined;
+  /** AI SDK onStepFinish hook — see GenerateOptions.onStepFinish. */
+  onStepFinish?: (event: unknown) => Promise<void> | void;
+  /** AI SDK onFinish hook — see GenerateOptions.onFinish. */
+  onFinish?: (event: unknown) => Promise<void> | void;
 }
 
 export interface GenerateResult {
@@ -335,6 +351,8 @@ function buildCallSettings(
     maxToolSteps?: number;
     activeTools?: string[];
     prepareStep?: (args: { stepNumber: number; steps: unknown[] }) => { system?: string } | undefined;
+    onStepFinish?: (event: unknown) => Promise<void> | void;
+    onFinish?: (event: unknown) => Promise<void> | void;
   },
 ) {
   const hasTools = opts.tools && Object.keys(opts.tools).length > 0;
@@ -347,6 +365,8 @@ function buildCallSettings(
     ...(hasActive ? { activeTools: opts.activeTools } : {}),
     ...(hasTools ? { stopWhen: stepCountIs(opts.maxToolSteps ?? 25) } : {}),
     ...(opts.prepareStep ? { prepareStep: opts.prepareStep } : {}),
+    ...(opts.onStepFinish ? { onStepFinish: opts.onStepFinish } : {}),
+    ...(opts.onFinish ? { onFinish: opts.onFinish } : {}),
   };
 }
 
