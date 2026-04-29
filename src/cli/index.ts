@@ -17,7 +17,8 @@ process.on('warning', (warning: NodeJS.ErrnoException) => {
 import { Command } from 'commander';
 import { createRequire } from 'module';
 import { resolve, join, basename, dirname } from 'path';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'fs';
 import { config as loadDotenv } from 'dotenv';
 import { setGlobalLogLevel, type LogLevel } from '../core/logger.js';
 
@@ -3106,6 +3107,74 @@ skillCmd
       const schedule = s.metadata?.['harness-schedule'] ?? '-';
       console.log(`  ${s.name.padEnd(40)} trigger=${String(trigger)}\tschedule=${String(schedule)}`);
     }
+  });
+
+skillCmd
+  .command('new <name>')
+  .description('Scaffold a new skill bundle under skills/<name>/')
+  .option('-d, --dir <path>', 'harness directory', process.cwd())
+  .action((name: string, opts: { dir: string }) => {
+    // Validate name: 1-64 chars, lowercase a-z/0-9/hyphen, no leading/trailing/consecutive hyphens
+    if (
+      name.length === 0 ||
+      name.length > 64 ||
+      !/^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9]))*$/.test(name)
+    ) {
+      console.error(
+        `Invalid skill name "${name}": must be 1-64 chars, lowercase a-z/0-9/hyphen, ` +
+          'no leading/trailing/consecutive hyphens.',
+      );
+      process.exit(2);
+    }
+
+    const harnessDir = resolve(opts.dir);
+    const bundleDir = join(harnessDir, 'skills', name);
+
+    if (existsSync(bundleDir)) {
+      console.error(
+        `skills/${name}/ already exists; choose a different name or remove it first.`,
+      );
+      process.exit(2);
+    }
+
+    // Locate templates/skill-bundle/ by walking up from import.meta.url.
+    // Works in both dev (src/cli/index.ts) and prod (dist/cli/index.js).
+    function resolveSkillBundleTemplate(): string {
+      let dir = dirname(fileURLToPath(import.meta.url));
+      for (let i = 0; i < 5; i++) {
+        const candidate = join(dir, 'templates', 'skill-bundle');
+        if (existsSync(candidate)) return candidate;
+        dir = dirname(dir);
+      }
+      throw new Error(
+        'Cannot locate templates/skill-bundle/ — installation may be corrupt.',
+      );
+    }
+
+    const templateDir = resolveSkillBundleTemplate();
+
+    function copyTemplate(relSrc: string, destPath: string): void {
+      const src = join(templateDir, relSrc);
+      const content = readFileSync(src, 'utf-8').replace(/\{\{NAME\}\}/g, name);
+      mkdirSync(dirname(destPath), { recursive: true });
+      writeFileSync(destPath, content, 'utf-8');
+    }
+
+    copyTemplate('SKILL.md', join(bundleDir, 'SKILL.md'));
+    copyTemplate('scripts/run.sh', join(bundleDir, 'scripts', 'run.sh'));
+    copyTemplate(
+      'references/REFERENCE.md',
+      join(bundleDir, 'references', 'REFERENCE.md'),
+    );
+    chmodSync(join(bundleDir, 'scripts', 'run.sh'), 0o755);
+
+    console.log(`Created skill bundle at skills/${name}/`);
+    console.log('Next steps:');
+    console.log(`  1. Edit skills/${name}/SKILL.md — write a real description and workflow body`);
+    console.log(`  2. Edit skills/${name}/scripts/run.sh — replace the NOT_IMPLEMENTED stub`);
+    console.log(
+      `  3. harness doctor --check -d ${harnessDir} — verify spec compliance`,
+    );
   });
 
 // --- AGENTS (DEPRECATED — sub-agent primitives have been removed) ---
