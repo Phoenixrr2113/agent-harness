@@ -1160,10 +1160,9 @@ The runner needs to actually invoke the agent in eval mode. Create `src/runtime/
 
 ```typescript
 import { loadConfig } from '../../core/config.js';
-import { getModel } from '../../llm/provider.js';
-import { generateWithAgent } from '../../llm/provider.js';
+import { getModel, generateWithAgent } from '../../llm/provider.js';
 import { buildActivateSkillTool } from '../skill-activation.js';
-import { loadIdentity } from '../../core/identity.js';
+import { loadIdentity } from '../context-loader.js';
 import type { TriggerEvalAgentRunner } from './triggers.js';
 
 /**
@@ -1181,7 +1180,7 @@ export async function buildLiveTriggerEvalRunner(harnessDir: string): Promise<Tr
     const model = getModel(config);
     const result = await generateWithAgent({
       model,
-      system: identity,
+      system: identity.content,
       prompt: query,
       tools: tools as Record<string, unknown>,
       maxToolSteps: 5,
@@ -1549,7 +1548,7 @@ export async function buildLiveQualityEvalRunner(harnessDir: string): Promise<Qu
     const start = Date.now();
     const result = await generateWithAgent({
       model,
-      system: `${identity}\n\nWorking directory: ${workingDir}`,
+      system: `${identity.content}\n\nWorking directory: ${workingDir}`,
       prompt,
       tools: tools as Record<string, unknown>,
       maxToolSteps: 10,
