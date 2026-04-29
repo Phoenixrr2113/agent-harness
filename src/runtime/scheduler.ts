@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { loadDirectory, parseHarnessDocument } from '../primitives/loader.js';
+import { loadDirectory, loadAllPrimitives, parseHarnessDocument } from '../primitives/loader.js';
 import { loadConfig } from '../core/config.js';
 import { createHarness } from '../core/harness.js';
 import { delegateTo } from './delegate.js';
@@ -15,6 +15,33 @@ import type { HarnessConfig, HarnessDocument } from '../core/types.js';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export interface ScheduledSkill {
+  name: string;
+  schedule: string;
+  bundleDir: string;
+  body: string;
+  durable: boolean;
+}
+
+/**
+ * Return all active (non-archived, non-deprecated) skills that have a
+ * `metadata.harness-schedule` cron expression in their frontmatter.
+ */
+export function listScheduledSkills(harnessDir: string): ScheduledSkill[] {
+  const all = loadAllPrimitives(harnessDir);
+  const skills = (all.get('skills') ?? []).filter((s) => {
+    if (s.status === 'archived' || s.status === 'deprecated') return false;
+    return typeof s.metadata?.['harness-schedule'] === 'string';
+  });
+  return skills.map((s) => ({
+    name: s.name,
+    schedule: s.metadata?.['harness-schedule'] as string,
+    bundleDir: s.bundleDir ?? '',
+    body: s.body,
+    durable: s.metadata?.['harness-durable'] === 'true' || s.durable === true,
+  }));
 }
 
 /**
@@ -143,11 +170,32 @@ export class Scheduler {
       }
     }
 
-    // Load all workflows
+    // Load all workflows from the legacy workflows/ directory (if present)
     const workflowDir = join(this.harnessDir, 'workflows');
-    if (!existsSync(workflowDir)) return;
+    const workflowDocs = existsSync(workflowDir) ? loadDirectory(workflowDir) : [];
 
-    const docs = loadDirectory(workflowDir);
+    // Load scheduled skills from skills/ (primitive-collapse: skills with metadata.harness-schedule)
+    const scheduledSkills = listScheduledSkills(this.harnessDir);
+
+    // Convert scheduled skills into synthetic HarnessDocuments so the unified
+    // execution path (executeWorkflow) can handle them without change.
+    const skillDocs: HarnessDocument[] = scheduledSkills.map((s) => ({
+      path: s.bundleDir ? join(s.bundleDir, 'SKILL.md') : join(this.harnessDir, 'skills', s.name, 'SKILL.md'),
+      id: s.name,
+      name: s.name,
+      allowedTools: [],
+      tags: [],
+      status: 'active' as const,
+      author: 'human' as const,
+      related: [],
+      body: s.body,
+      raw: s.body,
+      schedule: s.schedule,
+      durable: s.durable,
+      frontmatter: {} as HarnessDocument['frontmatter'],
+    }));
+
+    const docs = [...workflowDocs, ...skillDocs];
 
     // Boot-time resume: drain any incomplete durable runs from a previous
     // process crash or sleep-expired suspension. Runs in parallel with cron

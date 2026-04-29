@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdirSync, writeFileSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
-import { isQuietHours, Scheduler } from '../src/runtime/scheduler.js';
+import { tmpdir } from 'os';
+import { mkdtempSync } from 'fs';
+import { isQuietHours, Scheduler, listScheduledSkills } from '../src/runtime/scheduler.js';
 import { HarnessConfigSchema } from '../src/core/types.js';
 import type { HarnessConfig } from '../src/core/types.js';
 
@@ -427,6 +429,29 @@ describe('Scheduler', () => {
     scheduler.stop();
   });
 
+  it('should pick up skills with metadata.harness-schedule via start()', () => {
+    const skillsDir = join(SCHED_TEST_DIR, 'skills', 'morning-brief');
+    mkdirSync(skillsDir, { recursive: true });
+    writeFileSync(
+      join(skillsDir, 'SKILL.md'),
+      `---\nname: morning-brief\ndescription: Morning brief skill.\nmetadata:\n  harness-schedule: "0 7 * * *"\n---\nRun the morning brief.`,
+      'utf-8',
+    );
+
+    const scheduled: string[] = [];
+    const scheduler = new Scheduler({
+      harnessDir: SCHED_TEST_DIR,
+      autoArchival: false,
+      onSchedule: (id) => { scheduled.push(id); },
+    });
+    scheduler.start();
+
+    expect(scheduler.listScheduled().map((s) => s.id)).toContain('morning-brief');
+    expect(scheduled).toContain('morning-brief');
+
+    scheduler.stop();
+  });
+
   it('should not retry when max_retries is not set', async () => {
     // Disable quiet hours
     writeFileSync(
@@ -474,6 +499,73 @@ const BASE_CONFIG_INPUT = {
   memory: { session_retention_days: 7, journal_retention_days: 365 },
   channels: { primary: 'cli' },
 };
+
+describe('listScheduledSkills', () => {
+  it('returns skills with metadata.harness-schedule', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sched-'));
+    mkdirSync(join(dir, 'skills', 'morning-brief'), { recursive: true });
+    writeFileSync(
+      join(dir, 'skills', 'morning-brief', 'SKILL.md'),
+      `---\nname: morning-brief\ndescription: Morning routine.\nmetadata:\n  harness-schedule: "0 7 * * *"\n---\nBody.`,
+      'utf-8',
+    );
+    mkdirSync(join(dir, 'skills', 'unscheduled'), { recursive: true });
+    writeFileSync(
+      join(dir, 'skills', 'unscheduled', 'SKILL.md'),
+      `---\nname: unscheduled\ndescription: Not scheduled.\n---\nBody.`,
+      'utf-8',
+    );
+    const scheduled = listScheduledSkills(dir);
+    expect(scheduled.map((s) => s.name)).toEqual(['morning-brief']);
+    expect(scheduled[0].schedule).toBe('0 7 * * *');
+  });
+
+  it('skips archived and deprecated skills', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sched-'));
+    mkdirSync(join(dir, 'skills', 'old-job'), { recursive: true });
+    writeFileSync(
+      join(dir, 'skills', 'old-job', 'SKILL.md'),
+      `---\nname: old-job\ndescription: Old.\nmetadata:\n  harness-schedule: "0 0 * * *"\n  harness-status: archived\n---\nBody.`,
+      'utf-8',
+    );
+    expect(listScheduledSkills(dir)).toHaveLength(0);
+  });
+
+  it('returns empty array when skills directory does not exist', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sched-'));
+    expect(listScheduledSkills(dir)).toEqual([]);
+  });
+
+  it('includes skill body and bundleDir in result', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sched-'));
+    mkdirSync(join(dir, 'skills', 'daily-check'), { recursive: true });
+    writeFileSync(
+      join(dir, 'skills', 'daily-check', 'SKILL.md'),
+      `---\nname: daily-check\ndescription: Daily status check.\nmetadata:\n  harness-schedule: "0 9 * * 1-5"\n---\nCheck Slack and email.`,
+      'utf-8',
+    );
+    const scheduled = listScheduledSkills(dir);
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0].name).toBe('daily-check');
+    expect(scheduled[0].schedule).toBe('0 9 * * 1-5');
+    expect(scheduled[0].body).toContain('Check Slack and email');
+    expect(scheduled[0].bundleDir).toContain('daily-check');
+    expect(scheduled[0].durable).toBe(false);
+  });
+
+  it('sets durable=true when harness-durable is "true" in metadata', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sched-'));
+    mkdirSync(join(dir, 'skills', 'durable-job'), { recursive: true });
+    writeFileSync(
+      join(dir, 'skills', 'durable-job', 'SKILL.md'),
+      `---\nname: durable-job\ndescription: Durable scheduled job.\nmetadata:\n  harness-schedule: "0 6 * * *"\n  harness-durable: "true"\n---\nRun carefully.`,
+      'utf-8',
+    );
+    const scheduled = listScheduledSkills(dir);
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0].durable).toBe(true);
+  });
+});
 
 describe('HarnessConfigSchema intelligence & proactive', () => {
   it('should parse intelligence config with defaults', () => {
