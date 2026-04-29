@@ -1,8 +1,8 @@
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import { loadAllPrimitivesWithErrors, estimateTokens } from '../primitives/loader.js';
+import { loadAllPrimitives, loadAllPrimitivesWithErrors, estimateTokens } from '../primitives/loader.js';
 import type { ParseError } from '../primitives/loader.js';
-import type { HarnessConfig, HarnessDocument, ContextBudget } from '../core/types.js';
+import type { HarnessConfig, ContextBudget } from '../core/types.js';
 import { log } from '../core/logger.js';
 
 export interface LoadedContext {
@@ -48,43 +48,103 @@ export function loadIdentity(harnessDir: string): IdentityLoadResult {
   return { content: '', source: 'none' };
 }
 
-export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): LoadedContext {
-  const maxTokens = config.model.max_tokens;
-  const budget: ContextBudget = {
-    max_tokens: maxTokens,
-    used_tokens: 0,
-    remaining: maxTokens,
-    loaded_files: [],
-  };
-
-  const warnings: string[] = [];
+/**
+ * Build the system prompt using the Agent Skills three-tier model:
+ *
+ * 1. Identity — IDENTITY.md (or CORE.md fallback) loaded full body, wrapped in <identity>.
+ * 2. Rules — every active rule loaded full body, wrapped in <rules>, alphabetical by name.
+ * 3. State — memory/state.md content if present, wrapped in <state>.
+ * 4. Skill catalog — name + description + location for model-invokable skills only, wrapped
+ *    in <available_skills>. Skills with a lifecycle harness-trigger (not 'subagent') or a
+ *    harness-schedule are excluded — the harness fires them, not the model.
+ *
+ * Sections are separated by blank lines. Sections with no content are omitted.
+ */
+export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): string {
   const sections: string[] = [];
 
-  // --- Step 1: Load identity (IDENTITY.md preferred; falls back to CORE.md) ---
+  // 1. Identity — always loaded full body
   const identity = loadIdentity(harnessDir);
   if (identity.content) {
-    sections.push(`# CORE IDENTITY\n\n${identity.content}`);
-    budget.used_tokens += estimateTokens(identity.content);
-    budget.loaded_files.push(identity.source);
+    sections.push(`<identity>\n${identity.content}\n</identity>`);
   }
 
-  // --- Step 2: Load state.md ---
-  const statePath = join(harnessDir, 'state.md');
-  if (existsSync(statePath)) {
-    const state = readFileSync(statePath, 'utf-8');
-    sections.push(`# CURRENT STATE\n\n${state}`);
-    budget.used_tokens += estimateTokens(state);
-    budget.loaded_files.push('state.md');
+  // 2. Rules — always loaded full body, alphabetical by name
+  const allPrimitives = loadAllPrimitives(harnessDir);
+  const rules = (allPrimitives.get('rules') ?? [])
+    .filter((r) => r.status !== 'archived' && r.status !== 'deprecated')
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if (rules.length > 0) {
+    const rulesBlock = rules.map((r) => `## ${r.name}\n\n${r.body}`).join('\n\n');
+    sections.push(`<rules>\n${rulesBlock}\n</rules>`);
   }
 
-  // SYSTEM.md is no longer authored content. Boot sequence and context-loading
-  // strategy are documented in README only; runtime details live in code.
+  // 3. State — current runtime state if available
+  const statePath = canonicalStatePath(harnessDir);
+  const legacyPath = join(harnessDir, 'state.md');
+  const resolvedStatePath = existsSync(statePath)
+    ? statePath
+    : existsSync(legacyPath)
+      ? legacyPath
+      : null;
+  if (resolvedStatePath) {
+    const stateContent = readFileSync(resolvedStatePath, 'utf-8');
+    if (stateContent.trim()) {
+      sections.push(`<state>\n${stateContent}\n</state>`);
+    }
+  }
 
-  // --- Step 3: Load all primitives at appropriate level ---
-  const extDirs = config.extensions?.directories ?? [];
-  const { primitives, errors: parseErrors } = loadAllPrimitivesWithErrors(harnessDir, extDirs);
+  // 4. Skill catalog — name + description + location for model-invokable skills.
+  //    Lifecycle-triggered skills (harness-trigger !== 'subagent') and
+  //    scheduled skills (harness-schedule set) are excluded — the harness fires
+  //    them, not the model.
+  const skills = (allPrimitives.get('skills') ?? [])
+    .filter((s) => s.status !== 'archived' && s.status !== 'deprecated')
+    .filter((s) => {
+      const trigger = s.metadata?.['harness-trigger'] as string | undefined;
+      const schedule = s.metadata?.['harness-schedule'] as string | undefined;
+      if (schedule) return false;
+      if (trigger && trigger !== 'subagent') return false;
+      return true;
+    });
+  if (skills.length > 0) {
+    const catalog = skills
+      .map(
+        (s) =>
+          `  <skill>\n    <name>${s.name}</name>\n    <description>${s.description ?? ''}</description>\n    <location>${s.path}</location>\n  </skill>`
+      )
+      .join('\n');
+    sections.push(
+      `<available_skills>\n${catalog}\n</available_skills>\n\nWhen a task matches a skill's description, call the activate_skill tool with the skill's name to load its full instructions.`
+    );
+  }
 
-  // Report parse errors
+  return sections.join('\n\n');
+}
+
+function canonicalStatePath(harnessDir: string): string {
+  return join(harnessDir, 'memory', 'state.md');
+}
+
+/**
+ * Build the system prompt and collect budget/parse-error metadata for callers
+ * that need it (harness.ts boot log, conversation.ts token tracking, validator,
+ * CLI `harness context` command).
+ *
+ * The system-prompt string is built by `buildSystemPrompt`. Budget numbers are
+ * approximated from the resulting string — no per-primitive tracking is needed
+ * because the new three-tier model is not token-budget-driven.
+ */
+export function buildLoadedContext(harnessDir: string, config: HarnessConfig): LoadedContext {
+  const maxTokens = config.model?.max_tokens ?? 200000;
+
+  const { errors: parseErrors } = loadAllPrimitivesWithErrors(
+    harnessDir,
+    config.extensions?.directories ?? []
+  );
+
+  const warnings: string[] = [];
+
   if (parseErrors.length > 0) {
     for (const pe of parseErrors) {
       log.warn(`Failed to parse primitive: ${pe.path} — ${pe.error}`);
@@ -92,115 +152,44 @@ export function buildSystemPrompt(harnessDir: string, config: HarnessConfig): Lo
     warnings.push(`${parseErrors.length} primitive file(s) failed to parse`);
   }
 
-  const targetBudget = maxTokens * 0.15; // Use 15% of context for harness
+  const systemPrompt = buildSystemPrompt(harnessDir, config);
+  const used_tokens = estimateTokens(systemPrompt);
 
-  // Priority order for loading primitives (core dirs first, extensions appended)
-  const priorityOrder = ['rules', 'instincts', 'skills', 'playbooks', 'tools', 'workflows', 'agents'];
-  for (const dir of extDirs) {
-    if (!priorityOrder.includes(dir)) {
-      priorityOrder.push(dir);
-    }
-  }
+  // Collect loaded file paths for the boot log
+  const loaded_files: string[] = [];
+  const identity = loadIdentity(harnessDir);
+  if (identity.source !== 'none') loaded_files.push(identity.source);
 
-  // Collect all docs to estimate total demand before deciding levels
-  const allDocs: { category: string; doc: HarnessDocument }[] = [];
-  for (const category of priorityOrder) {
-    const docs = primitives.get(category);
-    if (!docs || docs.length === 0) continue;
+  const statePath = canonicalStatePath(harnessDir);
+  const legacyPath = join(harnessDir, 'state.md');
+  if (existsSync(statePath)) loaded_files.push('memory/state.md');
+  else if (existsSync(legacyPath)) loaded_files.push('state.md');
+
+  const allPrimitives = loadAllPrimitives(harnessDir);
+  for (const [, docs] of allPrimitives) {
     for (const doc of docs) {
-      allDocs.push({ category, doc });
+      loaded_files.push(doc.path);
     }
   }
 
-  if (allDocs.length === 0) {
-    warnings.push('No primitives found — add rules, instincts, or skills to improve agent behavior');
-  }
-
-  // Estimate total L2 demand vs available budget for primitives
-  const primitiveBudget = targetBudget - budget.used_tokens;
-  let totalL2Demand = 0;
-  for (const { doc } of allDocs) {
-    totalL2Demand += estimateTokens(doc.body);
-  }
-
-  // Choose a global disclosure level based on how much fits
-  let globalLevel: 0 | 1 | 2;
-  if (totalL2Demand <= primitiveBudget) {
-    globalLevel = 2; // Everything fits at full
-  } else {
-    // Estimate L1 demand (description or truncated body)
-    let totalL1Demand = 0;
-    for (const { doc } of allDocs) {
-      totalL1Demand += estimateTokens(doc.description ?? doc.body.slice(0, 400));
-    }
-    globalLevel = totalL1Demand <= primitiveBudget ? 1 : 0;
-  }
-
-  for (const category of priorityOrder) {
-    const docs = primitives.get(category);
-    if (!docs || docs.length === 0) continue;
-
-    const categoryLabel = category.toUpperCase();
-    const categoryDocs: string[] = [];
-
-    for (const doc of docs) {
-      // Start from global level, fall back if this doc would exceed budget
-      let level = globalLevel;
-      let content = level === 2 ? doc.body : (level === 1 ? (doc.description ?? doc.body.slice(0, 400)) : (doc.description ?? doc.id));
-      let tokens = estimateTokens(content);
-
-      while (budget.used_tokens + tokens > targetBudget && level > 0) {
-        level = (level - 1) as 0 | 1;
-        content = level === 1 ? (doc.description ?? doc.body.slice(0, 400)) : (doc.description ?? doc.id);
-        tokens = estimateTokens(content);
-      }
-
-      categoryDocs.push(`### ${doc.id}\n${content}`);
-      budget.used_tokens += tokens;
-      budget.loaded_files.push(doc.path);
-    }
-
-    if (categoryDocs.length > 0) {
-      sections.push(`# ${categoryLabel}\n\n${categoryDocs.join('\n\n')}`);
-    }
-  }
-
-  // --- Step 4: Load scratch.md if exists ---
-  const scratchPath = join(harnessDir, 'memory', 'scratch.md');
-  if (existsSync(scratchPath)) {
-    const scratch = readFileSync(scratchPath, 'utf-8');
-    if (scratch.trim()) {
-      sections.push(`# SCRATCH (Current Working Memory)\n\n${scratch}`);
-      budget.used_tokens += estimateTokens(scratch);
-      budget.loaded_files.push('memory/scratch.md');
-    }
-  }
-
-  budget.remaining = maxTokens - budget.used_tokens;
-
-  // --- Step 5: Budget warnings ---
-  const usagePercent = (budget.used_tokens / maxTokens) * 100;
+  const usagePercent = (used_tokens / maxTokens) * 100;
   if (usagePercent > 12) {
-    // System prompt using more than 80% of its 15% allocation
     warnings.push(
       `System prompt using ${usagePercent.toFixed(1)}% of total context ` +
-      `(${budget.used_tokens}/${maxTokens} tokens) — some primitives may be truncated`,
+        `(${used_tokens}/${maxTokens} tokens) — some primitives may be truncated`
     );
     log.warn(
-      `Context budget high: ${budget.used_tokens}/${maxTokens} tokens ` +
-      `(${usagePercent.toFixed(1)}%), ${budget.loaded_files.length} files loaded`,
+      `Context budget high: ${used_tokens}/${maxTokens} tokens ` +
+        `(${usagePercent.toFixed(1)}%), ${loaded_files.length} files loaded`
     );
   }
 
-  if (globalLevel < 2) {
-    const levelName = globalLevel === 0 ? 'L0 (summary only)' : 'L1 (paragraph summary)';
-    warnings.push(`Primitives loaded at ${levelName} due to budget constraints`);
-  }
-
-  return {
-    systemPrompt: sections.join('\n\n---\n\n'),
-    budget,
-    parseErrors,
-    warnings,
+  const budget: ContextBudget = {
+    max_tokens: maxTokens,
+    used_tokens,
+    remaining: maxTokens - used_tokens,
+    loaded_files,
   };
+
+  return { systemPrompt, budget, parseErrors, warnings };
 }

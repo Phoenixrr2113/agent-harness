@@ -2,7 +2,7 @@ import { existsSync, readdirSync, mkdirSync } from 'fs';
 import { join, relative } from 'path';
 import { loadDirectoryWithErrors } from '../primitives/loader.js';
 import { fixCapability } from './intake.js';
-import { buildSystemPrompt } from './context-loader.js';
+import { buildLoadedContext } from './context-loader.js';
 import { loadConfig } from '../core/config.js';
 import { loadState } from './state.js';
 import { validateMcpConfig } from './mcp.js';
@@ -139,7 +139,7 @@ export function validateHarness(dir: string): ValidationResult {
   // --- Context budget ---
   if (config) {
     try {
-      const ctx = buildSystemPrompt(dir, config);
+      const ctx = buildLoadedContext(dir, config);
       const usagePercent = ((ctx.budget.used_tokens / ctx.budget.max_tokens) * 100).toFixed(1);
       result.ok.push(
         `Context budget: ${ctx.budget.used_tokens}/${ctx.budget.max_tokens} tokens (${usagePercent}%)`,

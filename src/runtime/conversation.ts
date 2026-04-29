@@ -3,7 +3,7 @@ import { join } from 'path';
 import { getModel, generateWithMessages, streamWithMessages } from '../llm/provider.js';
 import { loadConfig } from '../core/config.js';
 import { log } from '../core/logger.js';
-import { buildSystemPrompt } from './context-loader.js';
+import { buildLoadedContext } from './context-loader.js';
 import { estimateTokens } from '../primitives/loader.js';
 import { createSessionId, writeSession, type SessionRecord } from './sessions.js';
 import { withFileLockSync } from './file-lock.js';
@@ -96,7 +96,7 @@ export class Conversation {
 
   async init(): Promise<void> {
     const config = this.getConfig();
-    const ctx = buildSystemPrompt(this.harnessDir, config);
+    const ctx = buildLoadedContext(this.harnessDir, config);
     this.systemPrompt = ctx.systemPrompt;
     this.systemPromptTokens = ctx.budget.used_tokens;
     this.maxContextTokens = config.model.max_tokens;

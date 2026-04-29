@@ -11,7 +11,7 @@ import type {
   AgentState,
 } from './types.js';
 import { getModel, generate, streamGenerateWithDetails } from '../llm/provider.js';
-import { buildSystemPrompt } from '../runtime/context-loader.js';
+import { buildLoadedContext } from '../runtime/context-loader.js';
 import { loadState, saveState } from '../runtime/state.js';
 import { createSessionId, writeSession, type SessionRecord } from '../runtime/sessions.js';
 import { recordCost } from '../runtime/cost-tracker.js';
@@ -59,7 +59,7 @@ export function createHarness(options: CreateHarnessOptions): HarnessAgent {
       state.last_interaction = new Date().toISOString();
 
       // Build system prompt from harness files
-      const ctx = buildSystemPrompt(dir, config);
+      const ctx = buildLoadedContext(dir, config);
       systemPrompt = ctx.systemPrompt;
 
       // Connect to MCP servers and load their tools

@@ -843,14 +843,14 @@ program
   .option('--json', 'Output as JSON')
   .action(async (opts: { dir: string; json: boolean }) => {
     const { loadConfig } = await import('../core/config.js');
-    const { buildSystemPrompt } = await import('../runtime/context-loader.js');
+    const { buildLoadedContext } = await import('../runtime/context-loader.js');
     const { loadState } = await import('../runtime/state.js');
     const dir = resolve(opts.dir);
     requireHarness(dir);
 
     try {
       const config = loadConfig(dir);
-      const ctx = buildSystemPrompt(dir, config);
+      const ctx = buildLoadedContext(dir, config);
       const state = loadState(dir);
 
       // MCP servers
@@ -913,13 +913,13 @@ program
   .option('--json', 'Output metadata as JSON (includes prompt, budget, warnings)')
   .action(async (opts: { dir: string; json: boolean }) => {
     const { loadConfig } = await import('../core/config.js');
-    const { buildSystemPrompt } = await import('../runtime/context-loader.js');
+    const { buildLoadedContext } = await import('../runtime/context-loader.js');
     const dir = resolve(opts.dir);
     requireHarness(dir);
 
     try {
       const config = loadConfig(dir);
-      const ctx = buildSystemPrompt(dir, config);
+      const ctx = buildLoadedContext(dir, config);
 
       if (opts.json) {
         console.log(JSON.stringify({
