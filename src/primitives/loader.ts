@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, existsSync, statSync } from 'fs';
 import { join, extname, basename } from 'path';
 import matter from 'gray-matter';
 import { FrontmatterSchema, CORE_PRIMITIVE_DIRS, type HarnessDocument, type Frontmatter } from '../core/types.js';
+import { normalizeFrontmatter } from './normalize.js';
 
 export interface ParseError {
   path: string;
@@ -43,84 +44,51 @@ export function bundleEntryNameFor(kind: string): string | null {
   return BUNDLE_ENTRY_BY_KIND[kind] ?? null;
 }
 
-export function parseHarnessDocument(filePath: string, bundleDir?: string): HarnessDocument {
-  const raw = readFileSync(filePath, 'utf-8');
-  const { data, content } = matter(raw);
+export function parseHarnessDocument(filePath: string, bundleDir?: string, kind?: string): HarnessDocument {
+  const rawContent = readFileSync(filePath, 'utf-8');
+  const { data, content } = matter(rawContent);
 
-  const normalized = { ...data };
+  // Normalize date-typed values from YAML (gray-matter parses YYYY-MM-DD as Date objects)
+  const normalized: Record<string, unknown> = { ...data };
   for (const key of ['created', 'updated']) {
-    if (normalized[key] instanceof Date) {
-      normalized[key] = (normalized[key] as Date).toISOString().split('T')[0];
-    }
+    const v = normalized[key];
+    if (v instanceof Date) normalized[key] = v.toISOString().split('T')[0];
   }
 
   let frontmatter: Frontmatter;
   try {
     frontmatter = FrontmatterSchema.parse(normalized);
   } catch {
+    // Fall back to a minimal frontmatter using filename/dirname for id.
+    // (Strict-mode error reporting comes in Task 3.4.)
     const fallbackId = bundleDir
       ? basename(bundleDir)
       : basename(filePath).replace(/\.md$/, '') || 'unknown';
-    frontmatter = FrontmatterSchema.parse({ id: fallbackId });
+    frontmatter = FrontmatterSchema.parse({ id: fallbackId, name: fallbackId });
   }
 
-  // Strip L0/L1 HTML comments from the body — they are not assigned as fields.
-  // The regex constants are kept so that migration tooling (task 6.3) can import them.
+  // Strip L0/L1 markers from body (kept for migration; no longer extracted as fields)
   const body = content
     .replace(L0_REGEX, '')
     .replace(L1_REGEX, '')
     .trim();
 
-  // Derive canonical id: prefer frontmatter.id (already slugified by FrontmatterSchema
-  // preprocess), else bundle dir name, else filename stem.
-  const id = frontmatter.id ||
-    (bundleDir ? basename(bundleDir) : basename(filePath).replace(/\.md$/, '')) ||
-    'unknown';
+  // Run normalization to derive canonical accessor fields (kind-aware)
+  const resolvedKind = kind ?? 'unknown';
+  const normalizedFields = normalizeFrontmatter(normalized, resolvedKind, bundleDir ?? filePath);
 
-  // Derive canonical name: prefer frontmatter.name (display name), else fall back to id.
-  const name = typeof frontmatter.name === 'string' ? frontmatter.name : id;
-
-  // Parse allowed-tools: the legacy FrontmatterSchema stores it as string[] already;
-  // the new spec stores it as a space-separated string. Handle both.
-  const rawAllowedTools = (frontmatter as Record<string, unknown>)['allowed-tools'];
-  let allowedTools: string[] = [];
-  if (typeof rawAllowedTools === 'string') {
-    allowedTools = rawAllowedTools.split(/\s+/).filter(Boolean);
-  } else if (Array.isArray(rawAllowedTools)) {
-    allowedTools = rawAllowedTools.filter((t): t is string => typeof t === 'string');
-  }
-
-  const fm = frontmatter as Record<string, unknown>;
+  // Override id with the FrontmatterSchema-derived value, which applies slugifyName
+  // when name is present and id is absent — normalizeFrontmatter does not slugify.
+  const id = frontmatter.id || normalizedFields.id;
 
   const doc: HarnessDocument = {
     path: filePath,
-    id,
-    name,
-    description: typeof fm.description === 'string' ? fm.description : undefined,
-    license: typeof fm.license === 'string' ? fm.license : undefined,
-    compatibility: typeof fm.compatibility === 'string' ? fm.compatibility : undefined,
-    allowedTools,
-    tags: Array.isArray(frontmatter.tags) ? frontmatter.tags as string[] : [],
-    status: (frontmatter.status ?? 'active') as 'active' | 'archived' | 'deprecated' | 'draft',
-    author: (frontmatter.author ?? 'human') as 'human' | 'agent' | 'infrastructure',
-    created: typeof frontmatter.created === 'string' ? frontmatter.created : undefined,
-    updated: typeof frontmatter.updated === 'string' ? frontmatter.updated : undefined,
-    related: Array.isArray(frontmatter.related) ? frontmatter.related as string[] : [],
-    schedule: typeof fm.schedule === 'string' ? fm.schedule : undefined,
-    with: typeof fm.with === 'string' ? fm.with : undefined,
-    channel: typeof fm.channel === 'string' ? fm.channel : undefined,
-    duration_minutes: typeof fm.duration_minutes === 'number' ? fm.duration_minutes : undefined,
-    max_retries: typeof fm.max_retries === 'number' ? fm.max_retries : undefined,
-    retry_delay_ms: typeof fm.retry_delay_ms === 'number' ? fm.retry_delay_ms : undefined,
-    durable: typeof fm.durable === 'boolean' ? fm.durable : undefined,
-    model: (typeof fm.model === 'string' ? fm.model : undefined) as 'primary' | 'summary' | 'fast' | undefined,
-    active_tools: Array.isArray(fm.active_tools) ? fm.active_tools as string[] : undefined,
-    metadata: typeof fm.metadata === 'object' && fm.metadata !== null
-      ? fm.metadata as Record<string, unknown>
-      : undefined,
     body,
-    raw,
+    raw: rawContent,
     frontmatter,
+    ...normalizedFields,
+    // id must come after spread to use the slugified FrontmatterSchema value
+    id,
   };
   if (bundleDir) doc.bundleDir = bundleDir;
   return doc;
@@ -186,7 +154,7 @@ export function loadDirectoryWithErrors(dirPath: string): LoadResult {
         continue;
       }
       try {
-        const doc = parseHarnessDocument(entryFile, entryPath);
+        const doc = parseHarnessDocument(entryFile, entryPath, kind);
         if (doc.status !== 'archived' && doc.status !== 'deprecated') {
           docs.push(doc);
         }
@@ -199,7 +167,7 @@ export function loadDirectoryWithErrors(dirPath: string): LoadResult {
     } else if (stats.isFile() && extname(entry) === '.md') {
       // Flat primitive — single-file convention, backward compatible.
       try {
-        const doc = parseHarnessDocument(entryPath);
+        const doc = parseHarnessDocument(entryPath, undefined, kind);
         if (doc.status !== 'archived' && doc.status !== 'deprecated') {
           docs.push(doc);
         }
