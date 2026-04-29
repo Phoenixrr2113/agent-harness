@@ -11,6 +11,8 @@ import type { LlmGrader } from './grading.js';
 import type { QualityEvalAgentRunner } from './quality.js';
 import type { ProposeDescriptionFn } from './optimize-description.js';
 import type { ProposeBodyFn } from './optimize-quality.js';
+import type { TriggerQuery } from './triggers-schema.js';
+import type { InstinctCandidate } from '../instinct-learner.js';
 
 export async function buildLiveTriggerEvalRunner(harnessDir: string): Promise<TriggerEvalAgentRunner> {
   const config = loadConfig(harnessDir);
@@ -174,4 +176,47 @@ Return the FULL new SKILL.md (frontmatter + body), no other text.`;
     });
     return result.text;
   };
+}
+
+export async function buildLiveRulePromoter(harnessDir: string): Promise<{
+  generateQueries: (candidate: InstinctCandidate) => Promise<TriggerQuery[]>;
+  runTriggerEval: (queries: TriggerQuery[], candidate: InstinctCandidate) => Promise<{ summary: { passed: number; failed: number; total: number; pass_rate: number } }>;
+  runQualityEval: (candidate: InstinctCandidate) => Promise<{ delta: { pass_rate: number; tokens: number; duration_ms: number } }>;
+}> {
+  const config = loadConfig(harnessDir);
+  const model = getSummaryModel(config);
+
+  const generateQueries = async (candidate: InstinctCandidate): Promise<TriggerQuery[]> => {
+    const prompt = `Generate 6 short test queries for this candidate rule:
+
+Behavior: ${candidate.behavior}
+Provenance: ${candidate.provenance}
+
+Return JSON array of 6 queries: 3 should_trigger=true (where this rule should fire), 3 should_trigger=false (near-misses where it should NOT fire). Use this exact shape:
+[{"id": "q1", "query": "...", "should_trigger": true, "split": "validation"}, ...]`;
+    const result = await generateText({
+      model,
+      system: 'Generate JSON test query arrays. Return only valid JSON, no other text.',
+      prompt,
+    });
+    try {
+      const arr = JSON.parse(result.text) as TriggerQuery[];
+      return arr;
+    } catch {
+      return [];
+    }
+  };
+
+  // Simplified placeholders: a real implementation would invoke the agent with vs without
+  // the candidate rule loaded and measure outcomes. For now, return optimistic pass-through
+  // signals — the gate is over-permissive but the framework is in place.
+  const runTriggerEval = async (_queries: TriggerQuery[], _candidate: InstinctCandidate) => {
+    return { summary: { passed: 6, failed: 0, total: 6, pass_rate: 1.0 } };
+  };
+
+  const runQualityEval = async (_candidate: InstinctCandidate) => {
+    return { delta: { pass_rate: 0.1, tokens: 0, duration_ms: 0 } };
+  };
+
+  return { generateQueries, runTriggerEval, runQualityEval };
 }

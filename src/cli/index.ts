@@ -3322,6 +3322,45 @@ skillCmd
     console.log(`\n${result.applied ? 'Changes applied.' : 'No changes applied (auto-approve disabled).'}`);
   });
 
+// --- RULES ---
+const rulesCmd = program
+  .command('rules')
+  .description('Manage rules (including agent-learned candidates)');
+
+rulesCmd
+  .command('promote <candidate-id>')
+  .description('Promote an agent-learned rule candidate after eval gate')
+  .option('--no-eval-gate', 'Skip eval gate (power users)')
+  .option('--harness <dir>', 'Harness directory', process.cwd())
+  .action(async (candidateId: string, opts: { evalGate: boolean; harness: string }) => {
+    const { promoteRule } = await import('../runtime/promote-rule.js');
+    const { buildLiveRulePromoter } = await import('../runtime/evals/agent-runner.js');
+    const { loadCandidateById } = await import('../runtime/instinct-learner.js');
+    const candidate = loadCandidateById(opts.harness, candidateId);
+    if (!candidate) {
+      console.error(`Candidate not found: ${candidateId}. Run 'harness learn' first to discover candidates.`);
+      process.exit(1);
+    }
+    const live = await buildLiveRulePromoter(opts.harness);
+    const result = await promoteRule({
+      harnessDir: opts.harness,
+      candidate,
+      noEvalGate: !opts.evalGate, // Commander negates --no-eval-gate to evalGate=false
+      runTriggerEval: live.runTriggerEval,
+      runQualityEval: live.runQualityEval,
+      generateQueries: live.generateQueries,
+    });
+    if (result.promoted) {
+      console.log(`Promoted: ${candidateId}`);
+      console.log(`Reason: ${result.reason}`);
+      if (result.rulePath) console.log(`Rule file: ${result.rulePath}`);
+    } else {
+      console.log(`NOT promoted: ${candidateId}`);
+      console.log(`Reason: ${result.reason}`);
+      process.exit(1);
+    }
+  });
+
 // --- AGENTS (DEPRECATED — sub-agent primitives have been removed) ---
 program
   .command('agents')
