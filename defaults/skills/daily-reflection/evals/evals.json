@@ -1,0 +1,37 @@
+{
+  "skill_name": "daily-reflection",
+  "evals": [
+    {
+      "id": "synthesize-from-sessions",
+      "prompt": "Synthesize patterns from yesterday's sessions in memory/sessions/.",
+      "expected_output": "A markdown summary of patterns observed across the sessions.",
+      "files": ["evals/files/session-1.md", "evals/files/session-2.md"],
+      "assertions": [
+        "The output includes a 'Patterns' or 'Themes' section",
+        "The output references at least 2 distinct sessions",
+        "The output is valid markdown"
+      ]
+    },
+    {
+      "id": "propose-rules-from-corrections",
+      "prompt": "Look for repeated corrections in recent sessions and propose new rules.",
+      "expected_output": "A list of proposed rules with provenance and confidence scores.",
+      "files": ["evals/files/correction-pattern.md"],
+      "assertions": [
+        "The output includes proposed rule IDs",
+        "Each proposed rule has a confidence score between 0 and 1",
+        "The output references the source corrections"
+      ]
+    },
+    {
+      "id": "no-rules-when-nothing-to-learn",
+      "prompt": "Synthesize from this single uneventful session.",
+      "expected_output": "A response indicating no actionable patterns were found.",
+      "files": ["evals/files/uneventful.md"],
+      "assertions": [
+        "The output indicates no rules are being proposed",
+        "The output is concise (fewer than 200 words)"
+      ]
+    }
+  ]
+}
