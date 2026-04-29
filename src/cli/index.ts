@@ -3294,6 +3294,34 @@ skillCmd
     console.log(`\n${result.applied ? 'Applied to SKILL.md.' : 'Dry run — SKILL.md unchanged.'}`);
   });
 
+skillCmd
+  .command('optimize-quality <name>')
+  .description('Iteratively refine a skill body against quality eval signals')
+  .option('--max-iterations <n>', 'Max iterations (default 3)', (v) => parseInt(v, 10), 3)
+  .option('--auto-approve', 'Apply each iteration without prompting')
+  .option('--harness <dir>', 'Harness directory', process.cwd())
+  .action(async (name: string, opts: { maxIterations: number; autoApprove: boolean; harness: string }) => {
+    const { optimizeQuality } = await import('../runtime/evals/optimize-quality.js');
+    const { buildLiveQualityEvalRunner, buildLiveLlmGrader, buildLiveBodyProposer } = await import('../runtime/evals/agent-runner.js');
+    const qualityRunner = await buildLiveQualityEvalRunner(opts.harness);
+    const llmGrader = await buildLiveLlmGrader(opts.harness);
+    const proposeBody = await buildLiveBodyProposer(opts.harness);
+    const result = await optimizeQuality({
+      harnessDir: opts.harness,
+      skillName: name,
+      maxIterations: opts.maxIterations,
+      qualityRunner,
+      proposeBody,
+      llmGrader,
+      autoApprove: opts.autoApprove,
+    });
+    console.log(`\nIterations: ${result.iterations.length}`);
+    for (const it of result.iterations) {
+      console.log(`  ${it.iteration}: with_skill ${it.with_skill.pass_rate.mean.toFixed(2)} | without_skill ${it.without_skill.pass_rate.mean.toFixed(2)} | delta ${it.delta.pass_rate.toFixed(2)}`);
+    }
+    console.log(`\n${result.applied ? 'Changes applied.' : 'No changes applied (auto-approve disabled).'}`);
+  });
+
 // --- AGENTS (DEPRECATED — sub-agent primitives have been removed) ---
 program
   .command('agents')

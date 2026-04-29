@@ -10,6 +10,7 @@ import type { TriggerEvalAgentRunner } from './triggers.js';
 import type { LlmGrader } from './grading.js';
 import type { QualityEvalAgentRunner } from './quality.js';
 import type { ProposeDescriptionFn } from './optimize-description.js';
+import type { ProposeBodyFn } from './optimize-quality.js';
 
 export async function buildLiveTriggerEvalRunner(harnessDir: string): Promise<TriggerEvalAgentRunner> {
   const config = loadConfig(harnessDir);
@@ -144,5 +145,33 @@ Return ONLY the new description, no quotes, no other text.`;
       prompt,
     });
     return result.text.trim();
+  };
+}
+
+export async function buildLiveBodyProposer(harnessDir: string): Promise<ProposeBodyFn> {
+  const config = loadConfig(harnessDir);
+  const model = getSummaryModel(config);
+
+  return async ({ currentSkillFile, benchmark }) => {
+    const failingCases = benchmark.cases.filter((c) => c.with_skill.pass_rate < 1).map((c) => c.id).join(', ');
+    const prompt = `Revise the following SKILL.md to better address failing eval cases.
+
+Failing cases (with_skill pass_rate < 1.0): ${failingCases || 'none'}
+
+with_skill pass_rate: ${benchmark.with_skill.pass_rate.mean.toFixed(2)}
+without_skill pass_rate: ${benchmark.without_skill.pass_rate.mean.toFixed(2)}
+delta: ${benchmark.delta.pass_rate.toFixed(2)}
+
+Current SKILL.md:
+${currentSkillFile}
+
+Return the FULL new SKILL.md (frontmatter + body), no other text.`;
+
+    const result = await generateText({
+      model,
+      system: 'You revise SKILL.md files based on quality eval signals. Return only the file contents.',
+      prompt,
+    });
+    return result.text;
   };
 }
