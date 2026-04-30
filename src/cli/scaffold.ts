@@ -6,23 +6,32 @@ import { writeDefaultConfig } from '../core/config.js';
 /**
  * D3: npm tarballs don't preserve POSIX exec bits reliably across all install
  * paths, so scripts copied into a fresh harness need their +x bit set
- * explicitly. Files inside a `scripts/` subdirectory with an executable
- * extension or a shebang line are chmodded to 0o755 during scaffold.
+ * explicitly. Files inside a `scripts/` subdirectory get chmodded to 0o755
+ * IF they're directly executable: shell scripts (extension-based, kernel
+ * falls back to /bin/sh) OR any file with a shebang line. Files like
+ * `helper.js` (a browser asset that happens to live in `scripts/`) and
+ * other-language sources without shebangs do NOT get +x — running them
+ * needs an explicit interpreter (`node`, `python`, etc.) so +x would be
+ * misleading and trips the doctor's `helpSupported` lint when it tries
+ * to spawn them directly (ENOEXEC).
  */
-const EXECUTABLE_EXTENSIONS = ['.sh', '.py', '.js', '.ts', '.rb', '.pl', '.bash', '.zsh', '.fish'];
+const SHELL_EXTENSIONS = ['.sh', '.bash', '.zsh', '.fish'];
 
 function shouldBeExecutable(srcPath: string, entry: string, parentDir: string): boolean {
   // Only consider files inside a `scripts/` directory at any depth
   if (parentDir !== 'scripts') return false;
   const ext = entry.includes('.') ? entry.slice(entry.lastIndexOf('.')).toLowerCase() : '';
-  if (EXECUTABLE_EXTENSIONS.includes(ext)) return true;
-  // Files without recognized extensions but with a shebang are also executables
+  // Shell extensions: kernel /bin/sh fallback makes these directly runnable
+  if (SHELL_EXTENSIONS.includes(ext)) return true;
+  // Any file with a shebang is directly runnable regardless of extension
   try {
     const head = readFileSync(srcPath, 'utf-8').slice(0, 256);
     if (head.startsWith('#!')) return true;
   } catch {
     // unreadable — leave as-is
   }
+  // Other files (helper.js without shebang, .py/.ts source without shebang,
+  // .html/.json/.yaml/.md assets) are NOT directly executable.
   return false;
 }
 
