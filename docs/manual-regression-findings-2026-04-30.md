@@ -220,6 +220,29 @@ The server IS reachable; the test just probed a non-existent path.
 
 ---
 
+### F-12 (item R-14, surfaced post-F-05 fix) — `brainstorming` skill's start-server.sh fails `harness skill validate`
+
+**Item:** R-14 — `harness skill validate <name>` passes for every shipped default
+**Expected:** every shipped skill passes validation.
+**Actual:** `harness skill validate brainstorming` returns 5 lint findings (1 ERROR, 4 informational/warning):
+```
+[E] HELP_NOT_SUPPORTED: scripts/start-server.sh --help exited with status 1; scripts must support --help.
+[W] INTERACTIVE_PROMPT: scripts/start-server.sh contains an interactive prompt pattern (gets)
+[W] HELP_INCOMPLETE: scripts/stop-server.sh --help output should contain "Usage:" and "Exit codes:"
+[W] MISSING_RECOMMENDED_SECTIONS: SKILL.md is missing the standard sections
+[I] DESCRIPTION_NOT_IMPERATIVE: description doesn't contain "Use when..."
+```
+
+This was masked in the v0.16.0 first run by F-05 (the ENOEXEC crash on helper.js short-circuited all the skill-validate runs). Now that helper.js no longer triggers ENOEXEC and the doctor lint registry runs to completion, real lint failures in vendored content are visible.
+
+The brainstorming skill content is vendored from `obra/superpowers` (per its frontmatter `harness-source`). The script `--help` contract is harness-specific (documented in `docs/skill-authoring.md`); the upstream superpowers doesn't follow it.
+
+**Triage:** BUG (real, separate from the picker work) — affects any user who runs `harness skill validate` on a default-installed skill (brainstorming is one of the 4 always-installed defaults).
+**Action:** Either (a) patch the vendored start-server.sh / stop-server.sh to add `--help` blocks per `docs/skill-authoring.md`, OR (b) loosen the `helpSupported` lint to skip server-style scripts that don't fit the one-shot CLI contract. Option (a) is cleaner. Defer to a separate branch.
+**Resolved in:** open (filed as follow-up; out of scope for the skill-picker branch which doesn't touch the brainstorming skill content)
+
+---
+
 ## Persona walkthroughs (P-01..P-03) — partial coverage
 
 The persona items overlap heavily with the mechanical findings above. Specifically:
