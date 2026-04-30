@@ -28,9 +28,9 @@
 **Item:** R-03 — `harness init` detects existing providers
 **Expected:** If non-interactive: silently scaffolds into `.harness/`. If interactive: prompts about detected providers.
 **Actual:** `Error: agent name is required. Usage: harness init <name>` and exits.
-**Triage:** Known limitation from v0.13.0 / v0.14.0 (B7). The detection helpers `detectExistingProviders` and `decideScaffoldLocation` exist in `src/cli/scaffold.ts` but are NOT wired into the live `harness init` action. Documented as a v0.13.0 follow-up; still not implemented in v0.16.0.
-**Action:** File as v0.17.0 work — wire detection into the live init action when no name is provided.
-**Resolved in:** open
+**Triage:** Known limitation from v0.13.0 / v0.14.0 (B7). The detection helpers `detectExistingProviders` and `decideScaffoldLocation` exist in `src/cli/scaffold.ts` but were NOT wired into the live `harness init` action. Documented as a v0.13.0 follow-up.
+**Action:** Wire detection into the live init action when no name is provided. When invoked in a project root with `.claude/`, `.cursor/`, `AGENTS.md`, `CLAUDE.md`, or `GEMINI.md`, scaffold into a `.harness/` subdirectory. TTY shows the detected providers and confirms; non-TTY proceeds silently with a one-line log.
+**Resolved in:** commit `7750b6c` — feat(init): wire detectExistingProviders into live action. Verified: `cd ~/proj-with-cursor && harness init --no-prompt -y` now scaffolds into `<proj>/.harness/` with `agent.name = basename(proj)`; existing `.cursor/`, `.claude/`, `AGENTS.md` are preserved untouched.
 
 ---
 
@@ -144,8 +144,9 @@ But none of those landed in `instincts/`. Instead, the harness made up its own t
 This breaks the README's marketing claim: "the agent gets better the more you use it ... patterns become agent-authored rules in `rules/`". A real user would either (a) get garbage in their `instincts/` or (b) decide the learning loop doesn't actually work.
 
 **Triage:** BUG (real, high-visibility)
-**Action:** Investigate why `harness learn --install` doesn't read from journal's structured `## Instinct Candidates` section. The D13 fix in v0.15.0 was supposed to prefer journal-extracted candidates over LLM-generated ones — verify that path is actually firing in `harness learn`. Likely fix: `instinct-learner.ts` `learnFromSessions` path is treating each session's summary as a candidate when no journal candidates are found, instead of returning zero candidates.
-**Resolved in:** open (defer to a separate fix branch — non-trivial design work)
+**Root cause (post-investigation):** the harvest regex in `instinct-learner.ts:harvestInstincts` was `/## Instinct Candidates\n([\s\S]*?)(?=\n## |\n*$)/`. Small synthesis models (qwen3:1.7b — the default Ollama model) emit markdown-line-break trailing whitespace on heading lines: `## Instinct Candidates  \n` (two trailing spaces). The literal `\n` in the regex didn't match, so harvest silently returned 0 candidates and the LLM-fallback path in `learnFromSessions` ran. That fallback treats each SESSION as a candidate and uses the session SUMMARY verbatim as the "behavior" — producing the garbage we saw.
+**Action:** Relax the regex to `/## Instinct Candidates[ \t]*\n.../` so trailing horizontal whitespace on the heading no longer breaks parsing.
+**Resolved in:** commit `43e5787` — fix(instinct-learner): tolerate trailing whitespace on journal section heading. Verified: re-running `harness learn --install` against the same v0.16.0 test agent's existing journal now installs 3 real pattern-level instincts (`use-redis-as-a-tool-for-creative-problem-solving`, `distinguish-between-relational-and-non-relational`, `answer-factual-questions-with-clarity-and-precisio`), each with provenance `journal:2026-04-30`. Cosmetic followup: heading is now derived from the full behavior text (sans trailing punctuation) rather than the truncated kebab id, so headings no longer cut mid-word ("Precisio" → "precision"). 5 new regression-locking tests added to `tests/instinct-learner.test.ts` (1467 → 1472).
 
 ---
 
@@ -238,8 +239,8 @@ This was masked in the v0.16.0 first run by F-05 (the ENOEXEC crash on helper.js
 The brainstorming skill content is vendored from `obra/superpowers` (per its frontmatter `harness-source`). The script `--help` contract is harness-specific (documented in `docs/skill-authoring.md`); the upstream superpowers doesn't follow it.
 
 **Triage:** BUG (real, separate from the picker work) — affects any user who runs `harness skill validate` on a default-installed skill (brainstorming is one of the 4 always-installed defaults).
-**Action:** Either (a) patch the vendored start-server.sh / stop-server.sh to add `--help` blocks per `docs/skill-authoring.md`, OR (b) loosen the `helpSupported` lint to skip server-style scripts that don't fit the one-shot CLI contract. Option (a) is cleaner. Defer to a separate branch.
-**Resolved in:** open (filed as follow-up; out of scope for the skill-picker branch which doesn't touch the brainstorming skill content)
+**Action:** Took option (a) plus tighten the lint that produced a false positive. (1) Added `--help` blocks with Usage:/Options:/Exit-codes: to `defaults/skills/brainstorming/scripts/start-server.sh` and `stop-server.sh` per the `docs/skill-authoring.md` contract. (2) Rephrased `# Each session gets its own directory ...` → `# Each session uses its own directory ...` to remove the `gets` keyword that was triggering the noInteractive lint. (3) Hardened `noInteractive` lint in `src/runtime/lints/script-lints.ts` to strip line comments (shell `#`, JS `//`) before pattern-matching so future false positives in code comments are blocked. (4) Rewrote brainstorming's `description:` to a "Use when..." trigger phrase per the agentskills optimizing-descriptions guide.
+**Resolved in:** commit `b35e684` — fix(brainstorming): add --help blocks + Use-when description. Verified: `harness skill validate brainstorming` now exits 0 with 1 W-level finding only (MISSING_RECOMMENDED_SECTIONS, deferred — would require restructuring vendored content and is W not E). All 4 default skills validate with 0 errors each.
 
 ---
 
