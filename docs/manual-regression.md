@@ -917,6 +917,79 @@ ls .claude/
 **Notes:**
 
 
+### R-32 — `harness mcp discover` finds installed MCP servers
+
+**Lens:** A
+**Concern:** mcp
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+harness mcp discover 2>&1 | tee mcp-discover.log
+```
+
+**Expected:**
+- Exit code 0
+- Stdout reports servers discovered from existing tools (Claude Desktop, Cursor, Cline, etc.)
+- Servers added to `config.yaml` with `enabled: false` (opt-in)
+- No crash if no MCP-using tools installed
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-33 — `harness mcp list` shows configured servers and status
+
+**Lens:** A
+**Concern:** mcp
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+harness mcp list 2>&1 | tee mcp-list.log
+```
+
+**Expected:**
+- Exit code 0
+- One row per server in `config.yaml: mcp.servers`
+- Each row shows: name, transport (stdio/http), enabled status
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-34 — `harness mcp test <server>` connects to a stdio MCP
+
+**Lens:** A
+**Concern:** mcp
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+# pick the first enabled server, OR fall back to enabling one for the test
+harness mcp test screenpipe 2>&1 | tee mcp-test.log || \
+  harness mcp test sequential-thinking 2>&1 | tee mcp-test.log || \
+  echo "No reachable MCP server in config — KNOWN, requires env-specific setup"
+```
+
+**Expected:**
+- If a server is reachable: exit 0, output lists the server's tools, and the test exercises one tool's schema
+- Positional argument form (`mcp test <name>`) is accepted (D10 fix)
+- If no reachable server: error is friendly, points at `harness mcp install` or `harness mcp discover`
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
 <!-- Required-tier items get inserted here by Tasks 2–11. -->
 
 ## Extended tier (~80 items)
