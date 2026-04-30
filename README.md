@@ -711,7 +711,11 @@ harness doctor --migrate              # apply the migration
 
 This handles renaming `CORE.md` → `IDENTITY.md`, deleting `SYSTEM.md` (now infrastructure docs), moving `state.md` → `memory/state.md`, restructuring flat skills into bundles, rewriting frontmatter to the strict Agent Skills shape, and migrating the old 7-primitive directories (instincts, playbooks, workflows, tools, agents) into the 2-primitive shape (skills + rules). The migration is idempotent.
 
-For the full version-by-version diff and the breaking changes between v0.8.x and v0.15.0, see [CHANGELOG.md](./CHANGELOG.md).
+For the full version-by-version diff and the breaking changes between v0.8.x and v0.16.0, see [CHANGELOG.md](./CHANGELOG.md).
+
+### Manual regression suite
+
+`docs/manual-regression.md` is a tiered checklist (Required ~50 items, Extended ~80, Exhaustive ~70) of behaviors the harness must satisfy at every release. The Required tier is the release gate — run it before every minor or major version bump. The mechanically-checkable items are also encoded in `tests/regression-suite.test.ts` and run on every `npm test`. See `docs/specs/2026-04-30-manual-regression-design.md` for the design rationale and `docs/manual-regression-findings-YYYY-MM-DD.md` files for past run records.
 
 ## Philosophy
 

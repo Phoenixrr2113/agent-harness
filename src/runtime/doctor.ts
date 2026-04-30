@@ -7,16 +7,24 @@ import type { LintResult } from './lint-types.js';
 
 /**
  * D4: distinguish actual scripts from templates/assets that happen to live in
- * a `scripts/` directory. Files with executable extensions or a shebang line
- * are scripts; everything else (HTML, JSON, YAML, plain MD, raw data) is a
- * support resource the runtime won't try to spawn.
+ * a `scripts/` directory. A file is a "script" (lintable, expected to spawn
+ * directly) only if it can be invoked without an explicit interpreter:
+ *   - Shell extensions (.sh, .bash, .zsh, .fish) — kernel /bin/sh fallback
+ *   - ANY file with a shebang line (regardless of extension)
+ *
+ * Files without a shebang are NOT scripts even if their extension suggests a
+ * language (e.g., `helper.js` as a browser asset, or a `.py` source meant to
+ * be run via `python script.py`). Trying to spawn them directly causes
+ * ENOEXEC. Other files (HTML, JSON, YAML, MD, raw data) are also non-scripts
+ * regardless of where they live.
  */
-const SCRIPT_EXTENSIONS = ['.sh', '.py', '.js', '.ts', '.rb', '.pl', '.bash', '.zsh', '.fish'];
+const SHELL_EXTENSIONS = ['.sh', '.bash', '.zsh', '.fish'];
 
 function isScriptFile(scriptPath: string, entry: string): boolean {
   const ext = entry.includes('.') ? entry.slice(entry.lastIndexOf('.')).toLowerCase() : '';
-  if (SCRIPT_EXTENSIONS.includes(ext)) return true;
-  // Files without recognized extensions but with a shebang are also scripts
+  // Shell extensions: directly runnable via kernel /bin/sh fallback
+  if (SHELL_EXTENSIONS.includes(ext)) return true;
+  // Any file with a shebang is directly runnable
   try {
     const head = readFileSync(scriptPath, 'utf-8').slice(0, 256);
     if (head.startsWith('#!')) return true;

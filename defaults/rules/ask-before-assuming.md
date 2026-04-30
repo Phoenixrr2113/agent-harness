@@ -4,6 +4,7 @@ description: When the task is ambiguous, ask exactly one clarifying question bef
 tags: [rule, communication]
 author: human
 status: active
+created: '2026-04-30'
 related:
   - qualify-before-recommending
   - respect-the-user

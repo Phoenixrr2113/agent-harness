@@ -41,22 +41,38 @@ export function validateHarness(dir: string): ValidationResult {
   };
 
   // --- Required files ---
-  const requiredFiles = ['CORE.md'];
+  // Per spec #1 (v0.9.0): IDENTITY.md replaces CORE.md, SYSTEM.md was deleted
+  // (legacy infrastructure docs), state.md moved to memory/state.md.
+  const requiredFiles = ['IDENTITY.md'];
   for (const file of requiredFiles) {
     if (existsSync(join(dir, file))) {
       result.ok.push(`${file} exists`);
+    } else if (file === 'IDENTITY.md' && existsSync(join(dir, 'CORE.md'))) {
+      // Legacy harness with CORE.md — point at the migration tool.
+      result.errors.push(
+        `Missing required file: IDENTITY.md (found legacy CORE.md — run \`harness doctor --migrate\` to update)`,
+      );
     } else {
       result.errors.push(`Missing required file: ${file}`);
     }
   }
 
-  const optionalFiles = ['SYSTEM.md', 'state.md', 'config.yaml'];
+  const optionalFiles = ['config.yaml'];
   for (const file of optionalFiles) {
     if (existsSync(join(dir, file))) {
       result.ok.push(`${file} exists`);
     } else {
       result.warnings.push(`Optional file missing: ${file}`);
     }
+  }
+
+  // --- memory/state.md (new location) ---
+  if (existsSync(join(dir, 'memory', 'state.md'))) {
+    result.ok.push('memory/state.md exists');
+  } else if (existsSync(join(dir, 'state.md'))) {
+    result.warnings.push(
+      'state.md found at top level — should be at memory/state.md (run `harness doctor --migrate` to fix)',
+    );
   }
 
   // --- Config validation ---

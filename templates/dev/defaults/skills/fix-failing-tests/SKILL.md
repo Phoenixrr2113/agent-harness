@@ -1,18 +1,21 @@
 ---
-id: fix-failing-tests
-description: Seven-step flow for diagnosing and fixing failing tests.
-tags: [playbook, testing]
-author: human
-status: active
-trigger: ["fix the failing tests", "green the test suite", "tests are red"]
+name: fix-failing-tests
+description: "Seven-step flow for diagnosing and fixing failing tests. Use when the user asks to fix failing tests, green the suite, or says 'tests are red' — works through reproduce → read → root-cause → propose → apply → verify → commit."
+allowed-tools: "Read Edit Bash"
+metadata:
+  harness-tags: "playbook, testing, dev"
+  harness-status: active
+  harness-author: human
+  harness-created: '2026-04-21'
+  harness-updated: '2026-04-30'
+  harness-related: "reviewer, test-runner, working-in-a-git-repo"
 ---
 
-# Playbook: Fix Failing Tests
+# Skill: Fix Failing Tests
 
-## When this playbook applies
+## When this skill applies
 
-Triggered by the human asking to fix failing tests, green the suite, or a
-related phrasing.
+Triggered by the human asking to fix failing tests, green the suite, or a related phrasing.
 
 ## Step 1 — Reproduce
 

@@ -1,18 +1,18 @@
 ---
-id: test-runner
-tags: [agent, testing, dev, stateless]
-created: 2026-04-21
-updated: 2026-04-21
-author: human
-status: active
-model: fast
-active_tools:
-  - execute
-  - read_text_file
-description: "Runs the project's test suite (or a targeted subset), parses the output, and reports pass/fail with failing-test details. Call with the test command to run, or leave blank for the project default."
+name: test-runner
+description: "Runs the project's test suite (or a targeted subset), parses the output, and reports pass/fail with failing-test details. Use when you need to know test status; call with the test command to run, or leave blank for the project default."
+allowed-tools: "Bash Read"
+metadata:
+  harness-tags: "agent, testing, dev, stateless"
+  harness-status: active
+  harness-author: human
+  harness-created: '2026-04-21'
+  harness-updated: '2026-04-30'
+  harness-trigger: subagent
+  harness-model: fast
 ---
 
-# Agent: Test Runner
+# Skill: Test Runner
 
 ## Identity
 I am a stateless test-runner sub-agent. I run tests and report what happened.
@@ -24,7 +24,7 @@ Take a test command (or infer the project default), execute it, parse the output
 1. Detect or accept the test command.
    - If the caller provides one, use it verbatim.
    - Else infer: check `package.json` for a `test` script; fallback to `pytest`, `cargo test`, `go test ./...`, `rspec`, depending on what's in the repo.
-2. Run it via `shell.execute` with a reasonable timeout (5 minutes default).
+2. Run it via the shell with a reasonable timeout (5 minutes default).
 3. Parse the output to extract:
    - totals (passed / failed / skipped / total)
    - each failing test (file path + test name + first line of the failure message)

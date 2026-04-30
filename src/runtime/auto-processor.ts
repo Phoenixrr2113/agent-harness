@@ -172,36 +172,43 @@ export function autoProcessFile(
 
   // --- Frontmatter fixes ---
   if (generateFrontmatter) {
+    // The metadata.harness-* fields are valid Agent-Skills-spec extensions for
+    // these same concerns. Treat their presence as "already set" so the
+    // auto-processor doesn't add redundant top-level duplicates.
+    const metadata = (data.metadata && typeof data.metadata === 'object' ? data.metadata : {}) as Record<string, unknown>;
+
     // Fix: Missing id
-    if (!data.id) {
+    if (!data.id && !data.name) {
       data.id = deriveId(filePath);
       result.fixes.push(`Added id: "${data.id}"`);
       modified = true;
     }
 
-    // Fix: Missing created
-    if (!data.created) {
+    // Fix: Missing created. Prefer existing top-level OR metadata.harness-created.
+    if (!data.created && !metadata['harness-created']) {
       data.created = new Date().toISOString().split('T')[0];
       result.fixes.push('Added created date');
       modified = true;
     }
 
-    // Fix: Missing author — infrastructure for auto-generated
-    if (!data.author) {
+    // Fix: Missing author. Prefer top-level OR metadata.harness-author.
+    if (!data.author && !metadata['harness-author']) {
       data.author = 'human';
       result.fixes.push('Added author: "human"');
       modified = true;
     }
 
-    // Fix: Missing status
-    if (!data.status) {
+    // Fix: Missing status. Prefer top-level OR metadata.harness-status.
+    if (!data.status && !metadata['harness-status']) {
       data.status = 'active';
       result.fixes.push('Added status: "active"');
       modified = true;
     }
 
-    // Fix: Missing tags — add type tag from directory
-    if (!Array.isArray(data.tags) || data.tags.length === 0) {
+    // Fix: Missing tags. Prefer top-level OR metadata.harness-tags.
+    const hasTopLevelTags = Array.isArray(data.tags) && data.tags.length > 0;
+    const hasMetadataTags = typeof metadata['harness-tags'] === 'string' && (metadata['harness-tags'] as string).trim().length > 0;
+    if (!hasTopLevelTags && !hasMetadataTags) {
       const type = inferTypeFromPath(filePath, options.harnessDir);
       data.tags = type ? [type] : [];
       if (type) {

@@ -1,9 +1,13 @@
 ---
-id: working-in-a-git-repo
-description: "Operating manual for dev work: worktree discipline, build/test/lint, commit style."
-tags: [skill, workflow, git]
-author: human
-status: active
+name: working-in-a-git-repo
+description: "Operating manual for dev work: worktree discipline, build/test/lint commands, file ownership zones, commit style, and a verification checklist before reporting done. Use when starting any feature/fix work in this repo."
+allowed-tools: "Bash Read Edit"
+metadata:
+  harness-tags: "skill, workflow, git, dev"
+  harness-status: active
+  harness-author: human
+  harness-created: '2026-04-21'
+  harness-updated: '2026-04-30'
 ---
 
 # Skill: Working in a Git Repo
