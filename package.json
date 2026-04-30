@@ -48,6 +48,7 @@
     "@ai-sdk/anthropic": "^3.0.66",
     "@ai-sdk/mcp": "^1.0.32",
     "@ai-sdk/openai": "^3.0.50",
+    "@inquirer/prompts": "^8.4.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openrouter/ai-sdk-provider": "^2.3.3",
     "ai": "^6.0.146",

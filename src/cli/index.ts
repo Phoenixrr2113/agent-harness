@@ -161,8 +161,10 @@ program
   .option('--no-discover-mcp', 'Skip MCP server auto-discovery')
   .option('--no-discover-env', 'Skip environment variable scanning')
   .option('--no-discover-project', 'Skip project context detection')
-  .option('-y, --yes', 'Accept defaults for all prompts (skip MCP confirmation)', false)
-  .action(async (name: string | undefined, opts: { dir: string; template: string; purpose?: string; interactive: boolean; generate: boolean; discoverMcp: boolean; discoverEnv: boolean; discoverProject: boolean; yes: boolean }) => {
+  .option('-y, --yes', 'Accept defaults for all prompts (skip MCP confirmation, accept default skills)', false)
+  .option('--skills <list>', 'Skills to install: comma-separated ids, "all", or "none". Default in TTY: interactive prompt; in non-TTY: brainstorming,writing-plans,executing-plans,dispatching-parallel-agents.')
+  .option('--no-prompt', 'Skip the skill picker even when stdin is a TTY (use --skills value or defaults)')
+  .action(async (name: string | undefined, opts: { dir: string; template: string; purpose?: string; interactive: boolean; generate: boolean; discoverMcp: boolean; discoverEnv: boolean; discoverProject: boolean; yes: boolean; skills?: string; prompt: boolean }) => {
     const { scaffoldHarness, generateCoreMd, listTemplates } = await import('./scaffold.js');
 
     // Interactive mode: no name provided or --interactive flag
@@ -238,8 +240,42 @@ program
         }
       }
 
-      scaffoldHarness(targetDir, agentName, { template, purpose: purpose || undefined, coreContent });
+      // --- Skill selection ---
+      // Resolve which default skills to scaffold. Order of precedence:
+      //   1. `--skills <list|all|none>` flag → explicit
+      //   2. Interactive TTY without `--no-prompt` and without `--yes` → prompt
+      //   3. Non-interactive OR `--no-prompt` OR `--yes` → DEFAULT_SKILLS (the 4
+      //      superpowers skills that make an agent useful out of the box)
+      const { DEFAULT_SKILLS, parseSkillsFlag, promptForSkills } = await import('./skill-picker.js');
+      let selectedSkills: readonly string[] | 'all';
+      if (opts.skills !== undefined) {
+        try {
+          selectedSkills = parseSkillsFlag(opts.skills);
+        } catch (err) {
+          console.error(err instanceof Error ? err.message : String(err));
+          process.exit(1);
+        }
+      } else if (opts.prompt !== false && process.stdin.isTTY && !opts.yes) {
+        try {
+          selectedSkills = await promptForSkills();
+        } catch (err) {
+          // ExitPromptError (Ctrl+C) — fall back to defaults silently.
+          if (err instanceof Error && err.name === 'ExitPromptError') {
+            console.log('\n  (skill picker cancelled — using default set)');
+            selectedSkills = [...DEFAULT_SKILLS];
+          } else {
+            throw err;
+          }
+        }
+      } else {
+        selectedSkills = [...DEFAULT_SKILLS];
+      }
+
+      scaffoldHarness(targetDir, agentName, { template, purpose: purpose || undefined, coreContent, selectedSkills });
       console.log(`\n✓ Agent harness created: ${targetDir}`);
+      const skillCount = selectedSkills === 'all' ? 'all available' : `${selectedSkills.length}`;
+      console.log(`  Skills installed: ${skillCount}${selectedSkills !== 'all' && selectedSkills.length > 0 ? ` (${selectedSkills.join(', ')})` : ''}`);
+      console.log(`  Add more later: \`harness install <skill-name-or-url>\` or copy from defaults/skills/`);
 
       // Auto-discover MCP servers from other tools
       if (opts.discoverMcp !== false) {
