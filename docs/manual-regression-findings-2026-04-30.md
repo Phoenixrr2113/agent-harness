@@ -117,9 +117,9 @@ This is a pre-existing bug from v0.15.x — I observed it during the v0.15.1 smo
 
 Total bloat per fresh `harness init`: ~1,750 lines of irrelevant skill content loaded into the discovery tier of every agent's context budget.
 
-**Triage:** Out-of-scope for v0.16.x (planned v0.17.0 defaults-trim work — flagged by user earlier in this session before this regression suite was built)
-**Action:** v0.17.0 work — slim `defaults/skills/` to genuinely universal skills (likely `delegate-to-cli`, `daily-reflection`); move the rest into opt-in bundles installed via `harness install bundle <name>`.
-**Resolved in:** open
+**Triage:** RESOLVED via interactive skill picker (commit `4fae940`) — alternative approach to "trim the defaults."
+**Action:** Instead of removing skills from `defaults/skills/`, `harness init` now asks the user which skills they want. Default-checked: brainstorming, writing-plans, executing-plans, dispatching-parallel-agents (the four superpowers skills that make any agent useful). Everything else (business-analyst, content-marketer, etc.) is opt-in via the multi-select prompt. Power users get all 16 with `--skills all`. CI/non-TTY scripts get the 4 defaults unless `--skills` is explicit.
+**Resolved in:** commit `4fae940` — feat(init): interactive skill picker + --skills flag.
 
 ---
 

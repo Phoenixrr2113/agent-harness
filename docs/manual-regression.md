@@ -442,37 +442,42 @@ echo "Overall: $([ $fail -eq 0 ] && echo PASS || echo FAIL)"
 **Notes:**
 
 
-### R-15 — Each shipped default skill is appropriate for a generic agent
+### R-15 — Default-installed skills are universally appropriate; opt-ins are reachable
 
-**Lens:** B + C
+**Lens:** A + B + C
 **Concern:** skills-loading
 
-**Action:** *(no command — read every skill body manually)*
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+# Verify the 4 default-installed skills (set by the picker default in v0.17.0+)
+ls skills/
+echo "---"
+# Verify the user can list every shipped skill from outside the harness
+harness skill help-init 2>/dev/null | head -25 || true
+# Re-init with --skills all to confirm the full catalog is reachable
+mkdir -p /tmp/r-15-all && cd /tmp/r-15-all
+harness init full-agent --skills all --no-prompt -y > /dev/null 2>&1
+ls full-agent/skills/ | wc -l
+```
 
-**Expected:** for each skill in `skills/*/SKILL.md`, a first-time user reads the body and answers YES to:
-- "Is this skill useful for most agents, or specific to one user's project?"
-- "Does the description make it clear when the agent should activate this skill?"
-- "Is the body content concrete (steps/examples) rather than generic advice?"
+**Expected:**
+- The fresh `/tmp/r-01/test-agent/skills/` (created in R-01 with default flags) contains ONLY the 4 default skills:
+  - `brainstorming`, `dispatching-parallel-agents`, `executing-plans`, `writing-plans`
+- These four are universally appropriate for any agent (planning, execution, dialogue, parallel coordination); no role-prompt content, no draft stubs.
+- `harness init full-agent --skills all` produces 16 skill directories — the full catalog is reachable when the user wants it.
+- Reading each of the 4 default skills' SKILL.md body satisfies:
+  - "This skill is useful for most agents, not specific to one user's project"
+  - "The description makes it clear when the agent should activate this skill"
+  - "The body content is concrete (steps/examples) rather than generic advice"
 
-**Skills currently in `defaults/skills/` to evaluate:**
-- `ask-claude` — `harness-status: draft` stub, delegates to `claude` CLI
-- `ask-codex` — `harness-status: draft` stub
-- `ask-gemini` — `harness-status: draft` stub
-- `brainstorming` — vendored superpowers
-- `business-analyst` — generic role-play prompt (174 lines)
-- `content-marketer` — generic role-play prompt (177 lines)
-- `daily-reflection` — scheduled, journal synthesis
-- `delegate-to-cli` — canonical reference
-- `dispatching-parallel-agents` — vendored superpowers
-- `example-web-search` — `harness-status: draft` template
-- `executing-plans` — vendored superpowers
-- `planner` — generic decompose
-- `research` — generic research
-- `ship-feature` — methodology
-- `summarizer` — generic
-- `writing-plans` — vendored superpowers
+**Files to inspect (lens B):**
+- `skills/brainstorming/SKILL.md` — must NOT contain `<!-- L0:` or `<!-- L1:`. Description should be concrete and "Use when..." style.
+- Same for the other three default skills.
 
-**This is the load-bearing item for the "defaults bloat" finding.** Expect FAIL on at least 5 of these (`business-analyst`, `content-marketer`, the 4 stubs flagged with `status: draft`, possibly more). Findings here feed the v0.17.0 defaults-trim work.
+**Persona check (lens C):** would a first-time user reading each of the 4 defaults say "yes, this belongs in my agent"?
+
+**Note:** This item used to be "the load-bearing defaults bloat finding" — pre-v0.17.0, every fresh init shipped all 16 skills including `business-analyst`, `content-marketer`, and 4 draft stubs. Resolved by the interactive skill picker (commit `4fae940`); see F-06 in the 2026-04-30 findings doc.
 
 **Actual (this run):**
 
