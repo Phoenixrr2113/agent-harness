@@ -1363,7 +1363,178 @@ sed -n '/^## When to use this/,/^## What makes it different/p' README.md
 **Notes:**
 
 
-<!-- Required-tier items get inserted here by Tasks 2–11. -->
+### P-01 — Solo developer first 10 minutes
+
+**Lens:** C
+**Concern:** persona
+
+**Persona:** Solo developer. Heard about agent-harness on a podcast. Has Node 20+ and npm. No API keys configured. No prior agent-framework experience.
+
+**Goal:** Get an agent running on their laptop and have a useful conversation in under 10 minutes (start the timer at the install command).
+
+**Walkthrough actions** — each is a sub-checklist item with its own Verdict. Mark this whole P-01 as PASS only if every sub-item is PASS or SURPRISE-with-acceptable-rationale.
+
+#### P-01.1: Install
+**Action:** `npm install -g @agntk/agent-harness`
+**Expected:** succeeds in <30s, prints version, command `harness` is on PATH.
+**Actual:** 
+**Verdict:** 
+
+#### P-01.2: Init
+**Action:** `harness init my-first-agent`
+**Expected:** prints success message + "Next steps" block. The next-steps include 3 example commands. The user does not need to read the README to understand what to try first.
+**Actual:** 
+**Verdict:** 
+
+#### P-01.3: First run (no API key)
+**Action:** `cd my-first-agent && harness run "Help me decide between Postgres and SQLite for a side project"`
+**Expected:** error mentions missing API key, points the user toward Ollama with one-liner commands. Error message is actionable, not scary. Less than 10 lines.
+**Actual:** 
+**Verdict:** 
+
+#### P-01.4: Switch to Ollama
+**Action:** follow the printed instructions (install Ollama, pull qwen3:1.7b, set provider/id).
+**Expected:** the user can complete this with no other documentation. No flag they're unfamiliar with. No "run this then run this" chain >3 commands.
+**Actual:** 
+**Verdict:** 
+
+#### P-01.5: Re-run the prompt
+**Action:** `harness run "Help me decide between Postgres and SQLite for a side project"`
+**Expected:** the model produces a useful answer (the persona is judging usefulness, not just exit code). Streaming visible if streaming is enabled. Cost estimate near-zero (Ollama is free).
+**Actual:** 
+**Verdict:** 
+
+#### P-01.6: Read identity file
+**Action:** Open `IDENTITY.md` in an editor.
+**Expected:** the persona says "yeah, this looks like the start of MY agent. I might tweak the values." Not template-residue, not internal jargon, no `TODO`s.
+**Actual:** 
+**Verdict:** 
+
+#### P-01.7: Read a default rule
+**Action:** Open `rules/operations.md` (or whatever the minimal-default rule is post-v0.17.0).
+**Expected:** the persona says "this is a sensible rule for any agent. I'd keep this." Body has no `<!-- L0:` or `<!-- L1:` markers. Description in frontmatter is clear.
+**Actual:** 
+**Verdict:** 
+
+#### P-01.8: Read a default skill — the dropout candidate
+**Action:** Open `skills/business-analyst/SKILL.md` if it still ships post-v0.17.0; OR `skills/example-web-search/SKILL.md` if still shipping.
+**Expected:** the persona says "why is this in MY agent? I'm not building a BI dashboard." This item is **expected to FAIL until the v0.17.0 defaults-trim work** unless those skills have already been moved to opt-in bundles.
+**Actual:** 
+**Verdict:** 
+
+#### P-01.9: Journal the day
+**Action:** `harness journal`
+**Expected:** the agent synthesizes the day's session(s), no crashes. Journal file created. The synthesis text is coherent (not just word salad from a small model).
+**Actual:** 
+**Verdict:** 
+
+#### P-01.10: Top-line success
+**Goal check:** Did the persona get a useful agent response in under 10 minutes from `npm install` to first answer? Did they need to read the README beyond the quickstart?
+**Expected:** Yes to both.
+**Actual:** {minutes elapsed}
+**Verdict:** 
+
+**P-01 rollup verdict:**
+
+**Notes:**
+
+
+### P-02 — Mid-level engineer evaluating against Cursor
+
+**Lens:** C
+**Concern:** persona
+
+**Persona:** Mid-level engineer with an existing project that already has `.cursor/rules/`. Wants to evaluate whether agent-harness is worth adopting. Time budget: 30 minutes.
+
+**Goal:** Set up a project-resident harness inside the existing project, export to `.cursor/`, verify the export feeds back into Cursor without breaking what they had.
+
+#### P-02.1: cd into existing project
+**Action:** `cd ~/some-project-with-existing-cursor && ls .cursor/`
+**Expected:** existing `.cursor/rules/*.mdc` files are present.
+**Actual:** 
+**Verdict:** 
+
+#### P-02.2: Init project-resident
+**Action:** `harness init` (no name → harness should detect existing providers and offer subdirectory mode).
+**Expected:** prompt about detected providers, offer to scaffold into `.harness/`. Existing `.cursor/` content NOT touched yet.
+**Actual:** 
+**Verdict:** 
+
+#### P-02.3: Configure export
+**Action:** edit `.harness/config.yaml`, add export target `cursor: ".cursor"`.
+**Expected:** `harness validate` accepts the config. No crash on `harness export`.
+**Actual:** 
+**Verdict:** 
+
+#### P-02.4: First export
+**Action:** `harness export cursor --dry-run`, then without `--dry-run`.
+**Expected:** dry-run shows exactly what will change. Real export writes new files. Existing `.mdc` files (user-authored) are NOT clobbered. Drift detection picks up the difference between old user-authored `.mdc` and the harness-managed ones.
+**Actual:** 
+**Verdict:** 
+
+#### P-02.5: Drift round-trip
+**Action:** edit one of the harness-generated `.cursor/rules/*.mdc` files manually. Run `harness doctor --check-drift`.
+**Expected:** drift detected, points at the modified file.
+**Actual:** 
+**Verdict:** 
+
+#### P-02.6: First-impression rollup
+**Goal check:** Does the persona feel they could replace Cursor's manual rule editing with this? Does it feel additive (Cursor still works AND the harness manages it) or destructive (harness clobbered things)?
+**Actual:** 
+**Verdict:** 
+
+**P-02 rollup verdict:**
+
+**Notes:**
+
+
+### P-03 — Ops/automation person scheduling a runbook agent
+
+**Lens:** C
+**Concern:** persona
+
+**Persona:** Ops/automation engineer. Wants to automate a "triage incidents at 9am every weekday" task. Has Ollama running locally. Time budget: 30 minutes.
+
+**Goal:** Scaffold an agent, write a scheduled skill, watch it fire.
+
+#### P-03.1: Init
+**Action:** `harness init morning-triage`
+**Expected:** scaffold completes. The persona doesn't know how to schedule yet — README or quickstart should mention `metadata.harness-schedule`.
+**Actual:** 
+**Verdict:** 
+
+#### P-03.2: Find scheduling docs
+**Action:** persona looks for "how do I schedule a skill" — checks README, runs `harness skill --help`, checks `docs/skill-authoring.md`.
+**Expected:** discoverable in <2 minutes. Either README or `harness skill new --help` or a docs reference.
+**Actual:** 
+**Verdict:** 
+
+#### P-03.3: Author a scheduled skill
+**Action:** create `skills/triage/SKILL.md` with `metadata.harness-schedule: '0 9 * * 1-5'` and a body that runs a simple triage script.
+**Expected:** `harness skill validate triage` passes. `harness skill list --scheduled` shows it.
+**Actual:** 
+**Verdict:** 
+
+#### P-03.4: Run dev-mode and watch the schedule fire
+**Action:** `harness dev` (with the cron expression set to fire within the next minute for testing).
+**Expected:** scheduler picks up the skill, fires it at the cron time, journal records the run.
+**Actual:** 
+**Verdict:** 
+
+#### P-03.5: Manual trigger
+**Action:** `harness skill run triage` (manual invocation of a scheduled skill).
+**Expected:** runs the skill body once on demand. Captures a session.
+**Actual:** 
+**Verdict:** 
+
+#### P-03.6: First-impression rollup
+**Goal check:** Did the persona schedule a runbook agent in 30 minutes? Was the scheduling syntax discoverable? Does watching it fire feel reliable?
+**Actual:** 
+**Verdict:** 
+
+**P-03 rollup verdict:**
+
+**Notes:**
 
 ## Extended tier (~80 items)
 
