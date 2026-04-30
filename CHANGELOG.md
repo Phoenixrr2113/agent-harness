@@ -2,7 +2,44 @@
 
 All notable changes to `@agntk/agent-harness` are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Migrating from 0.8.x?** See [Upgrading from 0.8.x](#upgrading-from-08x) at the bottom of this file. The 0.9 → 0.16 series brings substantial breaking changes alongside an automated migration path (`harness doctor --migrate`).
+> **Migrating from 0.8.x?** See [Upgrading from 0.8.x](#upgrading-from-08x) at the bottom of this file. The 0.9 → 0.17 series brings substantial breaking changes alongside an automated migration path (`harness doctor --migrate`).
+
+## [0.17.0] — 2026-04-30
+
+Hardening release — manual regression suite + four bug fixes surfaced by its first execution, plus interactive skill selection at `harness init`.
+
+### Added
+
+- **Manual regression suite** at `docs/manual-regression.md` — three tiers (Required ~50 items / Extended ~80 / Exhaustive ~70) with pre-committed `Expected` blocks. Required tier is the release gate; run before every minor or major version bump. Design rationale at `docs/specs/2026-04-30-manual-regression-design.md`.
+- **`tests/regression-suite.test.ts`** — vitest assertions for mechanically-checkable items (no `<!-- L0: -->`/`<!-- L1: -->` markers in shipped defaults, schema validity for every default skill, primitive-dir enforcement for the dev template, anti-pattern enforcement on `package.json`). Runs as part of `npm test`.
+- **First-run findings doc** at `docs/manual-regression-findings-2026-04-30.md` — 12 findings from the suite's first execution against v0.16.0; 4 BUG fixes resolved inline this release, 1 deferred (F-07), 1 follow-up filed (F-12).
+- **Interactive skill picker at `harness init`** — multi-select prompt of all 16 shipped skills, grouped by purpose. Four "superpowers" skills (`brainstorming`, `writing-plans`, `executing-plans`, `dispatching-parallel-agents`) are pre-checked; everything else is opt-in.
+- **`harness init <name> --skills <list|all|none>`** flag — explicit control without the prompt. Examples: `--skills all` (all 16, the v0.16 behavior), `--skills none` (empty `skills/`), `--skills brainstorming,research` (exact set with validation).
+- **`harness init <name> --no-prompt`** flag — skip the picker even in a TTY (use `--skills` value or defaults).
+
+### Changed (Breaking)
+
+- **`harness init <name>` non-TTY default is now four skills**, not all sixteen. CI scripts that depended on getting the full catalog should use `--skills all`. The four defaults (`brainstorming`, `writing-plans`, `executing-plans`, `dispatching-parallel-agents`) are universally appropriate for any agent; the other twelve are domain-specific or opt-in. This resolves the "defaults bloat" complaint where every fresh `harness init` installed 174 lines of generic `business-analyst` content, 177 lines of generic `content-marketer` content, and four `harness-status: draft` stubs.
+
+### Fixed
+
+- **`harness validate` no longer reports stale legacy file names.** The validator was checking for `CORE.md` (renamed to `IDENTITY.md` in v0.9.0), `SYSTEM.md` (deleted in v0.9.0), and top-level `state.md` (moved to `memory/state.md` in v0.9.0). Every fresh harness saw a spurious `Missing required file: CORE.md` error. Now correctly checks for `IDENTITY.md`; if a legacy `CORE.md` is found instead, the error message points at `harness doctor --migrate` for the upgrade path. Manual regression finding F-03 (commit `084965b`).
+- **`harness doctor`, `harness skill validate`, `harness doctor --check-drift` no longer crash with `ENOEXEC`.** The `helpSupported` lint was trying to spawn `defaults/skills/brainstorming/scripts/helper.js` directly; the file is a browser asset (loaded via `<script>` tag) without a shebang, so the kernel returned `ENOEXEC`. The scaffold's `shouldBeExecutable()` and the doctor's `isScriptFile()` now both require a shebang for non-shell-extension files (`.sh`/`.bash`/`.zsh`/`.fish` are still treated as executable by extension). `helper.js` no longer gets `+x` at scaffold time and no longer trips the lint. Manual regression finding F-05 (commit `b7e2a48`). This bug was present since v0.15.0.
+- **`harness dev` startup no longer modifies shipped default rules.** The auto-processor was adding top-level `created:` fields to every shipped rule on first dev startup, dirtying `git status` immediately. The auto-processor now treats `metadata.harness-created` (and `harness-author`/`harness-status`/`harness-tags`) as equivalent to their top-level counterparts, so files using the Agent Skills extension form aren't touched. The seven default rules in `defaults/rules/` also gained explicit `created: '2026-04-30'` fields. Manual regression finding F-10 (commit `45d2d21`).
+- **`templates/dev/defaults/` legacy primitive dirs migrated to Agent Skills bundles.** The dev template (`harness init --template dev`) was scaffolding pre-collapse `agents/` and `playbooks/` directories that the v0.10.0 collapse removed from the runtime. Files inside were copied to disk on every dev-template init but never loaded — dead text. `agents/reviewer.md` → `skills/reviewer/SKILL.md` (subagent skill); `agents/test-runner.md` → `skills/test-runner/SKILL.md` (subagent, fast model); `playbooks/fix-failing-tests.md` → `skills/fix-failing-tests/SKILL.md`; `skills/working-in-a-git-repo.md` (flat) → `skills/working-in-a-git-repo/SKILL.md` (bundle). Manual regression finding (sibling fix; commit `de520f9`).
+
+### Internal
+
+- New module `src/cli/skill-picker.ts` — catalog (`SHIPPED_SKILLS` with 16 entries, grouped), default set (`DEFAULT_SKILLS`), interactive prompt (`promptForSkills` via `@inquirer/prompts`), CLI flag parser (`parseSkillsFlag`).
+- `src/cli/scaffold.ts:ScaffoldOptions.selectedSkills` filters the skills/ directory copy. Backward-compat default for programmatic callers is `'all'`.
+- New dependency: `@inquirer/prompts ^8.4.2` (modern multi-select TUI).
+- Test count: 1452 → 1467 (15 new in `tests/skill-picker.test.ts`).
+
+### Known limitations carried forward to v0.18
+
+- **F-02:** `harness init` (no name) hard-errors instead of detecting existing providers in the project. The detection helpers (`detectExistingProviders`, `decideScaffoldLocation`) exist in `src/cli/scaffold.ts` but aren't wired into the live `init` action. Documented as a v0.13.0 follow-up.
+- **F-07:** `harness learn --install` installs session summaries verbatim as instincts instead of synthesizing patterns from the journal's `## Instinct Candidates` section. The marquee learning-loop claim is broken on small models. Non-trivial design fix; deferred to a separate branch.
+- **F-12:** `brainstorming` skill's `start-server.sh` doesn't support `--help` per the project's script contract — fails `harness skill validate brainstorming` with a HELP_NOT_SUPPORTED error. Surfaced after the F-05 ENOEXEC fix unmasked the underlying lint registry. Vendored content from `obra/superpowers`; either patch the upstream script with a `--help` block or loosen the lint for server-style scripts.
 
 ## [0.16.0] — 2026-04-30
 
