@@ -98,7 +98,7 @@ describe('starter-packs', () => {
         const matchingFile = bundle!.files.find(f => f.path === entry.path);
         expect(matchingFile).toBeDefined();
         expect(entry.id.length).toBeGreaterThan(0);
-        expect(entry.l0.length).toBeGreaterThan(0);
+        expect(entry.description.length).toBeGreaterThan(0);
       }
     });
 

@@ -10,12 +10,12 @@ function makeTestDir(): string {
   return dir;
 }
 
-function writePrimitive(dir: string, subdir: string, id: string, opts?: { tags?: string[]; status?: string; l0?: string }): void {
+function writePrimitive(dir: string, subdir: string, id: string, opts?: { tags?: string[]; status?: string; description?: string }): void {
   const primDir = join(dir, subdir);
   mkdirSync(primDir, { recursive: true });
   const tags = opts?.tags ?? [subdir.replace(/s$/, '')];
   const status = opts?.status ?? 'active';
-  const description = opts?.l0 ?? `Summary for ${id}`;
+  const description = opts?.description ?? `Summary for ${id}`;
   writeFileSync(
     join(primDir, `${id}.md`),
     `---\nid: ${id}\ntags: [${tags.join(', ')}]\nstatus: ${status}\ncreated: "2026-04-01"\ndescription: "${description}"\n---\n# ${id}\n\nBody text for ${id}.\n`,
@@ -35,15 +35,15 @@ describe('buildIndex', () => {
   });
 
   it('should return entries for primitives in a directory', () => {
-    writePrimitive(testDir, 'rules', 'rule-a', { l0: 'Rule A summary' });
-    writePrimitive(testDir, 'rules', 'rule-b', { l0: 'Rule B summary', status: 'draft' });
+    writePrimitive(testDir, 'rules', 'rule-a', { description: 'Rule A summary' });
+    writePrimitive(testDir, 'rules', 'rule-b', { description: 'Rule B summary', status: 'draft' });
 
     const entries = buildIndex(testDir, 'rules');
     expect(entries).toHaveLength(2);
 
     const ruleA = entries.find((e) => e.id === 'rule-a');
     expect(ruleA).toBeDefined();
-    expect(ruleA!.l0).toBe('Rule A summary');  // populated from doc.description
+    expect(ruleA!.description).toBe('Rule A summary');
     expect(ruleA!.status).toBe('active');
     expect(ruleA!.created).toBe('2026-04-01');
 
@@ -84,7 +84,7 @@ describe('writeIndexFile', () => {
   });
 
   it('should write _index.md with markdown table', () => {
-    writePrimitive(testDir, 'rules', 'my-rule', { l0: 'A test rule' });
+    writePrimitive(testDir, 'rules', 'my-rule', { description: 'A test rule' });
 
     writeIndexFile(testDir, 'rules');
 
@@ -101,7 +101,7 @@ describe('writeIndexFile', () => {
 
   it('should truncate long L0 summaries', () => {
     const longSummary = 'A'.repeat(200);
-    writePrimitive(testDir, 'rules', 'long-rule', { l0: longSummary });
+    writePrimitive(testDir, 'rules', 'long-rule', { description: longSummary });
 
     writeIndexFile(testDir, 'rules', { summaryMaxLength: 50 });
 

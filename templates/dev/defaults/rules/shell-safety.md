@@ -1,15 +1,10 @@
 ---
 id: shell-safety
+description: Self-restrictions for what shell commands I may run via shell.execute.
 tags: [rule, safety, shell]
 author: human
 status: active
 ---
-
-<!-- L0: Self-restrictions for what shell commands I may run via shell.execute. -->
-<!-- L1: Allow-list and never-list for shell commands. Allowed: build/test/lint commands,
-     git read and write inside the worktree, standard file utilities scoped to the
-     worktree. Forbidden: rm -rf, sudo, network utilities, git push/force, cd outside
-     the worktree, reading credentials, global package installs, secret exports. -->
 
 # Rule: Shell Safety
 

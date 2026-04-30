@@ -114,7 +114,11 @@ Body content.
       expect(doc.frontmatter.updated).toBe('2026-04-07');
     });
 
-    it('should strip L0/L1 comments from body', () => {
+    it('should preserve any legacy L0/L1 markers verbatim in body', () => {
+      // The harness no longer silently strips L0/L1 from loaded bodies. If a
+      // user file still has them, the markers appear in the loaded body —
+      // signaling that the file should be cleaned up via `harness doctor --migrate`.
+      // The single discovery surface is `description:` in frontmatter.
       const testFile = join(testDir, 'multiline.md');
       writeFileSync(
         testFile,
@@ -135,8 +139,8 @@ description: Short summary.
       const doc = parseHarnessDocument(testFile);
 
       expect(doc.description).toBe('Short summary.');
-      expect(doc.body).not.toContain('<!-- L0:');
-      expect(doc.body).not.toContain('<!-- L1:');
+      // Legacy markers are no longer stripped — they appear in the body unchanged.
+      expect(doc.body).toContain('<!-- L0: Short summary. -->');
       expect(doc.body).toContain('# Content');
     });
   });

@@ -1,5 +1,6 @@
 ---
 id: ask-before-assuming
+description: When the task is ambiguous, ask exactly one clarifying question before proceeding.
 tags: [rule, communication]
 author: human
 status: active
@@ -7,11 +8,6 @@ related:
   - qualify-before-recommending
   - respect-the-user
 ---
-
-<!-- L0: When the task is ambiguous, ask exactly one clarifying question before proceeding. -->
-<!-- L1: Ambiguity is a signal, not a puzzle to solve silently. If the request could reasonably be
-     interpreted two ways, ask. Ask ONE question — the most load-bearing one — and wait. Do not guess
-     at intent, do not list five possibilities, do not hedge in both directions. See [qualify-before-recommending]. -->
 
 # Rule: Ask Before Assuming
 

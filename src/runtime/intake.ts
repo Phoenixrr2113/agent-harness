@@ -108,39 +108,16 @@ export function fixCapability(filePath: string): EvalResult {
   }
   result.type = detectedType;
 
-  // Fix 4: Missing L0 — generate from first heading or first non-empty line
-  const l0Regex = /<!--\s*L0:\s*(.*?)\s*-->/;
-  if (!l0Regex.test(content)) {
+  // Fix 4: Missing description — derive from first heading or first non-empty
+  // line. Description is the single discovery-tier surface per the Agent Skills
+  // spec (https://agentskills.io/specification#progressive-disclosure).
+  if (!data.description) {
     const headingMatch = content.match(/^#\s+(.+)$/m);
     const firstLine = content.split('\n').find((line) => line.trim().length > 0);
     const summary = headingMatch ? headingMatch[1].trim() : (firstLine?.trim() ?? '');
     if (summary.length > 0) {
-      const l0Text = summary.length > 120 ? summary.slice(0, 117) + '...' : summary;
-      content = `<!-- L0: ${l0Text} -->\n${content}`;
-      result.fixes_applied.push('Generated L0 summary from content');
-      modified = true;
-    }
-  }
-
-  // Fix 5: Missing L1 — generate from first paragraph
-  const l1Regex = /<!--\s*L1:\s*(.*?)\s*-->/s;
-  if (!l1Regex.test(content)) {
-    const paragraphs = content.split(/\n{2,}/).filter((p) => {
-      const trimmed = p.trim();
-      return trimmed.length > 0 && !trimmed.startsWith('<!--') && !trimmed.startsWith('#');
-    });
-    if (paragraphs.length > 0) {
-      const para = paragraphs[0].replace(/\n/g, ' ').trim();
-      const l1Text = para.length > 300 ? para.slice(0, 297) + '...' : para;
-      // Insert L1 after L0 if present, otherwise at the top
-      const l0Pos = content.indexOf('-->');
-      if (l0Pos !== -1) {
-        const insertPos = l0Pos + 3;
-        content = content.slice(0, insertPos) + `\n<!-- L1: ${l1Text} -->` + content.slice(insertPos);
-      } else {
-        content = `<!-- L1: ${l1Text} -->\n${content}`;
-      }
-      result.fixes_applied.push('Generated L1 summary from first paragraph');
+      data.description = summary.length > 200 ? summary.slice(0, 197) + '...' : summary;
+      result.fixes_applied.push(`Generated description: "${data.description}"`);
       modified = true;
     }
   }
@@ -159,8 +136,7 @@ export function fixCapability(filePath: string): EvalResult {
   }
 
   // Check body has content
-  const bodyContent = content.replace(l0Regex, '').replace(l1Regex, '').trim();
-  if (!bodyContent || bodyContent.length < 20) {
+  if (!content.trim() || content.trim().length < 20) {
     result.valid = false;
     result.errors.push('Body content is too short or empty');
   }

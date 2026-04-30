@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
+import matter from 'gray-matter';
 import { fixCapability, evaluateCapability, installCapability, processIntake, downloadCapability } from '../src/runtime/intake.js';
 
 const TEST_DIR = join(__dirname, '__test_intake__');
@@ -92,52 +93,30 @@ status: active
 Enable strict mode in all TypeScript configurations to catch errors early.
 `);
     const result = fixCapability(filePath);
-    expect(result.fixes_applied.some((f) => f.includes('Generated L0'))).toBe(true);
+    expect(result.fixes_applied.some((f) => f.toLowerCase().includes('description'))).toBe(true);
 
     const content = readFileSync(filePath, 'utf-8');
-    expect(content).toContain('<!-- L0:');
+    expect(content).toContain('description:');
     expect(content).toContain('Always Use Strict Mode');
+    expect(content).not.toContain('<!-- L0:');
+    expect(content).not.toContain('<!-- L1:');
   });
 
-  it('should generate L1 from first paragraph', () => {
-    const filePath = writeTestFile('test-instinct.md', `---
-id: test-instinct
-tags: [instinct]
-status: active
----
-# Instinct: Check Before Commit
-
-Always run the full test suite and linter before committing code changes.
-This prevents broken builds and ensures code quality standards are maintained.
-
-## Details
-
-More information about the instinct here.
-`);
-    const result = fixCapability(filePath);
-    expect(result.fixes_applied.some((f) => f.includes('Generated L1'))).toBe(true);
-
-    const content = readFileSync(filePath, 'utf-8');
-    expect(content).toContain('<!-- L1:');
-    expect(content).toContain('Always run the full test suite');
-  });
-
-  it('should not overwrite existing L0/L1', () => {
-    const filePath = writeTestFile('existing-l0.md', `---
+  it('should not overwrite existing description', () => {
+    const filePath = writeTestFile('existing-desc.md', `---
 id: existing
+description: An existing description that should be preserved.
 tags: [rule]
 status: active
 ---
-<!-- L0: Existing L0 summary -->
-<!-- L1: Existing L1 summary -->
 # Rule: Existing
 
-This is a rule with existing L0 and L1 annotations already.
+This is a rule with an existing description in frontmatter.
 `);
     const result = fixCapability(filePath);
-    // No L0/L1 fixes should have been applied
-    expect(result.fixes_applied.some((f) => f.includes('L0'))).toBe(false);
-    expect(result.fixes_applied.some((f) => f.includes('L1'))).toBe(false);
+    expect(result.fixes_applied.some((f) => f.toLowerCase().includes('description'))).toBe(false);
+    const content = readFileSync(filePath, 'utf-8');
+    expect(content).toContain('description: An existing description that should be preserved.');
   });
 
   it('should fix multiple issues at once', () => {
@@ -180,8 +159,8 @@ tiny
     expect(result.errors.some((e) => e.includes('too short'))).toBe(true);
   });
 
-  it('should truncate long L0 summaries', () => {
-    const longHeading = 'A'.repeat(200);
+  it('should truncate long descriptions', () => {
+    const longHeading = 'A'.repeat(250);
     const filePath = writeTestFile('long-heading.md', `---
 id: long-heading
 tags: [rule]
@@ -189,24 +168,23 @@ status: active
 ---
 # Rule: ${longHeading}
 
-This rule has a very long heading that should be truncated in the L0 summary.
+This rule has a very long heading that should be truncated in the description.
 `);
-    const result = fixCapability(filePath);
+    fixCapability(filePath);
     const content = readFileSync(filePath, 'utf-8');
-    const l0Match = content.match(/<!-- L0: (.+?) -->/);
-    expect(l0Match).not.toBeNull();
-    expect(l0Match![1].length).toBeLessThanOrEqual(120);
-    expect(l0Match![1]).toContain('...');
+    const parsed = matter(content);
+    const desc = String(parsed.data.description ?? '');
+    expect(desc.length).toBeLessThanOrEqual(200);
+    expect(desc).toContain('...');
   });
 
   it('should not modify file when no fixes needed', () => {
     const original = `---
 id: perfect
+description: A perfectly formed rule document with all required fields.
 tags: [rule]
 status: active
 ---
-<!-- L0: A perfectly formed rule document -->
-<!-- L1: This rule is already perfect and needs no fixes whatsoever applied -->
 # Rule: Perfect
 
 This rule is perfectly formed and requires no auto-fixing at all.
@@ -214,7 +192,6 @@ This rule is perfectly formed and requires no auto-fixing at all.
     const filePath = writeTestFile('perfect.md', original);
     const result = fixCapability(filePath);
     expect(result.fixes_applied).toHaveLength(0);
-    // File should not have been rewritten
     const content = readFileSync(filePath, 'utf-8');
     expect(content).toBe(original);
   });

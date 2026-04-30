@@ -127,15 +127,16 @@ describe('universal-installer', () => {
       expect(result.fixes).toContain('Already in harness format');
     });
 
-    it('should normalize Claude skill with frontmatter + L0/L1', () => {
+    it('should normalize Claude skill with frontmatter description', () => {
       const content = '# Code Review\n\nThis skill helps you review code for common issues and suggest improvements.\n\n## Steps\n\n1. Read the code\n2. Check patterns\n';
       const detection: FormatDetection = { format: 'claude-skill', primitiveType: 'skill', confidence: 0.8, reasons: [] };
       const result = normalizeToHarness(content, 'code-review.md', detection);
 
       expect(result.content).toContain('id: code-review');
       expect(result.content).toContain('status: active');
-      expect(result.content).toContain('<!-- L0: Code Review -->');
-      expect(result.content).toContain('<!-- L1:');
+      expect(result.content).toContain('description: Code Review');
+      expect(result.content).not.toContain('<!-- L0:');
+      expect(result.content).not.toContain('<!-- L1:');
       expect(result.content).toContain('skill');
       expect(result.filename).toBe('code-review.md');
     });
@@ -146,7 +147,8 @@ describe('universal-installer', () => {
       const result = normalizeToHarness(content, 'api-tester.faf', detection);
 
       expect(result.content).toContain('id: api-tester');
-      expect(result.content).toContain('<!-- L0: API Tester -->');
+      expect(result.content).toContain('description: Test API endpoints with curl');
+      expect(result.content).not.toContain('<!-- L0:');
       expect(result.content).toContain('# API Tester');
       expect(result.content).toContain('Test API endpoints with curl');
       expect(result.filename).toBe('api-tester.md');
@@ -183,8 +185,9 @@ describe('universal-installer', () => {
 
       expect(result.content).toContain('id: db-optimization');
       expect(result.content).toContain('status: active');
-      expect(result.content).toContain('<!-- L0:');
-      expect(result.content).toContain('<!-- L1:');
+      expect(result.content).toContain('description: Database Optimization');
+      expect(result.content).not.toContain('<!-- L0:');
+      expect(result.content).not.toContain('<!-- L1:');
     });
 
     it('should respect type override', () => {

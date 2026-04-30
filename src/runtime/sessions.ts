@@ -57,8 +57,15 @@ export function writeSession(harnessDir: string, session: SessionRecord): string
   const delegateLine = session.delegated_to ? `\n**Delegated to:** ${session.delegated_to}` : '';
   const toolSection = formatToolCalls(session.tool_calls);
 
+  // YAML-safe quote: wrap in double quotes and escape internal " and \
+  const yamlQuote = (s: string): string =>
+    `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  const sessionDescription = session.summary.length > 200
+    ? session.summary.slice(0, 197) + '...'
+    : session.summary;
   const content = `---
 id: ${session.id}
+description: ${yamlQuote(sessionDescription)}
 tags: ${tags}
 created: ${session.started}
 updated: ${session.ended}
@@ -66,9 +73,6 @@ author: agent
 status: active
 duration_minutes: ${Math.round((new Date(session.ended).getTime() - new Date(session.started).getTime()) / 60000)}
 ---
-
-<!-- L0: Session ${session.id} — ${session.summary.slice(0, 60)} -->
-<!-- L1: ${session.summary} -->
 
 # Session: ${session.id}
 

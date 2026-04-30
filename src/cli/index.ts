@@ -410,9 +410,7 @@ program
                 const today = new Date().toISOString().slice(0, 10);
                 writeFileSync(
                   fullPath,
-                  `---\nid: ${id}\ntags: [${s.type}]\nauthor: human\nstatus: active\ncreated: ${today}\n---\n\n` +
-                  `<!-- L0: TODO — one-line summary of this ${s.type}. -->\n` +
-                  `<!-- L1: TODO — paragraph summary of what this ${s.type} governs and when it applies. -->\n\n` +
+                  `---\nid: ${id}\ndescription: "TODO — one-line description of this ${s.type}."\ntags: [${s.type}]\nauthor: human\nstatus: active\ncreated: ${today}\n---\n\n` +
                   `# ${title}\n\n` +
                   `TODO: describe this ${s.type}. Suggested by 'harness init' project discovery on ${today}.\n`,
                 );
@@ -1200,11 +1198,11 @@ program
 // --- PROCESS (auto-process all primitives) ---
 program
   .command('process')
-  .description('Auto-process all primitives: fill missing frontmatter and generate L0/L1 summaries')
+  .description('Auto-process all primitives: fill missing frontmatter and generate description fields')
   .option('-d, --dir <path>', 'Harness directory', '.')
   .option('--no-frontmatter', 'Skip frontmatter generation')
-  .option('--no-summaries', 'Skip L0/L1 summary generation')
-  .action(async (opts: { dir: string; frontmatter: boolean; summaries: boolean }) => {
+  .option('--no-description', 'Skip auto-filling the description field')
+  .action(async (opts: { dir: string; frontmatter: boolean; description: boolean }) => {
     const { autoProcessAll } = await import('../runtime/auto-processor.js');
     const dir = resolve(opts.dir);
 
@@ -1212,7 +1210,7 @@ program
 
     const results = autoProcessAll(dir, {
       generateFrontmatter: opts.frontmatter,
-      generateSummaries: opts.summaries,
+      generateDescription: opts.description,
     });
 
     if (results.length === 0) {
@@ -2562,7 +2560,7 @@ program
               created: jsonBundle.exported_at ?? new Date().toISOString(),
               types: [...types],
               tags: [],
-              files: files.map((f) => ({ path: f.path, type: f.path.split('/')[0], id: basename(f.path, '.md'), l0: '' })),
+              files: files.map((f) => ({ path: f.path, type: f.path.split('/')[0], id: basename(f.path, '.md'), description: '' })),
             },
             files,
           };

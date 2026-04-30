@@ -12,7 +12,7 @@ export interface StarterPack {
   name: string;
   description: string;
   tags: string[];
-  files: Array<{ path: string; content: string; id: string; l0: string }>;
+  files: Array<{ path: string; content: string; id: string; description: string }>;
 }
 
 const PACKS: Record<string, StarterPack> = {
@@ -24,7 +24,7 @@ const PACKS: Record<string, StarterPack> = {
       {
         path: 'workflows/morning-brief.md',
         id: 'morning-brief',
-        l0: 'Morning briefing workflow that summarizes recent sessions and plans the day.',
+        description: 'Morning briefing workflow that summarizes recent sessions and plans the day.',
         content: `---
 id: morning-brief
 tags: [workflow, daily, morning]
@@ -61,7 +61,7 @@ Review yesterday's sessions and journal, then produce a concise daily brief.
       {
         path: 'workflows/evening-review.md',
         id: 'evening-review',
-        l0: 'Evening review workflow that synthesizes the day and prepares for tomorrow.',
+        description: 'Evening review workflow that synthesizes the day and prepares for tomorrow.',
         content: `---
 id: evening-review
 tags: [workflow, daily, evening, review]
@@ -107,7 +107,7 @@ Synthesize today's work and prepare handoff notes for tomorrow.
       {
         path: 'workflows/weekly-review.md',
         id: 'weekly-review',
-        l0: 'Weekly review workflow that analyzes the week and sets goals.',
+        description: 'Weekly review workflow that analyzes the week and sets goals.',
         content: `---
 id: weekly-review
 tags: [workflow, weekly, review, retrospective]
@@ -162,7 +162,7 @@ Analyze the past week's work, compress journals, and plan next week.
       {
         path: 'workflows/code-review.md',
         id: 'code-review-workflow',
-        l0: 'Code review workflow that analyzes recent changes and generates review notes.',
+        description: 'Code review workflow that analyzes recent changes and generates review notes.',
         content: `---
 id: code-review-workflow
 tags: [workflow, code-review, development]
@@ -205,7 +205,7 @@ Analyze recent code changes and generate structured review notes.
       {
         path: 'workflows/pr-checklist.md',
         id: 'pr-checklist',
-        l0: 'PR checklist workflow that generates a pre-merge review checklist.',
+        description: 'PR checklist workflow that generates a pre-merge review checklist.',
         content: `---
 id: pr-checklist
 tags: [workflow, code-review, pr, checklist]
@@ -248,7 +248,7 @@ Generate a pre-merge checklist based on project rules and recent changes.
       {
         path: 'rules/code-quality.md',
         id: 'code-quality-rules',
-        l0: 'Code quality rules enforcing error handling, type safety, and security.',
+        description: 'Code quality rules enforcing error handling, type safety, and security.',
         content: `---
 id: code-quality-rules
 tags: [rule, code-quality, error-handling, type-safety, security]
@@ -288,7 +288,7 @@ Enforceable rules for maintaining code quality across the codebase.
       {
         path: 'rules/review-standards.md',
         id: 'review-standards',
-        l0: 'Review standards for consistent, actionable code review feedback.',
+        description: 'Review standards for consistent, actionable code review feedback.',
         content: `---
 id: review-standards
 tags: [rule, code-review, standards, feedback]
@@ -323,7 +323,7 @@ Standards for producing consistent, actionable code review feedback.
       {
         path: 'instincts/review-pattern-detection.md',
         id: 'review-pattern-detection',
-        l0: 'Instinct for detecting common code review patterns and anti-patterns.',
+        description: 'Instinct for detecting common code review patterns and anti-patterns.',
         content: `---
 id: review-pattern-detection
 tags: [instinct, code-review, patterns, anti-patterns]
@@ -355,7 +355,7 @@ When a pattern is detected, note it in the review with the pattern name and a br
       {
         path: 'instincts/refactor-opportunity.md',
         id: 'refactor-opportunity',
-        l0: 'Instinct for spotting refactoring opportunities during review.',
+        description: 'Instinct for spotting refactoring opportunities during review.',
         content: `---
 id: refactor-opportunity
 tags: [instinct, refactoring, code-review, improvement]
@@ -386,7 +386,7 @@ Note the refactoring opportunity with the specific smell name. Only suggest refa
       {
         path: 'skills/structured-review.md',
         id: 'structured-review-skill',
-        l0: 'Skill for conducting structured, multi-pass code reviews.',
+        description: 'Skill for conducting structured, multi-pass code reviews.',
         content: `---
 id: structured-review-skill
 tags: [skill, code-review, technique, methodology]
@@ -441,7 +441,7 @@ A systematic approach to reviewing code changes in multiple passes.
       {
         path: 'workflows/daily-planner.md',
         id: 'daily-planner',
-        l0: 'Daily planning workflow that organizes priorities and schedules tasks.',
+        description: 'Daily planning workflow that organizes priorities and schedules tasks.',
         content: `---
 id: daily-planner
 tags: [workflow, daily, planning, productivity]
@@ -484,7 +484,7 @@ Create a structured daily plan from open tasks, calendar items, and recent conte
       {
         path: 'workflows/inbox-triage.md',
         id: 'inbox-triage',
-        l0: 'Inbox triage workflow that processes and categorizes incoming items.',
+        description: 'Inbox triage workflow that processes and categorizes incoming items.',
         content: `---
 id: inbox-triage
 tags: [workflow, triage, inbox, productivity]
@@ -524,7 +524,7 @@ Process incoming items and categorize them for action.
       {
         path: 'instincts/clear-communication.md',
         id: 'clear-communication',
-        l0: 'Instinct for clear, concise communication in responses.',
+        description: 'Instinct for clear, concise communication in responses.',
         content: `---
 id: clear-communication
 tags: [instinct, communication, clarity, writing]
@@ -562,7 +562,7 @@ Apply these principles automatically. If a draft is unclear, restructure before 
       {
         path: 'instincts/context-awareness.md',
         id: 'context-awareness',
-        l0: 'Instinct for maintaining awareness of user context and recent history.',
+        description: 'Instinct for maintaining awareness of user context and recent history.',
         content: `---
 id: context-awareness
 tags: [instinct, context, memory, personalization]
@@ -595,7 +595,7 @@ At the start of every session and when switching topics.
       {
         path: 'skills/task-prioritization.md',
         id: 'task-prioritization-skill',
-        l0: 'Skill for prioritizing tasks using the Eisenhower matrix and energy mapping.',
+        description: 'Skill for prioritizing tasks using the Eisenhower matrix and energy mapping.',
         content: `---
 id: task-prioritization-skill
 tags: [skill, productivity, prioritization, planning]
@@ -647,7 +647,7 @@ Produce a prioritized list with:
       {
         path: 'rules/deployment-safety.md',
         id: 'deployment-safety-rules',
-        l0: 'Deployment safety rules preventing common production failures.',
+        description: 'Deployment safety rules preventing common production failures.',
         content: `---
 id: deployment-safety-rules
 tags: [rule, devops, deployment, safety, production]
@@ -688,7 +688,7 @@ Rules to prevent common deployment failures and production incidents.
       {
         path: 'rules/infrastructure-standards.md',
         id: 'infrastructure-standards',
-        l0: 'Infrastructure standards for consistent, maintainable deployments.',
+        description: 'Infrastructure standards for consistent, maintainable deployments.',
         content: `---
 id: infrastructure-standards
 tags: [rule, devops, infrastructure, standards]
@@ -727,7 +727,7 @@ Standards for maintaining consistent, auditable infrastructure.
       {
         path: 'instincts/anomaly-detection.md',
         id: 'anomaly-detection',
-        l0: 'Instinct for detecting anomalies in metrics, logs, and deployment behavior.',
+        description: 'Instinct for detecting anomalies in metrics, logs, and deployment behavior.',
         content: `---
 id: anomaly-detection
 tags: [instinct, devops, monitoring, anomaly, alerting]
@@ -763,7 +763,7 @@ When an anomaly is detected:
       {
         path: 'instincts/change-risk-assessment.md',
         id: 'change-risk-assessment',
-        l0: 'Instinct for assessing risk before infrastructure or deployment changes.',
+        description: 'Instinct for assessing risk before infrastructure or deployment changes.',
         content: `---
 id: change-risk-assessment
 tags: [instinct, devops, risk, change-management]
@@ -801,7 +801,7 @@ State the risk level and the primary risk factor before proceeding. For high-ris
       {
         path: 'skills/incident-response.md',
         id: 'incident-response-skill',
-        l0: 'Skill for structured incident response and post-incident analysis.',
+        description: 'Skill for structured incident response and post-incident analysis.',
         content: `---
 id: incident-response-skill
 tags: [skill, devops, incident-response, runbook]
@@ -875,7 +875,7 @@ export function getStarterPack(name: string): PackedBundle | null {
     path: f.path,
     type: f.path.split('/')[0],
     id: f.id,
-    l0: f.l0,
+    description: f.description,
   }));
 
   const manifest: BundleManifest = {

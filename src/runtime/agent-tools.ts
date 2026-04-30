@@ -8,7 +8,7 @@ import type { AIToolSet } from './tool-executor.js';
 /**
  * Build an AIToolSet where each tool delegates to one active agent in
  * `agents/*.md`. Tool name equals the agent's frontmatter `id`. Description
- * falls back through `frontmatter.description` → `l1` → `l0`. Tool input is
+ * falls back through `frontmatter.description` → `id`. Tool input is
  * `{ prompt: string }`. The tool's execute calls `delegateTo` from
  * `./delegate.js` and returns the subagent's final text, or an error object
  * on failure.

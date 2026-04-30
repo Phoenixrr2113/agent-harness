@@ -13,14 +13,14 @@ export function buildIndex(harnessDir: string, directory: string): IndexEntry[] 
     id: doc.id,
     path: doc.path,
     tags: doc.tags,
-    l0: doc.description ?? doc.id,
+    description: doc.description ?? doc.id,
     created: doc.created || '',
     status: doc.status,
   }));
 }
 
 export interface IndexOptions {
-  /** Max characters for L0 summary in index table. Defaults to 120. */
+  /** Max characters for description in index table. Defaults to 120. */
   summaryMaxLength?: number;
 }
 
@@ -44,7 +44,9 @@ export function writeIndexFile(harnessDir: string, directory: string, options?: 
 
   for (const entry of entries) {
     const tags = entry.tags.join(', ');
-    const summary = entry.l0.length > maxLen ? entry.l0.slice(0, maxLen - 3) + '...' : entry.l0;
+    const summary = entry.description.length > maxLen
+      ? entry.description.slice(0, maxLen - 3) + '...'
+      : entry.description;
     lines.push(`| ${entry.id} | ${tags} | ${entry.created} | ${entry.status} | ${summary} |`);
   }
 

@@ -117,8 +117,12 @@ export function installInstinct(harnessDir: string, candidate: InstinctCandidate
     return '';
   }
 
+  // YAML-safe quote: wrap in double quotes and escape internal " and \
+  const quoteForYaml = (s: string): string =>
+    `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
   const content = `---
 id: ${candidate.id}
+description: ${quoteForYaml(candidate.behavior)}
 tags: [instinct, auto-learned]
 created: ${today}
 updated: ${today}
@@ -126,9 +130,6 @@ author: agent
 status: active
 source: auto-detected
 ---
-
-<!-- L0: ${candidate.behavior} -->
-<!-- L1: ${candidate.behavior} Learned from: ${candidate.provenance}. Confidence: ${candidate.confidence}. -->
 
 # Instinct: ${candidate.id.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
 

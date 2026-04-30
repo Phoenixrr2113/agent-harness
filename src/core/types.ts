@@ -767,8 +767,8 @@ export interface IndexEntry {
   id: string;
   path: string;
   tags: string[];
-  /** One-line description/summary; populated from doc.description ?? doc.id. */
-  l0: string;
+  /** One-line description from frontmatter; falls back to doc.id. */
+  description: string;
   created: string;
   status: string;
 }

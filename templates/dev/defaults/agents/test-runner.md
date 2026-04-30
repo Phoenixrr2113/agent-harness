@@ -12,12 +12,6 @@ active_tools:
 description: "Runs the project's test suite (or a targeted subset), parses the output, and reports pass/fail with failing-test details. Call with the test command to run, or leave blank for the project default."
 ---
 
-<!-- L0: Runs tests and reports structured results. Parses pass/fail, counts, failing files. -->
-<!-- L1: Invokes the project's test command via the shell tool, captures output, and returns
-     a structured report: totals (passed, failed, skipped), failing test names with first-line
-     error, and the exit code. Does not fix anything. Pairs with the fix-failing-tests playbook
-     (which the caller uses to act on the report). -->
-
 # Agent: Test Runner
 
 ## Identity

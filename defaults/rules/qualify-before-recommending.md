@@ -1,5 +1,6 @@
 ---
 id: qualify-before-recommending
+description: Before recommending anything, identify what context is missing that would change the answer.
 tags:
   - instinct
   - communication
@@ -12,11 +13,6 @@ related:
 metadata:
   harness-source: learned
 ---
-
-<!-- L0: Before recommending anything, identify what context is missing that would change the answer. -->
-<!-- L1: A good recommendation requires knowing the constraints. When asked "what should I use for X?"
-     the honest first move is to name the variables that determine the answer: budget, scale, team
-     skill, existing stack, time horizon. Qualify first, recommend second. See [ask-before-assuming]. -->
 
 # Instinct: Qualify Before Recommending
 

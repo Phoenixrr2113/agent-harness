@@ -195,13 +195,13 @@ export function createWebApp(harnessDir: string, options?: CreateWebAppOptions):
       const config = loadConfig(harnessDir);
       const extDirs = config.extensions?.directories ?? [];
       const all = loadAllPrimitives(harnessDir, extDirs);
-      const result: Record<string, Array<{ id: string; path: string; l0: string | null; tags: string[] }>> = {};
+      const result: Record<string, Array<{ id: string; path: string; description: string | null; tags: string[] }>> = {};
 
       for (const [dir, docs] of all.entries()) {
         result[dir] = docs.map((doc) => ({
           id: doc.id,
           path: doc.path,
-          l0: doc.description ?? doc.id,
+          description: doc.description ?? doc.id,
           tags: doc.tags,
         }));
       }

@@ -113,17 +113,24 @@ Bullet points (starting with "- ") of new facts, corrections, or learnings that 
 
   // Write journal entry
   const journalPath = join(journalDir, `${targetDate}.md`);
+  // YAML-safe quote: wrap in double quotes and escape internal " and \
+  const yamlQuote = (s: string): string =>
+    `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  const dailySummary = structured.summary.length > 200
+    ? structured.summary.slice(0, 197) + '...'
+    : structured.summary;
+  const journalDescription = dailySummary.length > 0
+    ? dailySummary
+    : `Journal for ${targetDate} — ${sessions.length} sessions synthesized.`;
   const journalContent = `---
 id: journal-${targetDate}
+description: ${yamlQuote(journalDescription)}
 tags: [journal, daily]
 created: ${targetDate}
 updated: ${new Date().toISOString().split('T')[0]}
 author: infrastructure
 status: active
 ---
-
-<!-- L0: Journal for ${targetDate} — ${sessions.length} sessions synthesized. -->
-<!-- L1: ${structured.summary.slice(0, 200)} -->
 
 # Journal: ${targetDate}
 
@@ -385,17 +392,19 @@ export function compressJournals(
     const instinctBullets = uniqueInstincts.map((i) => `- INSTINCT: ${i}`).join('\n');
     const knowledgeBullets = uniqueKnowledge.map((k) => `- ${k}`).join('\n');
 
+    // YAML-safe quote: wrap in double quotes and escape internal " and \
+    const yamlQuote = (s: string): string =>
+      `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+    const weeklyDescription = `Weekly journal roll-up ${weekStart} to ${weekEnd} (${journalDates.length} days).`;
     const weeklyContent = `---
 id: weekly-${weekStart}
+description: ${yamlQuote(weeklyDescription)}
 tags: [journal, weekly]
 created: ${weekStart}
 updated: ${new Date().toISOString().split('T')[0]}
 author: infrastructure
 status: active
 ---
-
-<!-- L0: Weekly journal roll-up ${weekStart} to ${weekEnd} (${journalDates.length} days) -->
-<!-- L1: ${allSummaries[0]?.slice(0, 200) || 'No summaries available'} -->
 
 # Weekly Journal: ${weekStart} to ${weekEnd}
 

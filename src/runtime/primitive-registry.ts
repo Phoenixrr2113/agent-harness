@@ -38,7 +38,7 @@ export interface BundleFileEntry {
   path: string;
   type: string;
   id: string;
-  l0: string;
+  description: string;
 }
 
 // --- Registry Types ---
@@ -132,14 +132,14 @@ export function createManifest(
         path: relPath,
         type,
         id: doc.id,
-        l0: doc.description ?? '',
+        description: doc.description ?? '',
       });
     } catch {
       fileEntries.push({
         path: relPath,
         type,
         id: basename(relPath, '.md'),
-        l0: '',
+        description: '',
       });
     }
   }
@@ -639,7 +639,7 @@ export async function fetchRemoteBundle(url: string): Promise<PackedBundle> {
         path: entry.path,
         type,
         id: basename(entry.path, '.md'),
-        l0: '',
+        description: '',
       });
     }
 
@@ -672,7 +672,7 @@ export async function fetchRemoteBundle(url: string): Promise<PackedBundle> {
     created: new Date().toISOString(),
     types: ['custom'],
     tags: [],
-    files: [{ path: fileName, type: 'custom', id: basename(fileName, '.md'), l0: '' }],
+    files: [{ path: fileName, type: 'custom', id: basename(fileName, '.md'), description: '' }],
   };
 
   return { manifest, files: [{ path: fileName, content }] };

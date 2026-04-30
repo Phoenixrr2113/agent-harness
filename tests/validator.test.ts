@@ -144,21 +144,25 @@ describe('doctorHarness', () => {
     expect(result.warnings.some((w) => w.includes('Missing directory: memory/'))).toBe(false);
   });
 
-  it('should auto-fix primitives with missing L0/L1', () => {
+  it('should auto-fix primitives with missing description', () => {
     const rulesDir = join(TEST_DIR, 'rules');
     mkdirSync(rulesDir, { recursive: true });
     writeFileSync(
       join(rulesDir, 'needs-fix.md'),
-      `---\nid: needs-fix\ntags: [rule]\nstatus: active\n---\n# Rule: Needs Fixing\n\nThis rule is missing L0 and L1 summaries.`,
+      `---\nid: needs-fix\ntags: [rule]\nstatus: active\n---\n# Rule: Needs Fixing\n\nThis rule has no description in frontmatter.`,
       'utf-8',
     );
 
     const result = doctorHarness(TEST_DIR);
-    expect(result.fixes.some((f) => f.includes('needs-fix.md') && f.includes('L0'))).toBe(true);
+    expect(
+      result.fixes.some((f) => f.includes('needs-fix.md') && f.toLowerCase().includes('description')),
+    ).toBe(true);
 
     // Verify file was actually fixed
     const content = readFileSync(join(rulesDir, 'needs-fix.md'), 'utf-8');
-    expect(content).toContain('<!-- L0:');
+    expect(content).toContain('description:');
+    expect(content).not.toContain('<!-- L0:');
+    expect(content).not.toContain('<!-- L1:');
   });
 
   it('should not re-fix already good primitives', () => {
@@ -166,7 +170,7 @@ describe('doctorHarness', () => {
     mkdirSync(rulesDir, { recursive: true });
     writeFileSync(
       join(rulesDir, 'perfect.md'),
-      `---\nid: perfect\ntags: [rule]\nstatus: active\n---\n<!-- L0: A perfect rule -->\n<!-- L1: This rule is perfectly formed -->\n# Rule: Perfect\n\nThis rule is already perfect and needs no fixes.`,
+      `---\nid: perfect\ndescription: A perfectly formed rule that needs no fixes.\ntags: [rule]\nstatus: active\n---\n# Rule: Perfect\n\nThis rule is already perfect and needs no fixes.`,
       'utf-8',
     );
 

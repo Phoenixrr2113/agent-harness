@@ -2,7 +2,41 @@
 
 All notable changes to `@agntk/agent-harness` are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Migrating from 0.8.x?** See [Upgrading from 0.8.x](#upgrading-from-08x) at the bottom of this file. The 0.9 → 0.15 series brings substantial breaking changes alongside an automated migration path (`harness doctor --migrate`).
+> **Migrating from 0.8.x?** See [Upgrading from 0.8.x](#upgrading-from-08x) at the bottom of this file. The 0.9 → 0.16 series brings substantial breaking changes alongside an automated migration path (`harness doctor --migrate`).
+
+## [0.16.0] — 2026-04-30
+
+Removes every remaining `<!-- L0: -->` / `<!-- L1: -->` writer in the codebase and the runtime backward-compat layer that silently stripped them at load time. The Agent Skills spec uses `description:` in frontmatter as the single discovery-tier surface; spec #1 (v0.9.0) shipped that decision but several writers and the loader's strip path were never converted. v0.16.0 finishes the conversion.
+
+The shipped default rules in `defaults/rules/` had also retained their legacy markers — `harness init` was scaffolding them verbatim into every new harness. All seven default rules now carry `description:` in frontmatter and clean bodies; the dev-template files (`templates/dev/defaults/`) are converted as well.
+
+### Changed (Breaking)
+
+- **Runtime no longer strips `<!-- L0: -->` / `<!-- L1: -->` markers from loaded bodies.** `src/primitives/loader.ts` previously deleted the markers silently as a backward-compat layer for older user files. That mask is gone — files with legacy markers now load with the markers visible in body, signaling they need cleanup. Run `harness doctor --migrate` to lift any L0 into `description:` and strip both markers in one pass. The migration tool itself is unchanged.
+- **`harness process --no-summaries` flag removed; replaced by `--no-description`.** The auto-processor no longer regenerates body markers — it auto-fills the frontmatter `description:` field instead.
+
+### Fixed
+
+- **`harness init` no longer ships rules with legacy `<!-- L0: -->` / `<!-- L1: -->` body markers.** All 7 default rules in `defaults/rules/` now declare their summary as `description:` in frontmatter and have clean bodies. Same fix applied to the 5 files in `templates/dev/defaults/`.
+- **Seven runtime writers stop emitting L0/L1 markers** and write `description:` in frontmatter instead:
+  - `src/runtime/auto-processor.ts` — auto-fix lint
+  - `src/runtime/instinct-learner.ts` — promotes a learned instinct to a rule
+  - `src/runtime/universal-installer.ts` — six callsites for installing skills/rules from external sources (Claude skills, .faf YAML, raw markdown, bash hooks, MCP configs)
+  - `src/runtime/intake.ts` — intake-doc auto-fix
+  - `src/cli/index.ts` — the `harness init` project-discovery TODO stub generator
+  - `src/runtime/sessions.ts` — session record writer
+  - `src/runtime/journal.ts` — daily and weekly journal-entry writers
+- **`harness validate` doctor now flags any file with `<!-- L0:` or `<!-- L1:` in body.** New `legacyL0L1Markers` lint runs over both skills and rules. Severity: `warn`. Suggested fix: `harness doctor --migrate`.
+- **`harness validate` flags skills with no `description:` in frontmatter.** New `descriptionPresent` lint at severity `error` — without `description:` the skill never surfaces in the discovery catalog reliably.
+
+### Removed
+
+- The `LEGACY_L0_REGEX` / `LEGACY_L1_REGEX` constants and body-strip logic in `src/primitives/loader.ts` and `src/runtime/auto-processor.ts`. Backward-compat for L0/L1 reading is now the migration tool's job, not silent runtime behavior.
+- The `IndexEntry.l0` field is renamed to `IndexEntry.description`. Same rename for `BundleFileEntry.l0` → `description` and `GraphNode.l0` → `description`. These are internal field names; user-facing markdown is untouched.
+
+### Internal
+
+- 5 new lint tests (`legacyL0L1Markers` × 3 cases, `descriptionPresent` × 2 cases). Test count: 1443 → 1443 (one description-quality test was deleted because its premise — that `<!-- L0:` and `<!-- L1:` are placed in a specific order in body — no longer applies).
 
 ## [0.15.1] — 2026-04-29
 
