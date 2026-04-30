@@ -990,6 +990,131 @@ harness mcp test screenpipe 2>&1 | tee mcp-test.log || \
 **Notes:**
 
 
+### R-35 — `harness dev` starts watcher + scheduler without web (no SYSTEM.md regen)
+
+**Lens:** A + B
+**Concern:** long-running
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+ls SYSTEM.md 2>/dev/null && echo "PRE: SYSTEM.md exists (unexpected)" || echo "PRE: SYSTEM.md absent"
+
+# Start dev in background, give it 3 seconds, then kill
+( harness dev > dev.log 2>&1 & echo $! > dev.pid ) ; sleep 3 ; kill $(cat dev.pid) 2>/dev/null
+
+cat dev.log | head -40
+ls SYSTEM.md 2>/dev/null && echo "POST: SYSTEM.md exists (BUG — D5)" || echo "POST: SYSTEM.md absent"
+```
+
+**Expected:**
+- Stdout reports watcher started, scheduler started
+- Dev does NOT print `Dashboard:` URL (web is opt-in via `--web`, D6 fix)
+- Default port for `--web` is 8080 (D7 fix), not 3001
+- `SYSTEM.md` is NOT regenerated (D5 fix)
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-36 — `harness dev --web` starts dashboard at port 8080
+
+**Lens:** A
+**Concern:** long-running
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+( harness dev --web > dev-web.log 2>&1 & echo $! > dev-web.pid ) ; sleep 3
+curl -sf http://localhost:8080/api/health > /dev/null && echo "PASS: 8080 reachable"
+kill $(cat dev-web.pid) 2>/dev/null
+```
+
+**Expected:**
+- Exit 0 from curl (health endpoint reachable on 8080)
+- `dev-web.log` shows `Dashboard: http://localhost:8080`
+- No "port already in use" — 8080 is free in clean test env
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-37 — `harness dev` auto-process on save fills missing description
+
+**Lens:** A + B
+**Concern:** long-running
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+# Write a rule with no description
+cat > rules/test-rule.md <<'EOF'
+---
+id: test-rule
+tags: [rule]
+status: active
+author: human
+---
+
+# Test Rule
+
+This is a test rule body.
+EOF
+
+( harness dev > dev-watch.log 2>&1 & echo $! > dev-watch.pid ) ; sleep 3
+# Touch the file to trigger watcher
+touch rules/test-rule.md
+sleep 2
+kill $(cat dev-watch.pid) 2>/dev/null
+
+cat rules/test-rule.md
+```
+
+**Expected:**
+- After watcher processes the file, `description:` field is added to frontmatter (per v0.16.0 auto-processor)
+- The description is derived from the first heading or first prose line
+- Body still does NOT contain `<!-- L0:` or `<!-- L1:`
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-38 — `harness dev` shutdown is clean
+
+**Lens:** A
+**Concern:** long-running
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+( harness dev --web > dev-clean.log 2>&1 & echo $! > dev-clean.pid ) ; sleep 3
+kill -INT $(cat dev-clean.pid) 2>/dev/null
+sleep 1
+ps -p $(cat dev-clean.pid) 2>/dev/null && echo "FAIL: process still running" || echo "PASS: process gone"
+tail -10 dev-clean.log
+```
+
+**Expected:**
+- After SIGINT, process exits within 1 second
+- `dev-clean.log` shows graceful shutdown messages
+- No port left occupied (subsequent `harness dev --web` should succeed without "port in use")
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
 <!-- Required-tier items get inserted here by Tasks 2–11. -->
 
 ## Extended tier (~80 items)
