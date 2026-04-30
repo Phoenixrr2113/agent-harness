@@ -481,6 +481,221 @@ echo "Overall: $([ $fail -eq 0 ] && echo PASS || echo FAIL)"
 **Notes:**
 
 
+### R-16 — `harness run "..."` captures a session
+
+**Lens:** A + B
+**Concern:** session-learn
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+# Make sure Ollama is running with qwen3:1.7b — the run will fail otherwise.
+# Switch to ollama for this test:
+harness config set model.provider ollama
+harness config set model.id qwen3:1.7b
+harness run "What is 2 + 2?"
+ls memory/sessions/
+```
+
+**Expected:**
+- Exit code 0
+- Stdout contains the model's answer (likely "4" or a verbose explanation)
+- `memory/sessions/` contains exactly one new file (`<id>.md`)
+- The session file's name is a session id (e.g., a timestamp or uuid-like string)
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-17 — Session record file has correct frontmatter, no legacy markers
+
+**Lens:** B
+**Concern:** session-learn
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+ls memory/sessions/
+cat memory/sessions/*.md
+```
+
+**Expected (the session file):**
+- Has YAML frontmatter
+- Frontmatter has `description:` field with non-empty value (the session's summary, lifted into description)
+- Frontmatter has `tags`, `created`, `updated`, `author: agent`, `status: active`, `duration_minutes`
+- Body does NOT contain `<!-- L0:` or `<!-- L1:` (the writers were converted in v0.16.0)
+- Body has `# Session: <id>` heading
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-18 — `harness journal` synthesizes a daily journal entry
+
+**Lens:** A + B
+**Concern:** session-learn
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+# Make sure there are 2+ sessions; run a few more if needed.
+harness run "Suggest a name for a coffee shop." > /dev/null 2>&1
+harness run "What is the difference between SQL and NoSQL?" > /dev/null 2>&1
+harness journal 2>&1 | tee journal.log
+ls memory/journal/
+```
+
+**Expected:**
+- Exit code 0
+- New file in `memory/journal/<YYYY-MM-DD>.md`
+- Stdout reports number of sessions synthesized
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-19 — Journal entry has correct frontmatter, no legacy markers
+
+**Lens:** B
+**Concern:** session-learn
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+cat memory/journal/*.md
+```
+
+**Expected:**
+- Frontmatter has `description:` with the day's summary
+- Frontmatter has `tags: [journal, daily]`, `author: infrastructure`, `status: active`
+- Body has `# Journal: <date>`
+- Body does NOT contain `<!-- L0:` or `<!-- L1:`
+- Body contains structured sections (Sessions count, Tokens used, plus the model's synthesis)
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-20 — `harness learn` proposes candidates from journal
+
+**Lens:** A
+**Concern:** session-learn
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+harness learn 2>&1 | tee learn.log
+ls memory/instinct-candidates.json 2>/dev/null
+```
+
+**Expected:**
+- Exit code 0
+- Output lists 0+ candidate instincts
+- If 0 candidates: output explains why (insufficient data, low confidence, etc.) — no crash
+- If 1+ candidates: each has a behavior description, provenance, and confidence score
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-21 — `harness learn --install` writes to `instincts/` (legacy path) without crash
+
+**Lens:** A + B
+**Concern:** session-learn
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+harness learn --install 2>&1 | tee learn-install.log
+ls instincts/ 2>/dev/null && echo "--- instincts contents ---" && ls instincts/*.md
+```
+
+**Expected:**
+- Exit code 0
+- Output reports either "installed N instinct(s)" or "no candidates met threshold"
+- If installed: `instincts/<name>.md` exists with `description:` in frontmatter (from v0.16.0 fix), no legacy markers
+- Body of installed instincts: `author: agent`, `status: active`, `source: auto-detected`
+
+**Note:** v0.13.0 known limitation — `learn --install` routes to `instincts/` legacy path bypass-style. Not yet wired through `promoteRule`. If this test fails because `instincts/` doesn't exist as a directory, that's a follow-up concern (file as KNOWN, not FAIL).
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-22 — `harness rules promote` with eval gate
+
+**Lens:** A
+**Concern:** session-learn
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+# This requires a candidate id from R-21; if none exist, mark this item as KNOWN-skip
+cat memory/instinct-candidates.json | head -30 || true
+# If candidates: pick the first id and promote it
+candidate_id=$(jq -r '.candidates[0].id // empty' memory/instinct-candidates.json 2>/dev/null)
+if [ -n "$candidate_id" ]; then
+  harness rules promote "$candidate_id" --no-eval-gate
+fi
+ls rules/
+```
+
+**Expected:**
+- Exit code 0 (when --no-eval-gate is used; the gate's stub signal is optimistic per spec #4 known limitations)
+- A new file in `rules/<id>.md` exists
+- The new rule has `description:` (from v0.16.0 fix)
+- Body has provenance metadata pointing at the candidate
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-23 — Newly installed rule is loaded and applied on next run
+
+**Lens:** A + B
+**Concern:** session-learn
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+# After R-21 or R-22: run a prompt and verify the new rule is in the loaded set.
+harness info | grep -E 'rules/|instincts/' | head -20
+harness prompt | grep -i "<rule frontmatter description from R-21 or R-22>" || echo "rule description not in prompt — FAIL"
+```
+
+**Expected:**
+- The newly installed rule (from R-21 or R-22) appears in `harness info` output
+- The rule's full body appears in `harness prompt` output (rules are always loaded full-body)
+- The rule's `description:` from frontmatter is preserved verbatim
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
 <!-- Required-tier items get inserted here by Tasks 2–11. -->
 
 ## Extended tier (~80 items)
