@@ -7,7 +7,7 @@ const TEST_DIR = join(__dirname, '__test_validator__');
 
 function setupMinimalHarness(): void {
   mkdirSync(TEST_DIR, { recursive: true });
-  writeFileSync(join(TEST_DIR, 'CORE.md'), '# Core\n\nThe core of the harness.', 'utf-8');
+  writeFileSync(join(TEST_DIR, 'IDENTITY.md'), '# Identity\n\nThe identity of the harness.', 'utf-8');
   writeFileSync(
     join(TEST_DIR, 'config.yaml'),
     `agent:\n  name: test\n  version: "0.1.0"\nmodel:\n  provider: openrouter\n  id: test-model\n  max_tokens: 200000\n`,
@@ -26,21 +26,28 @@ afterEach(() => {
 describe('validateHarness', () => {
   it('should pass with minimal valid harness', () => {
     const result = validateHarness(TEST_DIR);
-    expect(result.ok.some((m) => m.includes('CORE.md exists'))).toBe(true);
+    expect(result.ok.some((m) => m.includes('IDENTITY.md exists'))).toBe(true);
     expect(result.ok.some((m) => m.includes('config.yaml exists'))).toBe(true);
     expect(result.ok.some((m) => m.includes('Config valid'))).toBe(true);
   });
 
-  it('should error on missing CORE.md', () => {
-    rmSync(join(TEST_DIR, 'CORE.md'));
+  it('should error on missing IDENTITY.md', () => {
+    rmSync(join(TEST_DIR, 'IDENTITY.md'));
     const result = validateHarness(TEST_DIR);
-    expect(result.errors.some((e) => e.includes('Missing required file: CORE.md'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('Missing required file: IDENTITY.md'))).toBe(true);
   });
 
-  it('should warn on missing optional files', () => {
+  it('should hint at migration when legacy CORE.md is present without IDENTITY.md', () => {
+    rmSync(join(TEST_DIR, 'IDENTITY.md'));
+    writeFileSync(join(TEST_DIR, 'CORE.md'), '# Legacy Core', 'utf-8');
     const result = validateHarness(TEST_DIR);
-    expect(result.warnings.some((w) => w.includes('SYSTEM.md'))).toBe(true);
-    expect(result.warnings.some((w) => w.includes('state.md'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('IDENTITY.md') && e.includes('CORE.md') && e.includes('migrate'))).toBe(true);
+  });
+
+  it('should warn when state.md is at top level (legacy location)', () => {
+    writeFileSync(join(TEST_DIR, 'state.md'), '# Agent State', 'utf-8');
+    const result = validateHarness(TEST_DIR);
+    expect(result.warnings.some((w) => w.includes('state.md') && w.includes('memory/state.md'))).toBe(true);
   });
 
   it('should count primitives per directory', () => {
@@ -181,7 +188,7 @@ describe('doctorHarness', () => {
   it('should include validation results alongside fixes', () => {
     const result = doctorHarness(TEST_DIR);
     // Should still have standard validation results
-    expect(result.ok.some((m) => m.includes('CORE.md exists'))).toBe(true);
+    expect(result.ok.some((m) => m.includes('IDENTITY.md exists'))).toBe(true);
     expect(result.ok.some((m) => m.includes('Config valid'))).toBe(true);
   });
 
