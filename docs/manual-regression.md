@@ -333,6 +333,154 @@ echo "exit: $?"
 **Notes:**
 
 
+### R-11 — All shipped default skills have valid Agent Skills frontmatter
+
+**Lens:** B
+**Concern:** skills-loading
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+ls skills/
+for d in skills/*/; do
+  echo "=== $d ==="
+  awk '/^---$/{c++; next} c==1{print}' "$d/SKILL.md" 2>/dev/null
+done
+```
+
+**Expected:**
+- Each `skills/<name>/SKILL.md` has frontmatter with: `name`, `description`, `metadata` (with at least `harness-tags`, `harness-status`, `harness-author`)
+- Every `name` matches the directory name (Agent Skills spec requirement)
+- Every `description` is non-empty and ≥ 20 chars
+- Every status is one of `active`, `draft` (case-sensitive)
+- Body contains NO `<!-- L0:` or `<!-- L1:` markers
+- Bundle directory contains `SKILL.md` (uppercase, exact name) — not `skill.md` or `Skill.md`
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-12 — `harness skill list` shows all loaded skills
+
+**Lens:** A + B
+**Concern:** skills-loading
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+harness skill list 2>&1 | tee skills-list.log
+harness skill list --scheduled 2>&1 | tee skills-scheduled.log
+```
+
+**Expected:**
+- `skill list` exits 0 and prints one row per skill in `skills/`
+- Each row shows: name, description (truncated to a column width), status
+- `skill list --scheduled` shows ONLY skills with `metadata.harness-schedule` (e.g., `daily-reflection`)
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-13 — `activate_skill` AI SDK tool enum is properly populated
+
+**Lens:** A + B
+**Concern:** skills-loading
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+harness prompt | grep -A 50 'activate_skill\|activateSkill' | head -60
+```
+
+**Expected:**
+- The system prompt or the tool definition embedded in the prompt mentions `activate_skill`
+- The skill-name parameter is constrained to an enum of strings matching the actual skill IDs in `skills/`
+- The structured `<skill_content>` wrapping is documented or enforced
+- No skill name appears twice (no duplicates from inadvertent re-loading)
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-14 — `harness skill validate <name>` passes for every shipped default
+
+**Lens:** A
+**Concern:** skills-loading
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+fail=0
+for d in skills/*/; do
+  name=$(basename "$d")
+  if ! harness skill validate "$name" >/dev/null 2>&1; then
+    echo "FAIL: $name"
+    fail=1
+  fi
+done
+echo "Overall: $([ $fail -eq 0 ] && echo PASS || echo FAIL)"
+```
+
+**Expected:**
+- Every skill validates: stdout prints "Overall: PASS"
+- No skill triggers a schema parse error
+- No skill is flagged as missing required Agent Skills fields
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-15 — Each shipped default skill is appropriate for a generic agent
+
+**Lens:** B + C
+**Concern:** skills-loading
+
+**Action:** *(no command — read every skill body manually)*
+
+**Expected:** for each skill in `skills/*/SKILL.md`, a first-time user reads the body and answers YES to:
+- "Is this skill useful for most agents, or specific to one user's project?"
+- "Does the description make it clear when the agent should activate this skill?"
+- "Is the body content concrete (steps/examples) rather than generic advice?"
+
+**Skills currently in `defaults/skills/` to evaluate:**
+- `ask-claude` — `harness-status: draft` stub, delegates to `claude` CLI
+- `ask-codex` — `harness-status: draft` stub
+- `ask-gemini` — `harness-status: draft` stub
+- `brainstorming` — vendored superpowers
+- `business-analyst` — generic role-play prompt (174 lines)
+- `content-marketer` — generic role-play prompt (177 lines)
+- `daily-reflection` — scheduled, journal synthesis
+- `delegate-to-cli` — canonical reference
+- `dispatching-parallel-agents` — vendored superpowers
+- `example-web-search` — `harness-status: draft` template
+- `executing-plans` — vendored superpowers
+- `planner` — generic decompose
+- `research` — generic research
+- `ship-feature` — methodology
+- `summarizer` — generic
+- `writing-plans` — vendored superpowers
+
+**This is the load-bearing item for the "defaults bloat" finding.** Expect FAIL on at least 5 of these (`business-analyst`, `content-marketer`, the 4 stubs flagged with `status: draft`, possibly more). Findings here feed the v0.17.0 defaults-trim work.
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
 <!-- Required-tier items get inserted here by Tasks 2–11. -->
 
 ## Extended tier (~80 items)
