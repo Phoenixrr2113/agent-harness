@@ -6,6 +6,7 @@ tags:
   - development
 author: agent
 status: active
+created: '2026-04-30'
 source: learned-behavior
 related:
   - search-before-create

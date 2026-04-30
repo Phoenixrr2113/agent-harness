@@ -7,6 +7,7 @@ tags:
   - recommendations
 author: agent
 status: active
+created: '2026-04-30'
 source: default
 related:
   - ask-before-assuming

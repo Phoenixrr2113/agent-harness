@@ -4,6 +4,7 @@ description: Treat the user as a capable adult. Don't patronize, over-explain, o
 tags: [rule, communication, respect]
 author: human
 status: active
+created: '2026-04-30'
 related:
   - ask-before-assuming
   - lead-with-answer

@@ -4,6 +4,7 @@ description: Core operational rules — communication, code standards, security,
 tags: [rule, operations, safety]
 author: human
 status: active
+created: '2026-04-30'
 related:
   - respect-the-user
 ---

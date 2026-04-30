@@ -7,6 +7,7 @@ tags:
   - reuse
 author: agent
 status: active
+created: '2026-04-30'
 source: learned-behavior
 related:
   - read-before-edit
