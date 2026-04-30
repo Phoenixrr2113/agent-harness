@@ -696,6 +696,227 @@ harness prompt | grep -i "<rule frontmatter description from R-21 or R-22>" || e
 **Notes:**
 
 
+### R-24 — `harness export claude` writes `.claude/CLAUDE.md`
+
+**Lens:** A + B
+**Concern:** export
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+rm -rf .claude
+harness export claude 2>&1 | tee export-claude.log
+ls -la .claude/
+cat .claude/CLAUDE.md
+```
+
+**Expected:**
+- Exit code 0
+- File `.claude/CLAUDE.md` exists
+- Frontmatter has `harness-exported-by: @agntk/agent-harness@<version>` (per B4)
+- Frontmatter has `harness-content-hash: sha256-<hex>` (provenance marker)
+- Body contains every rule's full text (from `rules/`)
+- Body contains skill discovery tier (name + description) for every skill in `skills/`
+- Body does NOT contain `<!-- L0:` or `<!-- L1:` (post-v0.16.0)
+- Body does NOT contain raw `description:` YAML — descriptions are rendered as prose
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-25 — `harness export codex` writes `.codex/AGENTS.md`
+
+**Lens:** A + B
+**Concern:** export
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+rm -rf .codex
+harness export codex 2>&1 | tee export-codex.log
+ls -la .codex/
+cat .codex/AGENTS.md | head -40
+```
+
+**Expected:**
+- Exit code 0
+- File `.codex/AGENTS.md` exists with provenance markers in frontmatter
+- Body content matches the canonical "agents" format (per spec #5)
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-26 — `harness export agents` writes project-root `AGENTS.md`
+
+**Lens:** A + B
+**Concern:** export
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+rm -f ../AGENTS.md
+harness export agents 2>&1 | tee export-agents.log
+ls -la ../AGENTS.md
+cat ../AGENTS.md | head -40
+```
+
+**Expected:**
+- Exit code 0
+- For a STANDALONE harness (harnessDir is the project), AGENTS.md is at the harness dir's root
+- For a PROJECT-RESIDENT harness (`.harness/` subdir), AGENTS.md is at the parent project root, inside an `<!-- agent-harness:auto-managed:start -->` block (B6, B8 fixes)
+- Re-running `harness export agents` is idempotent — content unchanged on second run
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-27 — `harness export cursor` writes `.cursor/rules/*.mdc`
+
+**Lens:** A + B
+**Concern:** export
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+rm -rf .cursor
+harness export cursor 2>&1 | tee export-cursor.log
+ls .cursor/rules/
+head -20 .cursor/rules/*.mdc | head -30
+```
+
+**Expected:**
+- Exit code 0
+- Files at `.cursor/rules/<name>.mdc` (one per rule)
+- Each `.mdc` file's frontmatter has `globs:` as a comma-separated string (NOT array — per Cursor spec verified during spec #5)
+- Provenance marker present in frontmatter or as HTML comment
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-28 — `harness export copilot` writes `.github/copilot-instructions.md`
+
+**Lens:** A + B
+**Concern:** export
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+rm -rf .github
+harness export copilot 2>&1 | tee export-copilot.log
+ls .github/
+cat .github/copilot-instructions.md | head -30
+```
+
+**Expected:**
+- Exit code 0
+- File at `.github/copilot-instructions.md` (NOT `.copilot/copilot-instructions.md` — B5 fix)
+- Provenance marker present
+- Body content covers identity + rules
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-29 — `harness export gemini` writes `.gemini/gemini-extension.json` + `GEMINI.md`
+
+**Lens:** A + B
+**Concern:** export
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+rm -rf .gemini ../GEMINI.md
+harness export gemini 2>&1 | tee export-gemini.log
+ls -la .gemini/ ../GEMINI.md 2>/dev/null
+cat .gemini/gemini-extension.json
+```
+
+**Expected:**
+- Exit code 0
+- File `.gemini/gemini-extension.json` exists (NOT `manifest.json`)
+- The JSON manifest is valid JSON
+- The manifest references the `GEMINI.md` content
+- For STANDALONE: `GEMINI.md` is at harness dir root
+- For PROJECT-RESIDENT: `GEMINI.md` is at parent project root
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-30 — `harness doctor --check-drift` detects external edits
+
+**Lens:** A
+**Concern:** export
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+# After R-24, deliberately modify .claude/CLAUDE.md
+echo "# unauthorized edit" >> .claude/CLAUDE.md
+harness doctor --check-drift 2>&1 | tee drift.log
+echo "exit: $?"
+```
+
+**Expected:**
+- Exit code != 0 (drift detected)
+- Output identifies `.claude/CLAUDE.md` as drifted
+- Output includes the project-root resolution path (D-fix from v0.15.0)
+- Output suggests `harness export claude` to resync OR `--resync-from claude` for the pinned-exception flow (or notes that flow is partial per known limitations)
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-31 — `harness export --prune` removes orphaned generated files
+
+**Lens:** A + B
+**Concern:** export
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+# Create a fake stale export file
+echo "# stale" > .claude/old-orphan.md
+harness export claude --prune 2>&1 | tee prune.log
+ls .claude/
+```
+
+**Expected:**
+- Exit code 0
+- `.claude/old-orphan.md` no longer exists after prune
+- `.claude/CLAUDE.md` (the legitimate export) still exists
+- Output reports "Pruned 1 orphan(s)" or similar
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
 <!-- Required-tier items get inserted here by Tasks 2–11. -->
 
 ## Extended tier (~80 items)
