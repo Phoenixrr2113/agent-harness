@@ -1280,6 +1280,89 @@ echo "exit when clean: $rc"
 **Notes:**
 
 
+### R-43 — `package.json` exposes only `bin`, no library surface
+
+**Lens:** B
+**Concern:** anti-pattern
+
+**Action:**
+```bash
+cd /Users/randywilson/Desktop/agent-harness
+cat package.json | jq '{name, version, bin, main, types, exports}'
+```
+
+**Expected:**
+- `name: "@agntk/agent-harness"`
+- `version` is current (not `"0.0.0"`)
+- `bin: { "harness": "./dist/cli/index.js" }` — exactly one binary
+- `main: null`, `types: null`, `exports: null` — anti-pattern: no library surface
+- This validates Scenario 3 from README §"When to use this"
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-44 — Library import fails with clear error
+
+**Lens:** A
+**Concern:** anti-pattern
+
+**Action:**
+```bash
+mkdir -p /tmp/r-44 && cd /tmp/r-44
+cat > test-import.mjs <<'EOF'
+try {
+  const x = await import('@agntk/agent-harness');
+  console.log('IMPORTED:', Object.keys(x));
+} catch (e) {
+  console.log('FAILED (expected):', e.message);
+}
+EOF
+npm init -y > /dev/null
+npm install @agntk/agent-harness > /dev/null 2>&1
+node test-import.mjs
+```
+
+**Expected:**
+- The import throws
+- Error message mentions `Cannot find module` or `not a module` or similar
+- Output prefix is `FAILED (expected):`
+- This is the runtime test of R-43's package.json check
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-45 — README anti-pattern section is verbatim correct
+
+**Lens:** B
+**Concern:** anti-pattern
+
+**Action:**
+```bash
+cd /Users/randywilson/Desktop/agent-harness
+sed -n '/^## When to use this/,/^## What makes it different/p' README.md
+```
+
+**Expected:**
+- README §"When to use this" exists and contains 3 paragraphs
+- The 3rd paragraph explicitly says "Don't try to embed it inside another agent product" with the rationale
+- The fallback paragraph mentions "copy the patterns, not the runtime"
+- No reference to a `createAgent`/library entry point as a supported path
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
 <!-- Required-tier items get inserted here by Tasks 2–11. -->
 
 ## Extended tier (~80 items)
