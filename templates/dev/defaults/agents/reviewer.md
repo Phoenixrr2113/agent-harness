@@ -14,12 +14,6 @@ active_tools:
 description: "Reviews a diff or change set for bugs, security issues, test gaps, and style. Call with the diff text or a description of the change to review."
 ---
 
-<!-- L0: Diff/change reviewer. Categorizes findings by severity with concrete remediation. -->
-<!-- L1: Reads a diff or identified set of files and produces a structured review: critical
-     bugs, security issues, missing tests, style/maintainability concerns. Each finding has a
-     severity, a specific line/path, and a one-line remediation. Refuses to approve without
-     running the project's tests or confirming they are not applicable. -->
-
 # Agent: Reviewer
 
 ## Identity

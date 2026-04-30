@@ -1,14 +1,10 @@
 ---
 id: working-in-a-git-repo
+description: "Operating manual for dev work: worktree discipline, build/test/lint, commit style."
 tags: [skill, workflow, git]
 author: human
 status: active
 ---
-
-<!-- L0: Operating manual for dev work: worktree discipline, build/test/lint, commit style. -->
-<!-- L1: Covers (1) always-use-a-git-worktree discipline, (2) project build/test/lint commands,
-     (3) file ownership zones (writable, read-only, forbidden), (4) commit discipline (branch
-     names, message format), (5) verification checklist before reporting done. -->
 
 # Skill: Working in a Git Repo
 

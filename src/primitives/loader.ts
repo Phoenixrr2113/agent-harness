@@ -14,11 +14,12 @@ export interface LoadResult {
   errors: ParseError[];
 }
 
-// Extract L0 and L1 from HTML comments at the top of the markdown body
-// Format: <!-- L0: one-line summary -->
-//         <!-- L1: paragraph summary -->
-const L0_REGEX = /<!--\s*L0:\s*([\s\S]*?)\s*-->/;
-const L1_REGEX = /<!--\s*L1:\s*([\s\S]*?)\s*-->/;
+// Note: legacy L0/L1 HTML body markers are deprecated. The Agent Skills spec
+// uses `description:` in frontmatter as the single discovery-tier surface.
+// Files that still have legacy markers should be cleaned up via
+// `harness doctor --migrate`. The runtime no longer strips them — they will
+// appear verbatim in the loaded body if present, signaling that migration is
+// pending.
 
 /**
  * Primitive kinds that support multi-file bundles (Agent Skills convention).
@@ -56,11 +57,7 @@ export function parseHarnessDocument(filePath: string, bundleDir?: string, kind?
   // Strict: schema parse failures throw and are reported by the caller.
   const frontmatter: Frontmatter = FrontmatterSchema.parse(normalized);
 
-  // Strip L0/L1 markers from body (kept for migration; no longer extracted as fields)
-  const body = content
-    .replace(L0_REGEX, '')
-    .replace(L1_REGEX, '')
-    .trim();
+  const body = content.trim();
 
   // Run normalization to derive canonical accessor fields (kind-aware)
   const resolvedKind = kind ?? 'unknown';

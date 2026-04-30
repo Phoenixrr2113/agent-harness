@@ -10,7 +10,7 @@ export interface GraphNode {
   path: string;
   tags: string[];
   status: string;
-  l0: string;
+  description: string;
 }
 
 export interface GraphEdge {
@@ -59,7 +59,7 @@ export function buildDependencyGraph(harnessDir: string, config?: HarnessConfig)
         path: relative(harnessDir, doc.path),
         tags: doc.tags,
         status: doc.status,
-        l0: doc.description ?? doc.id,
+        description: doc.description ?? doc.id,
       });
     }
   }

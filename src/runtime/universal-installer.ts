@@ -399,7 +399,7 @@ export async function recordProvenance(
 
 /** Detected source format of a file to be installed. */
 export type SourceFormat =
-  | 'harness'         // Already harness convention (frontmatter + L0/L1)
+  | 'harness'         // Already harness convention (frontmatter with description)
   | 'claude-skill'    // Claude Code SKILL.md (plain markdown, no frontmatter)
   | 'faf-yaml'        // .faf YAML format
   | 'raw-markdown'    // Plain markdown with no harness structure
@@ -445,7 +445,7 @@ export interface UniversalInstallOptions {
   id?: string;
   /** Force install even if validation has warnings */
   force?: boolean;
-  /** Skip auto-fix (frontmatter, L0/L1 generation) */
+  /** Skip auto-fix (frontmatter, description generation) */
   skipFix?: boolean;
   /** Additional tags to add */
   tags?: string[];
@@ -737,7 +737,7 @@ export function normalizeToHarness(
 
 /**
  * Convert Claude Code SKILL.md to harness convention.
- * Claude skills are plain markdown — add frontmatter + L0/L1.
+ * Claude skills are plain markdown — add frontmatter with description.
  */
 function normalizeClaudeSkill(
   content: string,
@@ -750,40 +750,22 @@ function normalizeClaudeSkill(
   const primitiveType = type ?? 'skill';
   const tags = [primitiveType, ...(options?.tags ?? [])];
 
-  // Extract first heading as title
+  // Extract first heading as title — used for the description.
   const headingMatch = content.match(/^#\s+(.+)$/m);
   const title = headingMatch ? headingMatch[1].trim() : id;
+  const description = title.length > 200 ? title.slice(0, 197) + '...' : title;
 
   const frontmatter: Record<string, unknown> = {
     id,
+    description,
     created: new Date().toISOString().split('T')[0],
     author: 'human',
     status: 'active',
     tags,
   };
 
-  // Generate L0 from title/first heading
-  const l0 = title.length > 120 ? title.slice(0, 117) + '...' : title;
-
-  // Generate L1 from first paragraph
-  const paragraphs = content.split(/\n{2,}/).filter((p) => {
-    const trimmed = p.trim();
-    return trimmed.length > 0 && !trimmed.startsWith('#') && !trimmed.startsWith('<!--');
-  });
-  const l1 = paragraphs.length > 0
-    ? paragraphs[0].replace(/\n/g, ' ').trim().slice(0, 300)
-    : '';
-
-  let body = `<!-- L0: ${l0} -->\n`;
-  if (l1) {
-    body += `<!-- L1: ${l1} -->\n`;
-  }
-  body += '\n' + content;
-
-  const result = matter.stringify(body, frontmatter);
-  fixes.push('Added harness frontmatter (id, status, tags)');
-  fixes.push(`Generated L0 from heading: "${l0}"`);
-  if (l1) fixes.push('Generated L1 from first paragraph');
+  const result = matter.stringify(content, frontmatter);
+  fixes.push('Added harness frontmatter (id, description, status, tags)');
 
   const outFilename = ensureMdExtension(filename);
   return { content: result, filename: outFilename, fixes };
@@ -819,20 +801,23 @@ function normalizeFafYaml(
 
   const tags = [primitiveType, ...fafTags, ...(options?.tags ?? [])];
 
+  // Prefer the upstream description if present and within bounds; otherwise
+  // fall back to the title.
+  const descriptionSource = description.trim().length > 0 ? description.trim() : title;
+  const descriptionFinal = descriptionSource.length > 200
+    ? descriptionSource.slice(0, 197) + '...'
+    : descriptionSource;
+
   const frontmatter: Record<string, unknown> = {
     id,
+    description: descriptionFinal,
     created: new Date().toISOString().split('T')[0],
     author: 'human',
     status: 'active',
     tags: [...new Set(tags)],
   };
 
-  const l0 = title.length > 120 ? title.slice(0, 117) + '...' : title;
-  const l1 = description.length > 300 ? description.slice(0, 297) + '...' : description;
-
-  let body = `<!-- L0: ${l0} -->\n`;
-  if (l1) body += `<!-- L1: ${l1} -->\n`;
-  body += `\n# ${title}\n\n`;
+  let body = `# ${title}\n\n`;
   if (description) body += `${description}\n\n`;
   if (fafContent) body += fafContent + '\n';
 
@@ -890,38 +875,18 @@ function normalizeRawMarkdown(
     fixes.push(`Added tags: [${(data.tags as string[]).join(', ')}]`);
   }
 
-  let body = parsed.content;
+  const body = parsed.content;
 
-  // Add L0 if missing
-  const l0Regex = /<!--\s*L0:\s*(.*?)\s*-->/;
-  if (!l0Regex.test(body)) {
+  // Add description if missing — derive from first heading or first non-empty
+  // line of prose. The description IS the discovery surface; without it the
+  // skill won't surface in the catalog.
+  if (!data.description) {
     const headingMatch = body.match(/^#\s+(.+)$/m);
     const firstLine = body.split('\n').find((line) => line.trim().length > 0);
-    const summary = headingMatch ? headingMatch[1].trim() : (firstLine?.trim() ?? id);
-    const l0 = summary.length > 120 ? summary.slice(0, 117) + '...' : summary;
-    body = `<!-- L0: ${l0} -->\n${body}`;
-    fixes.push(`Generated L0: "${l0}"`);
-  }
-
-  // Add L1 if missing
-  const l1Regex = /<!--\s*L1:\s*([\s\S]*?)\s*-->/;
-  if (!l1Regex.test(body)) {
-    const paragraphs = body.split(/\n{2,}/).filter((p) => {
-      const trimmed = p.trim();
-      return trimmed.length > 0 && !trimmed.startsWith('<!--') && !trimmed.startsWith('#');
-    });
-    if (paragraphs.length > 0) {
-      const para = paragraphs[0].replace(/\n/g, ' ').trim();
-      const l1 = para.length > 300 ? para.slice(0, 297) + '...' : para;
-      const l0Pos = body.indexOf('-->');
-      if (l0Pos !== -1) {
-        const insertPos = l0Pos + 3;
-        body = body.slice(0, insertPos) + `\n<!-- L1: ${l1} -->` + body.slice(insertPos);
-      } else {
-        body = `<!-- L1: ${l1} -->\n${body}`;
-      }
-      fixes.push('Generated L1 from first paragraph');
-    }
+    const summary = headingMatch ? headingMatch[1].trim() : (firstLine?.trim() ?? String(id));
+    const description = summary.length > 200 ? summary.slice(0, 197) + '...' : summary;
+    data.description = description;
+    fixes.push(`Generated description: "${description}"`);
   }
 
   const result = matter.stringify(body, data);
@@ -959,12 +924,10 @@ function normalizeBashHook(
     author: 'human',
     status: 'active',
     tags: [...new Set(tags)],
+    description: description.length > 200 ? description.slice(0, 197) + '...' : description,
   };
 
-  const l0 = description.length > 120 ? description.slice(0, 117) + '...' : description;
-
-  let body = `<!-- L0: ${l0} -->\n\n`;
-  body += `# ${id}\n\n`;
+  let body = `# ${id}\n\n`;
   body += `${description}\n\n`;
   body += '```bash\n';
   body += content;
@@ -973,7 +936,7 @@ function normalizeBashHook(
 
   const result = matter.stringify(body, frontmatter);
   fixes.push('Wrapped bash script in harness markdown');
-  fixes.push(`Added frontmatter (id: ${id}, type: ${primitiveType})`);
+  fixes.push(`Added frontmatter (id: ${id}, type: ${primitiveType}, description)`);
 
   const outFilename = deriveId(filename) + '.md';
   return { content: result, filename: outFilename, fixes };
@@ -1009,16 +972,14 @@ function normalizeMcpConfig(
 
   const frontmatter: Record<string, unknown> = {
     id,
+    description: description.length > 200 ? description.slice(0, 197) + '...' : description,
     created: new Date().toISOString().split('T')[0],
     author: 'human',
     status: 'active',
     tags: [...new Set(tags)],
   };
 
-  const l0 = description.length > 120 ? description.slice(0, 117) + '...' : description;
-
-  let body = `<!-- L0: ${l0} -->\n\n`;
-  body += `# MCP Server: ${serverName}\n\n`;
+  let body = `# MCP Server: ${serverName}\n\n`;
   body += `${description}\n\n`;
   body += '## Configuration\n\n';
   body += '```json\n';
@@ -1027,7 +988,7 @@ function normalizeMcpConfig(
 
   const result = matter.stringify(body, frontmatter);
   fixes.push('Converted MCP config to harness tool documentation');
-  fixes.push(`Added frontmatter (id: ${id})`);
+  fixes.push(`Added frontmatter (id: ${id}, description)`);
 
   const outFilename = deriveId(filename) + '.md';
   return { content: result, filename: outFilename, fixes };

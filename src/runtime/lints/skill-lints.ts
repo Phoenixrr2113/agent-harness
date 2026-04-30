@@ -1,7 +1,10 @@
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import type { HarnessDocument } from '../../core/types.js';
 import type { LintResult } from '../lint-types.js';
+
+const LEGACY_L0_BODY_REGEX = /<!--\s*L0:/;
+const LEGACY_L1_BODY_REGEX = /<!--\s*L1:/;
 
 function descriptionQuality(skill: HarnessDocument, _bundleDir: string): LintResult[] {
   const out: LintResult[] = [];
@@ -113,18 +116,107 @@ function evalsCoverage(skill: HarnessDocument, bundleDir: string): LintResult[] 
   return [];
 }
 
+/**
+ * Flag legacy L0/L1 HTML body markers. The Agent Skills spec uses
+ * `description:` in frontmatter as the single discovery-tier surface; L0/L1
+ * comments are deprecated. Files with these markers should be cleaned up via
+ * `harness doctor --migrate`.
+ */
+function legacyL0L1Markers(skill: HarnessDocument, _bundleDir: string): LintResult[] {
+  const out: LintResult[] = [];
+  if (LEGACY_L0_BODY_REGEX.test(skill.body)) {
+    out.push({
+      code: 'LEGACY_L0_MARKER',
+      severity: 'warn',
+      message: 'SKILL.md body contains a legacy <!-- L0: ... --> marker. The harness uses `description:` in frontmatter now; run `harness doctor --migrate` to clean up.',
+      path: skill.path,
+      fixable: false,
+    });
+  }
+  if (LEGACY_L1_BODY_REGEX.test(skill.body)) {
+    out.push({
+      code: 'LEGACY_L1_MARKER',
+      severity: 'warn',
+      message: 'SKILL.md body contains a legacy <!-- L1: ... --> marker. The harness uses `description:` in frontmatter now; run `harness doctor --migrate` to clean up.',
+      path: skill.path,
+      fixable: false,
+    });
+  }
+  return out;
+}
+
+/**
+ * Flag a skill missing its `description:`. Description is the discovery surface
+ * — without it the skill can't surface in the catalog reliably.
+ */
+function descriptionPresent(skill: HarnessDocument, _bundleDir: string): LintResult[] {
+  const desc = skill.description?.trim() ?? '';
+  if (desc.length === 0) {
+    return [{
+      code: 'MISSING_DESCRIPTION',
+      severity: 'error',
+      message: 'SKILL.md frontmatter is missing `description:` — required for the discovery tier of progressive disclosure (https://agentskills.io/specification#progressive-disclosure).',
+      path: skill.path,
+      fixable: false,
+    }];
+  }
+  return [];
+}
+
 export const skillLints = {
   descriptionQuality,
   bodyLength,
   referencedFilesExist,
   requiredSections,
   evalsCoverage,
+  legacyL0L1Markers,
+  descriptionPresent,
 };
 
 export const ALL_SKILL_LINTS: Array<(s: HarnessDocument, b: string) => LintResult[]> = [
+  descriptionPresent,
   descriptionQuality,
   bodyLength,
   referencedFilesExist,
   requiredSections,
   evalsCoverage,
+  legacyL0L1Markers,
 ];
+
+// --- Rule lints (mirror the L0/L1 + description checks for rules/) ---
+
+/**
+ * Flag legacy L0/L1 markers in rule files. Same rule as for skills — the
+ * harness uses `description:` in frontmatter as the single discovery surface.
+ *
+ * Loaded directly from disk because rule loading does not parse the body in
+ * the same way as the skill loader.
+ */
+export function lintRuleFile(rulePath: string): LintResult[] {
+  const out: LintResult[] = [];
+  let body: string;
+  try {
+    body = readFileSync(rulePath, 'utf-8');
+  } catch {
+    return out;
+  }
+  if (LEGACY_L0_BODY_REGEX.test(body)) {
+    out.push({
+      code: 'LEGACY_L0_MARKER',
+      severity: 'warn',
+      message: 'Rule body contains a legacy <!-- L0: ... --> marker. The harness uses `description:` in frontmatter now; run `harness doctor --migrate` to clean up.',
+      path: rulePath,
+      fixable: false,
+    });
+  }
+  if (LEGACY_L1_BODY_REGEX.test(body)) {
+    out.push({
+      code: 'LEGACY_L1_MARKER',
+      severity: 'warn',
+      message: 'Rule body contains a legacy <!-- L1: ... --> marker. The harness uses `description:` in frontmatter now; run `harness doctor --migrate` to clean up.',
+      path: rulePath,
+      fixable: false,
+    });
+  }
+  return out;
+}

@@ -1,7 +1,7 @@
 import { readdirSync, existsSync, statSync, chmodSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { loadAllPrimitives } from '../primitives/loader.js';
-import { ALL_SKILL_LINTS } from './lints/skill-lints.js';
+import { ALL_SKILL_LINTS, lintRuleFile } from './lints/skill-lints.js';
 import { ALL_SCRIPT_LINTS } from './lints/script-lints.js';
 import type { LintResult } from './lint-types.js';
 
@@ -39,7 +39,9 @@ function isScriptFile(scriptPath: string, entry: string): boolean {
  */
 export async function runLints(harnessDir: string): Promise<LintResult[]> {
   const all: LintResult[] = [];
-  const skills = loadAllPrimitives(harnessDir).get('skills') ?? [];
+  const primitives = loadAllPrimitives(harnessDir);
+  const skills = primitives.get('skills') ?? [];
+  const rules = primitives.get('rules') ?? [];
 
   for (const skill of skills) {
     const bundleDir = skill.bundleDir ?? '';
@@ -63,6 +65,12 @@ export async function runLints(harnessDir: string): Promise<LintResult[]> {
         }
       }
     }
+  }
+
+  // Rules: check for legacy L0/L1 markers (the description-in-frontmatter
+  // mandate applies to all primitives, not just skills).
+  for (const rule of rules) {
+    all.push(...lintRuleFile(rule.path));
   }
 
   return all;

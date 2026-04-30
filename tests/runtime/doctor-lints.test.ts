@@ -73,6 +73,72 @@ describe('skillLints', () => {
     const results = skillLints.requiredSections(skill, bundleDir);
     expect(results.some((r) => r.severity === 'warn')).toBe(true);
   });
+
+  it('legacy-l0-l1: flags <!-- L0: --> markers in skill body', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lint-'));
+    const bundleDir = makeSkillBundle(
+      dir,
+      'legacy',
+      'name: legacy\ndescription: A skill. Use when checking the lint.',
+      '<!-- L0: legacy summary -->\n\n# Legacy\n\nBody.'
+    );
+    const skill = loadFirstSkill(dir);
+    const results = skillLints.legacyL0L1Markers(skill, bundleDir);
+    expect(results.find((r) => r.code === 'LEGACY_L0_MARKER')).toBeTruthy();
+  });
+
+  it('legacy-l0-l1: flags <!-- L1: --> markers in skill body', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lint-'));
+    const bundleDir = makeSkillBundle(
+      dir,
+      'legacy2',
+      'name: legacy2\ndescription: A skill. Use when checking the lint.',
+      '<!-- L1: longer summary -->\n\n# Legacy\n\nBody.'
+    );
+    const skill = loadFirstSkill(dir);
+    const results = skillLints.legacyL0L1Markers(skill, bundleDir);
+    expect(results.find((r) => r.code === 'LEGACY_L1_MARKER')).toBeTruthy();
+  });
+
+  it('legacy-l0-l1: passes when body has neither L0 nor L1', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lint-'));
+    const bundleDir = makeSkillBundle(
+      dir,
+      'clean',
+      'name: clean\ndescription: A modern skill. Use when L0/L1 should not appear.',
+      '# Clean\n\nNo legacy markers here.'
+    );
+    const skill = loadFirstSkill(dir);
+    const results = skillLints.legacyL0L1Markers(skill, bundleDir);
+    expect(results).toHaveLength(0);
+  });
+
+  it('description-present: errors when frontmatter is missing description', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lint-'));
+    const bundleDir = makeSkillBundle(
+      dir,
+      'no-desc',
+      'name: no-desc',
+      '# Foo\n\nNo description in frontmatter.'
+    );
+    const skill = loadFirstSkill(dir);
+    const results = skillLints.descriptionPresent(skill, bundleDir);
+    expect(results.find((r) => r.code === 'MISSING_DESCRIPTION')).toBeTruthy();
+    expect(results[0].severity).toBe('error');
+  });
+
+  it('description-present: passes when description is set', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lint-'));
+    const bundleDir = makeSkillBundle(
+      dir,
+      'with-desc',
+      'name: with-desc\ndescription: A described skill. Use when verifying the description-present lint.',
+      '# Foo'
+    );
+    const skill = loadFirstSkill(dir);
+    const results = skillLints.descriptionPresent(skill, bundleDir);
+    expect(results).toHaveLength(0);
+  });
 });
 
 describe('scriptLints', () => {

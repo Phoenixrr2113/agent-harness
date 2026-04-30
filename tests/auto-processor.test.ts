@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import matter from 'gray-matter';
 import { autoProcessFile, autoProcessAll, processSkillOnSave } from '../src/runtime/auto-processor.js';
 
 describe('auto-processor', () => {
@@ -96,28 +97,33 @@ describe('auto-processor', () => {
       expect(content).toContain('- rule');
     });
 
-    it('should generate L0 summary from heading', () => {
+    it('should generate description from heading', () => {
       const filePath = join(harnessDir, 'skills', 'debugging.md');
       writeFileSync(filePath, '# Debugging Techniques\n\nLearn how to debug effectively.');
 
       const result = autoProcessFile(filePath, { harnessDir });
       expect(result.modified).toBe(true);
-      expect(result.fixes).toContain('Generated L0 summary');
+      expect(result.fixes).toContainEqual(expect.stringContaining('Generated description'));
 
       const content = readFileSync(filePath, 'utf-8');
-      expect(content).toContain('<!-- L0: Debugging Techniques -->');
+      expect(content).toContain('description: Debugging Techniques');
+      expect(content).not.toContain('<!-- L0:');
+      expect(content).not.toContain('<!-- L1:');
     });
 
-    it('should generate L1 summary from first paragraph', () => {
+    it('should fall back to first paragraph when no heading', () => {
       const filePath = join(harnessDir, 'skills', 'testing.md');
-      writeFileSync(filePath, '# Testing\n\nThis skill covers unit testing, integration testing, and end-to-end testing patterns.');
+      writeFileSync(filePath, 'This skill covers unit testing, integration testing, and end-to-end testing patterns.');
 
       const result = autoProcessFile(filePath, { harnessDir });
       expect(result.modified).toBe(true);
-      expect(result.fixes).toContain('Generated L1 summary');
+      expect(result.fixes).toContainEqual(expect.stringContaining('Generated description'));
 
       const content = readFileSync(filePath, 'utf-8');
-      expect(content).toContain('<!-- L1: This skill covers unit testing');
+      const parsed = matter(content);
+      expect(String(parsed.data.description ?? '')).toContain('This skill covers unit testing');
+      expect(content).not.toContain('<!-- L0:');
+      expect(content).not.toContain('<!-- L1:');
     });
 
     it('should not overwrite existing frontmatter fields', () => {
@@ -145,22 +151,23 @@ Do the thing.
       expect(content).toContain('author: agent');
     });
 
-    it('should not overwrite existing L0/L1 summaries', () => {
+    it('should not overwrite existing description', () => {
       const filePath = join(harnessDir, 'rules', 'summarized.md');
       writeFileSync(filePath, `---
 id: test
+description: An existing description that should be preserved.
 ---
-<!-- L0: Existing L0 -->
-<!-- L1: Existing L1 -->
 # My Rule
 
 Content here.
 `);
 
       const result = autoProcessFile(filePath, { harnessDir });
-      // Should not regenerate L0/L1
-      expect(result.fixes).not.toContain('Generated L0 summary');
-      expect(result.fixes).not.toContain('Generated L1 summary');
+      // Should not regenerate description
+      expect(result.fixes).not.toContainEqual(expect.stringContaining('Generated description'));
+
+      const content = readFileSync(filePath, 'utf-8');
+      expect(content).toContain('description: An existing description');
     });
 
     it('should infer tags from different directories', () => {
@@ -191,23 +198,22 @@ Content here.
         harnessDir,
         generateFrontmatter: false,
       });
-      // Should still generate summaries but not frontmatter
+      // Should still generate description but not frontmatter scaffolding
       expect(result.fixes).not.toContainEqual(expect.stringContaining('Added id'));
-      expect(result.fixes).toContain('Generated L0 summary');
+      expect(result.fixes).toContainEqual(expect.stringContaining('Generated description'));
     });
 
-    it('should respect generateSummaries: false', () => {
-      const filePath = join(harnessDir, 'rules', 'no-sum.md');
+    it('should respect generateDescription: false', () => {
+      const filePath = join(harnessDir, 'rules', 'no-desc.md');
       writeFileSync(filePath, '# My Rule\n\nContent here.');
 
       const result = autoProcessFile(filePath, {
         harnessDir,
-        generateSummaries: false,
+        generateDescription: false,
       });
-      // Should generate frontmatter but not summaries
+      // Should generate frontmatter but not description
       expect(result.fixes).toContainEqual(expect.stringContaining('Added id'));
-      expect(result.fixes).not.toContain('Generated L0 summary');
-      expect(result.fixes).not.toContain('Generated L1 summary');
+      expect(result.fixes).not.toContainEqual(expect.stringContaining('Generated description'));
     });
 
     it('should derive id from filename with special characters', () => {
@@ -218,45 +224,30 @@ Content here.
       expect(result.fixes).toContain('Added id: "my-cool-rule"');
     });
 
-    it('should truncate L0 summary over 120 characters', () => {
-      const longTitle = 'A'.repeat(150);
+    it('should truncate description over 200 characters', () => {
+      const longTitle = 'A'.repeat(250);
       const filePath = join(harnessDir, 'rules', 'long.md');
       writeFileSync(filePath, `# ${longTitle}\n\nContent.`);
 
       const result = autoProcessFile(filePath, { harnessDir });
-      expect(result.fixes).toContain('Generated L0 summary');
+      expect(result.fixes).toContainEqual(expect.stringContaining('Generated description'));
 
       const content = readFileSync(filePath, 'utf-8');
-      const l0Match = content.match(/<!-- L0: (.*?) -->/);
-      expect(l0Match).toBeDefined();
-      expect(l0Match![1].length).toBeLessThanOrEqual(120);
-      expect(l0Match![1].endsWith('...')).toBe(true);
+      const parsed = matter(content);
+      const desc = String(parsed.data.description ?? '');
+      expect(desc.endsWith('...')).toBe(true);
+      expect(desc.length).toBeLessThanOrEqual(200);
     });
 
-    it('should truncate L1 summary over 300 characters', () => {
-      const longPara = 'B'.repeat(350);
-      const filePath = join(harnessDir, 'rules', 'long-para.md');
-      writeFileSync(filePath, `# Rule\n\n${longPara}`);
-
-      const result = autoProcessFile(filePath, { harnessDir });
-      expect(result.fixes).toContain('Generated L1 summary');
-
-      const content = readFileSync(filePath, 'utf-8');
-      const l1Match = content.match(/<!-- L1: (.*?) -->/);
-      expect(l1Match).toBeDefined();
-      expect(l1Match![1].length).toBeLessThanOrEqual(300);
-      expect(l1Match![1].endsWith('...')).toBe(true);
-    });
-
-    it('should generate L0 from first non-empty line when no heading', () => {
+    it('should generate description from first non-empty line when no heading', () => {
       const filePath = join(harnessDir, 'rules', 'no-heading.md');
       writeFileSync(filePath, '\nThis is the first line of content.\n\nMore content.');
 
       const result = autoProcessFile(filePath, { harnessDir });
-      expect(result.fixes).toContain('Generated L0 summary');
+      expect(result.fixes).toContainEqual(expect.stringContaining('Generated description'));
 
       const content = readFileSync(filePath, 'utf-8');
-      expect(content).toContain('<!-- L0: This is the first line of content. -->');
+      expect(content).toContain('description: This is the first line of content.');
     });
 
     it('should handle files with malformed frontmatter gracefully', () => {
@@ -268,18 +259,18 @@ Content here.
       expect(result.errors.length + result.fixes.length).toBeGreaterThanOrEqual(0);
     });
 
-    it('should place L1 after L0 when both generated', () => {
+    it('should never emit legacy L0/L1 body markers', () => {
       const filePath = join(harnessDir, 'rules', 'both.md');
       writeFileSync(filePath, '# My Rule\n\nThis is the description paragraph.');
 
       autoProcessFile(filePath, { harnessDir });
       const content = readFileSync(filePath, 'utf-8');
 
-      const l0Pos = content.indexOf('<!-- L0:');
-      const l1Pos = content.indexOf('<!-- L1:');
-      expect(l0Pos).not.toBe(-1);
-      expect(l1Pos).not.toBe(-1);
-      expect(l0Pos).toBeLessThan(l1Pos);
+      // L0/L1 system is deprecated. The auto-processor must NEVER emit them.
+      expect(content).not.toContain('<!-- L0:');
+      expect(content).not.toContain('<!-- L1:');
+      // Description is the single discovery surface and lives in frontmatter.
+      expect(content).toContain('description: My Rule');
     });
   });
 
@@ -419,11 +410,10 @@ id: done
 created: '2024-01-01'
 author: human
 status: active
+description: A rule that needs no auto-processing.
 tags:
   - rule
 ---
-<!-- L0: Done rule -->
-<!-- L1: This rule is already complete. -->
 # Done
 
 This rule is already complete.
@@ -438,13 +428,13 @@ This rule is already complete.
 
       const results = autoProcessAll(harnessDir, {
         generateFrontmatter: false,
-        generateSummaries: true,
+        generateDescription: true,
       });
 
       expect(results.length).toBe(1);
       const fixes = results[0].fixes;
       expect(fixes).not.toContainEqual(expect.stringContaining('Added id'));
-      expect(fixes).toContain('Generated L0 summary');
+      expect(fixes).toContainEqual(expect.stringContaining('Generated description'));
     });
 
     it('should skip non-existent directories gracefully', () => {

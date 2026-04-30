@@ -1,5 +1,6 @@
 ---
 id: search-before-create
+description: Search for existing solutions before creating new ones.
 tags:
   - instinct
   - development
@@ -12,11 +13,6 @@ related:
 metadata:
   harness-source: learned
 ---
-
-<!-- L0: Search for existing solutions before creating new ones. -->
-<!-- L1: Before writing new code, search the codebase for existing implementations.
-     Reuse is almost always better than duplication. Check utilities, helpers, and
-     similar patterns before building from scratch. -->
 
 # Instinct: Search Before Create
 

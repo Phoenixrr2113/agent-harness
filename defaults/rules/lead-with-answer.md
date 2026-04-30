@@ -1,5 +1,6 @@
 ---
 id: lead-with-answer
+description: Always lead with the answer, not the reasoning.
 tags:
   - instinct
   - communication
@@ -11,10 +12,6 @@ related:
 metadata:
   harness-source: learned
 ---
-
-<!-- L0: Always lead with the answer, not the reasoning. -->
-<!-- L1: When responding to questions, put the answer first. Context and reasoning come after.
-     This respects the reader's time and attention. Avoid preamble like "Great question!" -->
 
 # Instinct: Lead With Answer
 

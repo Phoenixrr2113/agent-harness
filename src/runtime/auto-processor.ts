@@ -23,14 +23,13 @@ export interface AutoProcessOptions {
   harnessDir: string;
   /** Whether to generate frontmatter (default: true) */
   generateFrontmatter?: boolean;
-  /** Whether to generate L0/L1 summaries (default: true) */
-  generateSummaries?: boolean;
+  /**
+   * Whether to generate a `description:` in frontmatter when missing.
+   * Default: true. Description is the single discovery-tier surface per the
+   * Agent Skills spec at https://agentskills.io/specification#progressive-disclosure.
+   */
+  generateDescription?: boolean;
 }
-
-// --- L0/L1 Regex ---
-
-const L0_REGEX = /<!--\s*L0:\s*(.*?)\s*-->/;
-const L1_REGEX = /<!--\s*L1:\s*([\s\S]*?)\s*-->/;
 
 // --- Frontmatter detection ---
 
@@ -64,46 +63,35 @@ function deriveId(filePath: string): string {
 }
 
 /**
- * Generate L0 summary from content (first heading or first non-empty line).
+ * Generate a `description:` value from content. Tries:
+ *   1. The first markdown heading (e.g., "# Rule: Read Before Edit" → "Rule: Read Before Edit")
+ *   2. The first non-empty, non-heading line of prose
+ * Caps at 200 characters. Spec allows up to 1024, but 200 keeps auto-gen tight;
+ * authors can write longer descriptions by hand if a primitive needs it.
  */
-function generateL0(content: string): string | null {
+function generateDescription(content: string): string | null {
   // Try first markdown heading
   const headingMatch = content.match(/^#\s+(.+)$/m);
   if (headingMatch) {
     const text = headingMatch[1].trim();
-    return text.length > 120 ? text.slice(0, 117) + '...' : text;
+    return text.length > 200 ? text.slice(0, 197) + '...' : text;
   }
 
-  // Fall back to first non-empty, non-comment line
+  // Fall back to first non-empty, non-heading line of prose
   const lines = content.split('\n');
   for (const line of lines) {
     const trimmed = line.trim();
-    if (trimmed.length > 0 && !trimmed.startsWith('<!--') && !trimmed.startsWith('---')) {
-      return trimmed.length > 120 ? trimmed.slice(0, 117) + '...' : trimmed;
+    if (
+      trimmed.length > 0 &&
+      !trimmed.startsWith('<!--') &&
+      !trimmed.startsWith('---') &&
+      !trimmed.startsWith('#')
+    ) {
+      return trimmed.length > 200 ? trimmed.slice(0, 197) + '...' : trimmed;
     }
   }
 
   return null;
-}
-
-/**
- * Generate L1 summary from content (first substantial paragraph).
- */
-function generateL1(content: string): string | null {
-  const paragraphs = content.split(/\n{2,}/).filter((p) => {
-    const trimmed = p.trim();
-    return (
-      trimmed.length > 0 &&
-      !trimmed.startsWith('<!--') &&
-      !trimmed.startsWith('#') &&
-      !trimmed.startsWith('---')
-    );
-  });
-
-  if (paragraphs.length === 0) return null;
-
-  const para = paragraphs[0].replace(/\n/g, ' ').trim();
-  return para.length > 300 ? para.slice(0, 297) + '...' : para;
 }
 
 // --- Main Auto-Processor ---
@@ -152,7 +140,7 @@ export function autoProcessFile(
   }
 
   const generateFrontmatter = options.generateFrontmatter !== false;
-  const generateSummaries = options.generateSummaries !== false;
+  const generateDescriptionField = options.generateDescription !== false;
 
   let parsed: ReturnType<typeof matter>;
   try {
@@ -223,32 +211,13 @@ export function autoProcessFile(
     }
   }
 
-  // --- L0/L1 summary fixes ---
-  if (generateSummaries) {
-    // Fix: Missing L0
-    if (!L0_REGEX.test(content)) {
-      const l0 = generateL0(content);
-      if (l0) {
-        content = `<!-- L0: ${l0} -->\n${content}`;
-        result.fixes.push('Generated L0 summary');
-        modified = true;
-      }
-    }
-
-    // Fix: Missing L1
-    if (!L1_REGEX.test(content)) {
-      const l1 = generateL1(content);
-      if (l1) {
-        const l0Pos = content.indexOf('-->');
-        if (l0Pos !== -1) {
-          const insertPos = l0Pos + 3;
-          content = content.slice(0, insertPos) + `\n<!-- L1: ${l1} -->` + content.slice(insertPos);
-        } else {
-          content = `<!-- L1: ${l1} -->\n${content}`;
-        }
-        result.fixes.push('Generated L1 summary');
-        modified = true;
-      }
+  // --- description: in frontmatter (single discovery-tier surface) ---
+  if (generateDescriptionField && !data.description) {
+    const desc = generateDescription(content);
+    if (desc) {
+      data.description = desc;
+      result.fixes.push(`Generated description: "${desc}"`);
+      modified = true;
     }
   }
 
@@ -365,7 +334,7 @@ export async function processSkillOnSave(
  */
 export function autoProcessAll(
   harnessDir: string,
-  options?: { generateFrontmatter?: boolean; generateSummaries?: boolean },
+  options?: { generateFrontmatter?: boolean; generateDescription?: boolean },
 ): AutoProcessResult[] {
   const results: AutoProcessResult[] = [];
   const dirs = getPrimitiveDirs();
@@ -380,7 +349,7 @@ export function autoProcessAll(
       const result = autoProcessFile(filePath, {
         harnessDir,
         generateFrontmatter: options?.generateFrontmatter,
-        generateSummaries: options?.generateSummaries,
+        generateDescription: options?.generateDescription,
       });
       if (result.modified || result.errors.length > 0) {
         results.push(result);

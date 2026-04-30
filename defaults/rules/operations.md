@@ -1,16 +1,12 @@
 ---
 id: operations
+description: Core operational rules — communication, code standards, security, financial boundaries.
 tags: [rule, operations, safety]
 author: human
 status: active
 related:
   - respect-the-user
 ---
-
-<!-- L0: Core operational rules — communication, code standards, security, financial boundaries. -->
-<!-- L1: Be concise and direct. Lead with the answer. Use TypeScript strict mode, no `any`.
-     Validate all inputs at system boundaries. Never commit secrets. Never execute financial
-     transactions without explicit human approval. -->
 
 # Rule: Operations
 

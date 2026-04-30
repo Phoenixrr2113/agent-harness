@@ -1,5 +1,6 @@
 ---
 id: read-before-edit
+description: Always read a file before editing it.
 tags:
   - instinct
   - development
@@ -11,11 +12,6 @@ related:
 metadata:
   harness-source: learned
 ---
-
-<!-- L0: Always read a file before editing it. -->
-<!-- L1: Never propose changes to code you haven't read. Understanding existing patterns
-     prevents breaking changes and respects prior work. Read the full file, understand the
-     context, then edit. -->
 
 # Instinct: Read Before Edit
 

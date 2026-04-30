@@ -1,16 +1,11 @@
 ---
 id: fix-failing-tests
+description: Seven-step flow for diagnosing and fixing failing tests.
 tags: [playbook, testing]
 author: human
 status: active
 trigger: ["fix the failing tests", "green the test suite", "tests are red"]
 ---
-
-<!-- L0: Seven-step flow for diagnosing and fixing failing tests. -->
-<!-- L1: Reproduce → read tests → root-cause (test bug vs. production bug) →
-     propose minimal fix → apply (one file at a time, specific lines) →
-     verify (specific suite, full suite, lint) → commit on feature branch,
-     report branch/SHA/summary. Never push, never merge, never open PR. -->
 
 # Playbook: Fix Failing Tests
 

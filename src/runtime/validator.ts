@@ -202,7 +202,7 @@ export interface DoctorResult extends ValidationResult {
 
 /**
  * Run validation then auto-fix all fixable issues:
- * - Fix primitives with missing id/status/L0/L1/tags
+ * - Fix primitives with missing id/status/description/tags
  * - Create missing memory directories
  */
 export function doctorHarness(dir: string): DoctorResult {
@@ -251,12 +251,11 @@ export function doctorHarness(dir: string): DoctorResult {
         for (const fix of fixResult.fixes_applied) {
           result.fixes.push(`${relPath}: ${fix}`);
         }
-        // Remove stale L0/L1 warnings since we just fixed them
       }
     }
   }
 
-  // Recalculate L0/L1 warnings after fixes
+  // Recalculate description warnings after fixes
   if (result.fixes.length > 0) {
     result.warnings = result.warnings.filter(
       (w) => !w.includes('missing description'),
