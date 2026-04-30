@@ -45,7 +45,7 @@ vi.mock('../src/llm/provider.js', async (importOriginal) => {
   };
 });
 
-import { installInstinct, proposeInstincts, learnFromSessions } from '../src/runtime/instinct-learner.js';
+import { installInstinct, proposeInstincts, learnFromSessions, harvestInstincts } from '../src/runtime/instinct-learner.js';
 import type { InstinctCandidate } from '../src/runtime/instinct-learner.js';
 
 function makeTestDir(): string {
@@ -136,17 +136,117 @@ describe('installInstinct', () => {
     expect(existsSync(path)).toBe(true);
   });
 
-  it('should title-case the instinct name from kebab-case id', () => {
+  it('should use the behavior text verbatim (sans trailing punct) as the heading', () => {
+    // Updated for F-07 fix: heading now uses the FULL behavior, not the
+    // truncated kebab-case id. This avoids ugly mid-word truncation when the
+    // id slice cuts at 50 chars (e.g. "Answer factual questions with clarity
+    // and precision" used to render as "...Precisio").
     const candidate: InstinctCandidate = {
       id: 'check-error-codes',
-      behavior: 'Check error codes after API calls',
+      behavior: 'Check error codes after API calls.',
       provenance: 'test',
       confidence: 0.75,
     };
 
     const path = installInstinct(testDir, candidate);
     const content = readFileSync(path, 'utf-8');
-    expect(content).toContain('# Instinct: Check Error Codes');
+    expect(content).toContain('# Instinct: Check error codes after API calls');
+    // Trailing period is stripped from the heading; behavior text below is verbatim.
+    expect(content).toContain('Check error codes after API calls.');
+  });
+});
+
+describe('harvestInstincts (F-07 regression)', () => {
+  let testDir: string;
+
+  beforeEach(() => {
+    testDir = makeTestDir();
+  });
+
+  afterEach(() => {
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  function writeJournal(content: string): void {
+    const journalDir = join(testDir, 'memory', 'journal');
+    mkdirSync(journalDir, { recursive: true });
+    writeFileSync(join(journalDir, '2026-04-30.md'), content);
+  }
+
+  it('extracts candidates from a clean journal section', () => {
+    writeJournal(`# Journal: 2026-04-30
+
+## Instinct Candidates
+- INSTINCT: Always lead with the answer.
+- INSTINCT: Read before edit.
+`);
+    const result = harvestInstincts(testDir);
+    expect(result.candidates.length).toBe(2);
+    expect(result.candidates.map((c) => c.behavior).sort()).toEqual([
+      'Always lead with the answer.',
+      'Read before edit.',
+    ]);
+  });
+
+  it('tolerates trailing whitespace on the section heading (qwen3-class artifact)', () => {
+    // F-07: small models often emit "## Instinct Candidates  " with trailing
+    // spaces (markdown line-break syntax). The harvest regex must tolerate
+    // this — without it, harvest silently returns 0 and learnFromSessions
+    // falls back to the LLM path that promotes session summaries verbatim.
+    // Note the explicit "  " concatenation: TS string literals collapse
+    // trailing whitespace, but observed model output has 2 trailing spaces
+    // (markdown line-break) that we must tolerate at parse time.
+    writeJournal(
+      '# Journal: 2026-04-30\n\n' +
+      '## Instinct Candidates  \n' +  // <-- two trailing spaces, the F-07 trigger
+      '- INSTINCT: Always lead with the answer.  \n' +
+      '- INSTINCT: Read before edit.  \n' +
+      '\n## Knowledge Updates  \n' +
+      '- Whatever\n'
+    );
+    const result = harvestInstincts(testDir);
+    expect(result.candidates.length).toBe(2);
+    expect(result.candidates.map((c) => c.behavior).sort()).toEqual([
+      'Always lead with the answer.',
+      'Read before edit.',
+    ]);
+  });
+
+  it('tolerates double-dash bullets and trailing line whitespace', () => {
+    // D14/D15 + F-07: small models also emit "- - INSTINCT: ..." with extra
+    // dashes and trailing markdown line-break spaces. Both must be stripped.
+    writeJournal(`# Journal: 2026-04-30
+
+## Instinct Candidates
+- - INSTINCT: Always lead with the answer.
+- INSTINCT: Read before edit.
+`);
+    const result = harvestInstincts(testDir);
+    expect(result.candidates.length).toBe(2);
+    expect(result.candidates.map((c) => c.behavior).sort()).toEqual([
+      'Always lead with the answer.',
+      'Read before edit.',
+    ]);
+  });
+
+  it('returns 0 candidates when no journal exists (graceful no-op)', () => {
+    const result = harvestInstincts(testDir);
+    expect(result.candidates).toEqual([]);
+    expect(result.journalsScanned).toBe(0);
+  });
+
+  it('returns 0 candidates when journal lacks an Instinct Candidates section', () => {
+    writeJournal(`# Journal: 2026-04-30
+
+## Summary
+Nothing notable.
+
+## Knowledge Updates
+- Some fact.
+`);
+    const result = harvestInstincts(testDir);
+    expect(result.candidates).toEqual([]);
+    expect(result.journalsScanned).toBe(1);
   });
 });
 

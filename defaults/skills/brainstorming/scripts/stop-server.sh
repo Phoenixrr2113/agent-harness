@@ -6,6 +6,39 @@
 # under /tmp (ephemeral). Persistent directories (.superpowers/) are
 # kept so mockups can be reviewed later.
 
+# --- --help block (per docs/skill-authoring.md script feedback contract) ---
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  cat <<'HELP'
+Usage: stop-server.sh <session_dir>
+
+Stops a running brainstorming visual companion server (started via
+start-server.sh). Reads the server PID from <session_dir>/state/server.pid
+and sends SIGTERM (escalating to SIGKILL after ~2 seconds if the process
+doesn't shut down gracefully).
+
+Arguments:
+  <session_dir>  Path to the session directory created by start-server.sh.
+                 The PID file is at <session_dir>/state/server.pid.
+  --help, -h     Show this message and exit 0.
+
+Cleanup:
+  - Always removes <session_dir>/state/server.pid and server.log on success.
+  - Removes the entire session directory ONLY if it is under /tmp/ (ephemeral).
+  - Persistent session directories (e.g. <project>/.superpowers/brainstorm/...)
+    are preserved so the user can review mockups after the server stops.
+
+Output (stdout):
+  {"status": "stopped"}      — server was running and is now stopped
+  {"status": "not_running"}  — no PID file found; nothing to stop
+  {"status": "failed", ...}  — kill attempted but process still alive
+
+Exit codes:
+  0  Server stopped (or was not running)
+  1  Argument error or kill failed
+HELP
+  exit 0
+fi
+
 SESSION_DIR="$1"
 
 if [[ -z "$SESSION_DIR" ]]; then

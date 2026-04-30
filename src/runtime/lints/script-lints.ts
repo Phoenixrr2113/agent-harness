@@ -74,6 +74,27 @@ async function helpSupported(scriptPath: string): Promise<LintResult[]> {
 
 async function noInteractive(scriptPath: string): Promise<LintResult[]> {
   const src = readFileSync(scriptPath, 'utf-8');
+  // Strip line comments before pattern-matching so prose like "session gets its
+  // own directory" in a `# ...` shell comment doesn't trip the `gets` regex.
+  // We strip `# ...` (shell/Python/Ruby) and `// ...` (JS/TS) line tails.
+  // Block-comments (`/* ... */`) are rare in scripts; not worth stripping.
+  const codeOnly = src
+    .split('\n')
+    .map((line) => {
+      // Skip shebang
+      if (line.startsWith('#!')) return line;
+      // Strip shell/python/ruby `# ...` comment tails (preserve content before #).
+      // Be careful: don't strip `#` inside strings. Heuristic: only strip when
+      // `#` is at column 0 OR preceded by whitespace AND not inside a single-line
+      // string. We use a simple "first # not preceded by quote" approximation.
+      const hashIdx = line.search(/(^|\s)#/);
+      const codeBefore = hashIdx >= 0 ? line.slice(0, hashIdx) : line;
+      // Strip JS/TS `// ...` tails (no string-aware logic — false negatives only).
+      const slashIdx = codeBefore.indexOf('//');
+      return slashIdx >= 0 ? codeBefore.slice(0, slashIdx) : codeBefore;
+    })
+    .join('\n');
+
   const patterns = [
     /\bread -p\b/,
     /\bread -r\b/,
@@ -82,7 +103,7 @@ async function noInteractive(scriptPath: string): Promise<LintResult[]> {
     /\bgets\b/,     // ruby
   ];
   for (const p of patterns) {
-    if (p.test(src)) {
+    if (p.test(codeOnly)) {
       return [{
         code: 'INTERACTIVE_PROMPT',
         severity: 'warn',

@@ -210,18 +210,74 @@ program
       }
     }
 
+    // --- Project-mode detection (B7 / F-02 wiring) ---
+    // If the user invoked `harness init` with no name AND we're inside a
+    // project that already has provider files (.claude/, .cursor/, AGENTS.md,
+    // CLAUDE.md, GEMINI.md, etc.), default to scaffolding into a `.harness/`
+    // subdirectory rather than erroring out. The project's name (basename of
+    // cwd) becomes the agent's identity name; the harness lives in the
+    // subdirectory so the project root stays clean.
+    let resolvedTargetDir: string | null = null;
+    type DetectedProvider = import('./scaffold.js').DetectedProvider;
+    let detectedProviders: DetectedProvider[] = [];
+
+    if (!agentName) {
+      const cwd = resolve(opts.dir);
+      const { detectExistingProviders, decideScaffoldLocation } = await import('./scaffold.js');
+      detectedProviders = detectExistingProviders(cwd);
+      const decision = decideScaffoldLocation(cwd);
+
+      if (detectedProviders.length > 0 || decision.useSubdirectory) {
+        const subdir = decision.subdirName || '.harness';
+
+        if (process.stdin.isTTY && !opts.yes) {
+          console.log(`\n  Detected existing project context at ${cwd}:`);
+          for (const d of detectedProviders) {
+            console.log(`    - ${d.provider}  (${d.evidencePath})`);
+          }
+          if (decision.useSubdirectory && detectedProviders.length === 0) {
+            console.log(`    - ${decision.reason}`);
+          }
+          const readline = await import('readline');
+          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+          try {
+            const ans = await askQuestion(rl, `  Scaffold harness into ${subdir}/? (Y/n)`, 'y');
+            const yes = ans.toLowerCase() === 'y' || ans.toLowerCase() === 'yes' || ans === '';
+            if (!yes) {
+              console.log('  Aborted. Run `harness init <name>` to scaffold a named harness elsewhere.');
+              process.exit(0);
+            }
+          } finally {
+            rl.close();
+          }
+        } else {
+          // Non-TTY: log what we're doing so CI logs explain the subdirectory choice.
+          console.log(`[init] Detected ${detectedProviders.length} provider file(s)/dir(s); scaffolding into ${subdir}/`);
+        }
+
+        // Project basename is the agent's identity; the harness lives in subdir.
+        agentName = basename(cwd);
+        resolvedTargetDir = resolve(cwd, subdir);
+      }
+    }
+
     if (!agentName) {
       console.error('Error: agent name is required. Usage: harness init <name>');
+      console.error('Tip: running `harness init` (no name) inside a project with .claude/, .cursor/, or AGENTS.md auto-detects and offers a .harness/ subdirectory scaffold.');
       process.exit(1);
     }
 
     // If the user passed a path (e.g. /tmp/my-agent or ./projects/foo), use the
     // basename as the agent name and resolve the parent dir from the path.
     // Otherwise treat agentName as a bare name relative to opts.dir as before.
+    // In projectMode, resolvedTargetDir overrides this logic (we already chose
+    // both the agent name = project basename and the target = cwd/.harness).
     const looksLikePath = agentName.includes('/') || agentName.startsWith('.');
-    const targetDir = looksLikePath ? resolve(agentName) : resolve(opts.dir, agentName);
-    const parentDir = looksLikePath ? resolve(targetDir, '..') : resolve(opts.dir);
-    if (looksLikePath) {
+    const targetDir = resolvedTargetDir ?? (looksLikePath ? resolve(agentName) : resolve(opts.dir, agentName));
+    const parentDir = resolvedTargetDir
+      ? dirname(resolvedTargetDir)
+      : (looksLikePath ? resolve(targetDir, '..') : resolve(opts.dir));
+    if (looksLikePath && !resolvedTargetDir) {
       agentName = basename(targetDir);
     }
 

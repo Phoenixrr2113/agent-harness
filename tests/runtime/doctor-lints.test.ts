@@ -139,6 +139,47 @@ describe('skillLints', () => {
     const results = skillLints.descriptionPresent(skill, bundleDir);
     expect(results).toHaveLength(0);
   });
+
+  it('cron-schedule: flags invalid cron expressions in metadata.harness-schedule', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lint-'));
+    const bundleDir = makeSkillBundle(
+      dir,
+      'bad-cron',
+      'name: bad-cron\ndescription: A skill with an invalid cron expression for testing.\nmetadata:\n  harness-status: active\n  harness-tags: test\n  harness-author: human\n  harness-created: \'2026-04-30\'\n  harness-schedule: \'not a real cron\'',
+      '# Bad Cron\n\nBody.'
+    );
+    const skill = loadFirstSkill(dir);
+    const results = skillLints.cronSchedule(skill, bundleDir);
+    expect(results.find((r) => r.code === 'INVALID_CRON_SCHEDULE')).toBeTruthy();
+    expect(results[0].severity).toBe('error');
+    expect(results[0].message).toContain('not a real cron');
+  });
+
+  it('cron-schedule: passes a valid 5-field cron expression', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lint-'));
+    const bundleDir = makeSkillBundle(
+      dir,
+      'good-cron',
+      'name: good-cron\ndescription: A skill with a valid cron expression for testing.\nmetadata:\n  harness-status: active\n  harness-tags: test\n  harness-author: human\n  harness-created: \'2026-04-30\'\n  harness-schedule: \'0 9 * * 1-5\'',
+      '# Good Cron\n\nBody.'
+    );
+    const skill = loadFirstSkill(dir);
+    const results = skillLints.cronSchedule(skill, bundleDir);
+    expect(results).toHaveLength(0);
+  });
+
+  it('cron-schedule: skips skills with no harness-schedule (most skills)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lint-'));
+    const bundleDir = makeSkillBundle(
+      dir,
+      'unscheduled',
+      'name: unscheduled\ndescription: A skill with no schedule field — must not trigger the cron lint.',
+      '# Unscheduled\n\nBody.'
+    );
+    const skill = loadFirstSkill(dir);
+    const results = skillLints.cronSchedule(skill, bundleDir);
+    expect(results).toHaveLength(0);
+  });
 });
 
 describe('scriptLints', () => {

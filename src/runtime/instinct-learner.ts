@@ -120,6 +120,11 @@ export function installInstinct(harnessDir: string, candidate: InstinctCandidate
   // YAML-safe quote: wrap in double quotes and escape internal " and \
   const quoteForYaml = (s: string): string =>
     `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  // Heading uses the full behavior text, not the truncated kebab id, so a
+  // candidate like "Answer factual questions with clarity and precision."
+  // doesn't render as "# Instinct: Answer Factual Questions With Clarity And
+  // Precisio" (id slice cuts mid-word).
+  const headingTitle = candidate.behavior.replace(/[.!?]+$/, '').trim();
   const content = `---
 id: ${candidate.id}
 description: ${quoteForYaml(candidate.behavior)}
@@ -131,7 +136,7 @@ status: active
 source: auto-detected
 ---
 
-# Instinct: ${candidate.id.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+# Instinct: ${headingTitle}
 
 ${candidate.behavior}
 
@@ -246,8 +251,13 @@ export function harvestInstincts(
   for (const file of filtered) {
     const content = readFileSync(join(journalDir, file), 'utf-8');
 
-    // Extract instinct candidates section
-    const sectionMatch = content.match(/## Instinct Candidates\n([\s\S]*?)(?=\n## |\n*$)/);
+    // Extract instinct candidates section.
+    // Note `[ \t]*` after the heading text: small models (qwen3-class) often
+    // emit headings with trailing spaces (markdown line-break), e.g.
+    // `## Instinct Candidates  \n`. Without this, harvest silently returns
+    // 0 candidates and the LLM-fallback path in learnFromSessions runs
+    // instead, producing session-summaries-as-instincts (F-07).
+    const sectionMatch = content.match(/## Instinct Candidates[ \t]*\n([\s\S]*?)(?=\n## |\n*$)/);
     if (!sectionMatch) continue;
 
     // D14+D15: tolerate malformed bullets the synthesis LLM sometimes emits.
