@@ -244,6 +244,28 @@ The brainstorming skill content is vendored from `obra/superpowers` (per its fro
 
 ---
 
+### F-13 (Extended-tier sweep) — false positive: `history` is a `metrics` subcommand
+
+**Item:** E-CLI sweep
+**Expected:** I parsed README line 620 (`metrics show|history`) as meaning `metrics show` and `history` are both top-level commands.
+**Actual:** Re-reading the line, the `|` is a pipe-as-separator within the `metrics` subgroup. `harness metrics history` works correctly. README is right.
+**Triage:** FALSE POSITIVE — operator misread the README CLI table format
+**Action:** None on the code or docs. Lesson: when a CLI reference uses `subgroup show|sub|sub`, the items after the subgroup are subcommands of THAT subgroup, not new top-level commands.
+**Resolved in:** N/A
+
+---
+
+### F-14 (Extended-tier sweep, item E-CRON) — invalid cron expressions in `metadata.harness-schedule` pass `harness skill validate` and `harness doctor`
+
+**Item:** E-CRON (new Extended-tier item — E-ERRORS concern)
+**Expected:** A skill with `metadata.harness-schedule: 'not a real cron'` should fail validation at lint time. Otherwise the user discovers the typo at runtime when the scheduler refuses to register the skill.
+**Actual (before fix):** `harness skill validate <name>` reported only the unrelated `MISSING_RECOMMENDED_SECTIONS` warning. Doctor never flagged the bad cron. Scheduler would silently skip the skill or crash at fire time.
+**Triage:** BUG (real, surfaced this round)
+**Action:** Add a `cronSchedule` skill lint that calls `cron.validate()` from `node-cron` (the same library the scheduler uses). The lint emits `[E] INVALID_CRON_SCHEDULE` with the offending expression and a link to crontab.guru.
+**Resolved in:** commit (this branch) — fix(lint): cron-schedule lint validates metadata.harness-schedule. Verified: `harness skill validate bad-cron` now emits the error; valid cron `0 9 * * 1-5` produces no findings; skills without a schedule field are skipped (no false positives on the 16 default skills).
+
+---
+
 ## Persona walkthroughs (P-01..P-03) — partial coverage
 
 The persona items overlap heavily with the mechanical findings above. Specifically:

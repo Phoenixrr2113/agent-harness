@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import cron from 'node-cron';
 import type { HarnessDocument } from '../../core/types.js';
 import type { LintResult } from '../lint-types.js';
 
@@ -163,6 +164,32 @@ function descriptionPresent(skill: HarnessDocument, _bundleDir: string): LintRes
   return [];
 }
 
+/**
+ * Flag invalid cron expressions in `metadata.harness-schedule`. Without this,
+ * the scheduler accepts a typo'd or malformed schedule at validate time and
+ * either silently never fires or crashes when the cron parser hits the
+ * expression at runtime.
+ */
+function cronSchedule(skill: HarnessDocument, _bundleDir: string): LintResult[] {
+  // The scheduler reads `metadata['harness-schedule']` directly from the
+  // normalized HarnessDocument (see src/runtime/scheduler.ts). The normalize
+  // layer doesn't strip that key (it's not in HARNESS_METADATA_KEYS), so
+  // it stays accessible on `skill.metadata`. Mirror the scheduler's lookup
+  // exactly so the lint flags whatever the scheduler would itself reject.
+  const expr = skill.metadata?.['harness-schedule'];
+  if (typeof expr !== 'string' || expr.trim() === '') return [];
+  if (!cron.validate(expr)) {
+    return [{
+      code: 'INVALID_CRON_SCHEDULE',
+      severity: 'error',
+      message: `metadata.harness-schedule "${expr}" is not a valid cron expression. The scheduler will refuse to register this skill at runtime. See https://crontab.guru for examples.`,
+      path: skill.path,
+      fixable: false,
+    }];
+  }
+  return [];
+}
+
 export const skillLints = {
   descriptionQuality,
   bodyLength,
@@ -171,6 +198,7 @@ export const skillLints = {
   evalsCoverage,
   legacyL0L1Markers,
   descriptionPresent,
+  cronSchedule,
 };
 
 export const ALL_SKILL_LINTS: Array<(s: HarnessDocument, b: string) => LintResult[]> = [
@@ -181,6 +209,7 @@ export const ALL_SKILL_LINTS: Array<(s: HarnessDocument, b: string) => LintResul
   requiredSections,
   evalsCoverage,
   legacyL0L1Markers,
+  cronSchedule,
 ];
 
 // --- Rule lints (mirror the L0/L1 + description checks for rules/) ---
