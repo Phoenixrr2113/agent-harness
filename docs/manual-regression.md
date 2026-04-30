@@ -1661,4 +1661,58 @@ Each finding from this tier feeds either an Extended-tier-specific bug fix OR a 
 
 Opt-in. Run when something looks off and you want to find siblings.
 
-<!-- Exhaustive-tier outline gets inserted here by Task 15. -->
+### What Exhaustive tier covers
+
+Opt-in. Runs only when something looks off and you want to find siblings. Items are NOT pre-committed with `Expected` blocks until first executed — those get filled in as part of running the tier.
+
+**Concerns:**
+
+#### X-FLAGS — Every flag combination on the high-blast-radius commands
+- `init` × `[--template base|local|dev|claude-opus|gpt4|assistant|code-reviewer]` × `[interactive|non-interactive]` × `[discoverMcp|--no-discover-mcp]` × `[generate|--no-generate]` × `[discoverProject|--no-discover-project]` × `[discoverEnv|--no-discover-env]` = ~50 combinations
+- `dev` × `[--web|no-web]` × `[--port=N]` × `[--no-auto-process|auto-process]` × `[--no-schedule|schedule]` = ~12 combinations
+- `doctor` × `[--check|--migrate|--fix|--check-drift|--strict|--dry-run|--migrate --dry-run]` = ~10 combinations
+- `export` × `[claude|codex|agents|cursor|copilot|gemini|all]` × `[--target X|default]` × `[--prune|--no-prune]` × `[--dry-run|apply]` × `[--force|safe]` = ~30 combinations
+- `run` × `[--tools=A,B|all-tools]` × `[--approve-all|safe]` × `[-m alias|model id]` = ~12 combinations
+
+#### X-CONFIG — Every config.yaml knob exercised
+- `runtime.scratchpad_budget` (low/normal/high)
+- `runtime.timezone` (various)
+- `runtime.auto_process` (on/off)
+- `memory.session_retention_days` (short/long)
+- `memory.journal_retention_days`
+- `memory.workflow_retention_days`
+- `workflows.durable_default` (on/off)
+- `rate_limits.{per_minute,per_hour,per_day}` (each set, each tripped)
+- `budget.{daily_limit_usd,monthly_limit_usd,enforce}`
+- `install.allowed_licenses` (each policy: allow/warn/prompt/block)
+- `mcp.servers.<name>.transport` (stdio/http)
+- `mcp.servers.<name>.tools.include` and `.exclude` filters
+
+#### X-HOSTED — Hosted providers smoke test (costs $)
+One prompt each: Anthropic, OpenRouter, OpenAI, Cerebras. Verify env-var pickup, model-id format, error path on revoked key.
+
+#### X-CONCURRENT — Concurrent dev/serve/scheduler
+- `harness dev` and `harness serve` on different ports simultaneously.
+- Scheduler firing while a `harness chat` REPL is active.
+- Two concurrent `harness run` invocations.
+
+#### X-DURABLE — Durable workflow resume after kill -9
+Start a workflow with `durable: true`. Kill the process mid-step. Run `harness workflows resume <runId>`. Verify the run picks up from the last cached step.
+
+#### X-EVAL — Eval system end-to-end with real model judging
+- `harness skill eval-triggers <name>` against Ollama, then against agntk-free, compare scores.
+- `harness skill eval-quality <name>` with the with-skill / no-skill comparison.
+- `harness skill optimize-description <name>` — runs the iterative refinement; confirms description converges.
+- `harness skill optimize-quality <name>` — same for body.
+- (Slow — these involve dozens of model calls each.)
+
+#### X-MULTIHARNESS — Two .harness/ directories in the same project
+Initialize `.harness-dev/` and `.harness-prod/`. Verify they don't clobber each other's exports or state. Verify `harness validate -d <dir>` correctly scopes to one or the other.
+
+#### X-STRESS — High-cardinality smoke
+- 100 sessions in `memory/sessions/` → does loading still work?
+- 50 skills in `skills/` → does discovery tier still fit?
+- 30 rules → context budget impact.
+- Journal across 30 days → `harness journal --all` time and memory cost.
+
+This tier's items get `Expected` blocks added on first execution. Until then, they are sketches.
