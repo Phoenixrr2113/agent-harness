@@ -1565,7 +1565,97 @@ sed -n '/^## When to use this/,/^## What makes it different/p' README.md
 
 Run quarterly or after significant changes.
 
-<!-- Extended-tier outline gets inserted here by Task 14. -->
+### What Extended tier covers
+
+The Extended tier exists to surface bugs Required misses. It runs against the same 3 scenarios but exercises the long tail of CLI commands, the second provider, multi-day flows, and error paths.
+
+**Concerns and approximate item counts:**
+
+#### E-CLI (~30 items): Long-tail CLI commands
+Every `harness <command>` not exercised in Required. From the README CLI surface section:
+- `costs show|budget|clear`
+- `metrics show|history`
+- `analytics`
+- `dead-primitives`
+- `contradictions`
+- `suggest`
+- `enrich`
+- `auto-promote`
+- `harvest`
+- `harvest --install`
+- `compress`
+- `intake`
+- `health`
+- `ratelimit status|clear`
+- `dashboard`
+- `check-rules <action>`
+- `list-rules`
+- `gate run`
+- `intelligence promote|dead|contradictions|suggest|failures`
+- `tools list|show`
+- `auth`
+- `state-merge apply|ownership`
+- `version init|snapshot`
+- `semantic index|stats`
+- `bundle`
+- `bundle-install`
+- `installed`
+- `uninstall`
+- `update`
+- `registry search|install`
+- `sources search|list|add|remove`
+- `browse`
+- `index`
+- `process`
+- `search`
+- `graph`
+- `serve`
+- `import`
+- `export-bundle`
+- `scratch`
+- `cleanup`
+- `hardware`
+- `fix <file>`
+
+For each: write `Action` running the command with sensible inputs, `Expected` covering exit code + stdout shape + any side-effect files, `Files to inspect` for any commands that write.
+
+#### E-PROVIDER (~10 items): Same Required-tier scenarios but with agntk-free
+Re-run R-16, R-17, R-18 (session/journal) and R-23 (rule application) with `model.provider: agntk-free`. Verify the agntk-free integration code path (proxy to Cerebras, no key, rate-limited) actually works end-to-end. Verify error messages reference rate limits if hit.
+
+#### E-MULTIDAY (~10 items): Multi-day learning loop simulation
+Pre-seed `memory/sessions/` with 3 days × 5 sessions each (15 sessions total, plausible content), date-stamped. Run `journal --all`, `learn --install`, then a 16th session. Verify the rule promoted on day 3 fires on the 16th session.
+
+#### E-ERRORS (~15 items): Error paths
+- Broken yaml in a rule file → expected: doctor flags, runtime degrades gracefully, no crash.
+- Missing IDENTITY.md → expected: warning printed, runtime boots with empty identity (D11).
+- Missing API key for hosted provider → expected: friendly error pointing at Ollama path.
+- Broken script (no shebang, no +x) → expected: doctor flags, harness still loads.
+- Malformed config.yaml → expected: parse error with line number.
+- Network timeout (`OLLAMA_BASE_URL` set to unreachable host) → expected: clear timeout error, doesn't hang forever.
+- File-permission errors (chmod 000 on a primitive) → expected: warning, file skipped.
+- Empty `rules/` directory → expected: harness boots, no crash.
+- Empty `skills/` directory → expected: harness boots, `activate_skill` enum is empty but tool still registered.
+- `IDENTITY.md` is empty file → expected: warning, treated as missing.
+- Multiple primitives with the same id → expected: doctor flags, last-load-wins or error.
+- Skill with `harness-trigger: subagent` but no body → expected: validation error.
+- Skill with invalid cron in `harness-schedule` → expected: scheduler error, other skills still scheduled.
+- Skill body > 6000 tokens → expected: doctor warns BODY_TOO_LONG.
+- Description > 1024 chars → expected: doctor errors DESCRIPTION_TOO_LONG.
+
+#### E-EDGE (~15 items): Edge cases on file content
+- Description with embedded quotes / backslashes / newlines → frontmatter still parses.
+- Unicode in IDENTITY.md (emojis, non-ASCII) → preserved in system prompt.
+- Large session body (>10k tokens) → captured without truncation.
+- Many primitives (>50 skills) → discovery tier still fits in context budget.
+- Filename collision case-insensitively (skills/Foo and skills/foo) → doctor flags or rejects.
+- Frontmatter with extra fields → harness preserves unknown fields on round-trip.
+- Mixed line endings (CRLF) → handled.
+- Symlinks within a primitive bundle → followed safely.
+
+#### E-MIGRATE (~10 items): Doctor migrate against fully-formed v0.8.x legacy
+Construct a comprehensive legacy harness with all 7 legacy primitive types populated (instincts, playbooks, workflows, tools, agents, plus skills/rules). Run `harness doctor --migrate`. Verify every file moves to its post-collapse home. Verify L0/L1 migration. Verify resulting harness validates clean.
+
+Each finding from this tier feeds either an Extended-tier-specific bug fix OR a hardening of the Required tier (if Required missed something Extended caught, promote that Required-tier item).
 
 ## Exhaustive tier (~70 items)
 
