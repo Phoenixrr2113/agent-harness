@@ -197,6 +197,142 @@ echo "exit: $?"
 **Notes:**
 
 
+### R-06 — `IDENTITY.md` content review
+
+**Lens:** B
+**Concern:** identity-loading
+
+**Action:** *(no command — read the file produced by R-01)*
+
+**Expected (open `/tmp/r-01/test-agent/IDENTITY.md` and verify):**
+- Has `# test-agent` heading at top
+- Has `## Purpose` section with non-empty content
+- Has `## Values` section listing 4–5 values (Honesty, Action, Autonomy, Growth, Protection per current scaffold)
+- Has `## Ethics` section listing 4 ethical statements
+- Total length: 15–25 lines (the current scaffold default)
+- Body contains NO `<!-- L0:` or `<!-- L1:` markers
+- Frontmatter present? — current scaffold has no frontmatter on IDENTITY.md by design; verify still no frontmatter
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-07 — All shipped default rules use frontmatter description, no legacy markers
+
+**Lens:** B
+**Concern:** identity-loading
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+ls rules/
+for f in rules/*.md; do
+  echo "=== $f ==="
+  awk '/^---$/{c++; next} c==1{print}' "$f"  # print frontmatter
+  echo "---body line count---"
+  grep -c '<!--\s*L[01]:' "$f" || true
+done
+```
+
+**Expected:**
+- 5 to 7 rule files (the v0.16.0 minimal set, OR — if the bundle work happens before this run — fewer)
+- Each rule's frontmatter has `description:` field with non-empty value
+- For every rule: `grep -c '<!--\s*L[01]:'` returns 0 (no legacy markers)
+
+**Files to inspect individually:**
+- Each `rules/*.md` — open in editor, read body. Body should NOT contain `<!-- L0:` or `<!-- L1:`. Description should be a complete sentence.
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-08 — `harness info` reports correct file count and no missing-IDENTITY warning
+
+**Lens:** A + B
+**Concern:** identity-loading
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+harness info 2>&1 | tee info.log
+```
+
+**Expected:**
+- Exit code 0
+- Output contains `Agent: test-agent`
+- Output contains `Files loaded: N` where N matches actual count of skill SKILL.md + rule files + IDENTITY.md + memory/state.md
+- Output contains `Context budget:` block with `Used:` < `Max tokens:`
+- Output does NOT contain `⚠ IDENTITY.md is missing`
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-09 — `harness prompt` assembles system prompt with correct progressive disclosure
+
+**Lens:** A + B
+**Concern:** identity-loading
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+harness prompt > prompt.txt
+wc -l prompt.txt
+```
+
+**Expected:**
+- Exit code 0
+- `prompt.txt` includes the literal contents of `IDENTITY.md`
+- `prompt.txt` includes the literal body of every file in `rules/` (rules are always-loaded, full body)
+- `prompt.txt` includes for each skill: `name` + `description` ONLY (NOT the full body — discovery tier)
+- `prompt.txt` includes the assembly of the `activate_skill` tool with skill names enumerated
+- `prompt.txt` does NOT contain `<!-- L0:` or `<!-- L1:` (clean output)
+- `prompt.txt` does NOT contain stub placeholder text like `TODO — one-line description` (the init-discovery TODOs)
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-10 — `harness validate` passes on fresh harness
+
+**Lens:** A
+**Concern:** identity-loading
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+harness validate 2>&1 | tee validate.log
+echo "exit: $?"
+```
+
+**Expected:**
+- Exit code 0 (or 1 only for warnings; verify behavior matches `--strict` semantics)
+- Output reports `✓ config.yaml exists`
+- Output reports `✓ Config valid`
+- Output reports `✓ skills/: N valid file(s)` matching actual skill count
+- Output reports `✓ rules/: N valid file(s)` matching actual rule count
+- Output reports `✓ Context budget:` with non-zero used and significant headroom
+- The "Missing required file: CORE.md" line MUST NOT appear (CORE.md was renamed in v0.9.0)
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
 <!-- Required-tier items get inserted here by Tasks 2–11. -->
 
 ## Extended tier (~80 items)
