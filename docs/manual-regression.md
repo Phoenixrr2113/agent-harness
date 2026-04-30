@@ -1115,6 +1115,171 @@ tail -10 dev-clean.log
 **Notes:**
 
 
+### R-39 — `harness doctor` on fresh harness reports clean
+
+**Lens:** A
+**Concern:** doctor
+
+**Action:**
+```bash
+cd /tmp/r-01/test-agent
+harness doctor 2>&1 | tee doctor.log
+echo "exit: $?"
+```
+
+**Expected:**
+- Exit code 0 OR the only findings are warnings (not errors)
+- No NOT_EXECUTABLE errors (D3 fix in v0.15.0 means scripts ship with +x)
+- No HELP_NOT_SUPPORTED errors for non-script files like `.html` (D4 fix)
+- No LEGACY_L0_MARKER findings (v0.16.0 — defaults are clean)
+- No MISSING_DESCRIPTION findings (v0.16.0 — every default skill has description)
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-40 — `harness doctor --migrate` against legacy harness moves files correctly
+
+**Lens:** A + B
+**Concern:** doctor
+
+**Action:**
+```bash
+mkdir -p /tmp/r-40 && cd /tmp/r-40 && rm -rf legacy-harness
+mkdir -p legacy-harness/instincts legacy-harness/playbooks legacy-harness/agents
+cd legacy-harness
+
+cat > CORE.md <<'EOF'
+# Legacy Agent
+## Purpose
+Test legacy migration.
+EOF
+
+cat > SYSTEM.md <<'EOF'
+# Legacy infrastructure documentation
+EOF
+
+cat > state.md <<'EOF'
+# Agent State
+## Mode
+idle
+EOF
+
+cat > config.yaml <<'EOF'
+agent:
+  name: legacy-test
+  version: "0.1.0"
+model:
+  provider: ollama
+  id: qwen3:1.7b
+EOF
+
+cat > playbooks/sample.md <<'EOF'
+---
+id: sample
+tags: [playbook]
+status: active
+---
+
+<!-- L0: sample legacy playbook -->
+
+# Sample Playbook
+
+Body.
+EOF
+
+harness doctor --migrate 2>&1 | tee migrate.log
+ls -la
+ls memory/ 2>/dev/null
+ls skills/ 2>/dev/null
+ls rules/ 2>/dev/null
+ls instincts/ playbooks/ agents/ 2>/dev/null && echo "FAIL: legacy dirs not removed"
+```
+
+**Expected:**
+- Exit code 0
+- `CORE.md` renamed to `IDENTITY.md`
+- `SYSTEM.md` removed
+- `state.md` moved to `memory/state.md`
+- `playbooks/sample.md` migrated to `skills/sample/SKILL.md` with `description:` lifted from `<!-- L0: -->` (D1 fix)
+- `instincts/`, `playbooks/`, `agents/` directories removed (B1 + spec #2 collapse)
+- New `skills/sample/SKILL.md` body does NOT contain `<!-- L0:` or `<!-- L1:`
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-41 — `harness doctor --migrate --dry-run` previews without applying
+
+**Lens:** A
+**Concern:** doctor
+
+**Action:**
+```bash
+mkdir -p /tmp/r-41 && cd /tmp/r-41 && rm -rf legacy-dry
+mkdir -p legacy-dry && cd legacy-dry
+
+cat > CORE.md <<'EOF'
+# Legacy
+EOF
+
+cat > config.yaml <<'EOF'
+agent:
+  name: legacy-dry
+EOF
+
+harness doctor --migrate --dry-run 2>&1 | tee dry-run.log
+ls
+test -f CORE.md && echo "PASS: CORE.md still present" || echo "FAIL: CORE.md was renamed"
+```
+
+**Expected:**
+- Exit code 0
+- Output describes the proposed migrations but does NOT apply them
+- `CORE.md` still present after the dry run (B3 fix)
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-42 — `harness doctor --check-drift` exit code reflects findings
+
+**Lens:** A
+**Concern:** doctor
+
+**Action:** *(uses R-30's setup)*
+```bash
+cd /tmp/r-01/test-agent
+echo "# more drift" >> .claude/CLAUDE.md  # ensure drift is present
+harness doctor --check-drift; rc=$?
+echo "exit when drifted: $rc"
+# Now resync
+harness export claude > /dev/null
+harness doctor --check-drift; rc=$?
+echo "exit when clean: $rc"
+```
+
+**Expected:**
+- When drift present: exit code != 0
+- After resync: exit code 0
+- Output specifies which files are drifted vs clean
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
 <!-- Required-tier items get inserted here by Tasks 2–11. -->
 
 ## Extended tier (~80 items)
