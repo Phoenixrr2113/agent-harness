@@ -3,7 +3,7 @@
 # Usage: start-server.sh [--project-dir <path>] [--host <bind-host>] [--url-host <display-host>] [--foreground] [--background]
 #
 # Starts server on a random high port, outputs JSON with URL.
-# Each session gets its own directory to avoid conflicts.
+# Each session uses its own directory to avoid conflicts.
 #
 # Options:
 #   --project-dir <path>  Store session files under <path>/.superpowers/brainstorm/
@@ -15,6 +15,35 @@
 #   --background          Force background mode (overrides Codex auto-foreground).
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# --- --help block (per docs/skill-authoring.md script feedback contract) ---
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  cat <<'HELP'
+Usage: start-server.sh [--project-dir <path>] [--host <bind-host>] [--url-host <display-host>] [--foreground] [--background]
+
+Starts the brainstorming visual companion server on a random high port.
+Outputs a single line of JSON containing the connection URL. Each invocation
+spawns its own session directory so multiple servers can run in parallel.
+
+Options:
+  --project-dir <path>  Store session files under <path>/.superpowers/brainstorm/
+                        instead of /tmp. Files persist after server stops.
+  --host <bind-host>    Host/interface to bind (default: 127.0.0.1).
+                        Use 0.0.0.0 in remote/containerized environments.
+  --url-host <host>     Hostname shown in returned URL JSON.
+  --foreground          Run server in the current terminal (no backgrounding).
+  --background          Force background mode (overrides auto-foreground).
+  --help, -h            Show this message and exit 0.
+
+Output (stdout, on success):
+  {"url": "http://localhost:<port>/<session>", "session_id": "...", ...}
+
+Exit codes:
+  0  Server started successfully (URL printed to stdout)
+  1  Argument error or server failed to start
+HELP
+  exit 0
+fi
 
 # Parse arguments
 PROJECT_DIR=""

@@ -1,6 +1,6 @@
 ---
 name: brainstorming
-description: "You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation."
+description: "Turn ideas into validated specs through dialogue. Use when starting any new feature, component, project, or significant behavior change — explores intent, surfaces constraints, and produces an approved design BEFORE any implementation."
 license: MIT
 metadata:
   harness-source: "https://github.com/obra/superpowers/blob/6efe32c9e2dd002d0c394e861e0529675d1ab32e/skills/brainstorming/SKILL.md"
