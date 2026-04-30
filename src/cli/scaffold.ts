@@ -107,8 +107,17 @@ function copyDirRecursive(srcDir: string, destDir: string, vars: TemplateVars): 
  * Copy markdown primitives from a source directory into a target harness.
  * Handles both flat .md files and bundle directories (e.g. skills/research/).
  * Existing files at the destination are overwritten.
+ *
+ * `selectedSkills` filters the `skills/` directory: 'all' copies every skill;
+ * an array of ids copies only those skills. Rules are not filtered (always
+ * fully copied — rule selection is a separate concern, not in scope here).
  */
-function copyPrimitivesFrom(srcRoot: string, targetDir: string, vars: TemplateVars): void {
+function copyPrimitivesFrom(
+  srcRoot: string,
+  targetDir: string,
+  vars: TemplateVars,
+  selectedSkills: readonly string[] | 'all',
+): void {
   if (!existsSync(srcRoot)) return;
   const primitiveDirs = ['rules', 'skills'];
   for (const dir of primitiveDirs) {
@@ -117,6 +126,12 @@ function copyPrimitivesFrom(srcRoot: string, targetDir: string, vars: TemplateVa
     for (const entry of readdirSync(srcDir)) {
       const srcPath = join(srcDir, entry);
       const destPath = join(targetDir, dir, entry);
+      // Skill filter: skip skills not in the selection set.
+      // Skills can be flat .md files (skill-name.md) or bundle dirs (skill-name/).
+      if (dir === 'skills' && selectedSkills !== 'all') {
+        const skillId = entry.endsWith('.md') ? entry.slice(0, -3) : entry;
+        if (!selectedSkills.includes(skillId)) continue;
+      }
       if (statSync(srcPath).isDirectory()) {
         // Bundle directory — copy recursively with template substitution
         copyDirRecursive(srcPath, destPath, vars);
@@ -132,12 +147,17 @@ function copyPrimitivesFrom(srcRoot: string, targetDir: string, vars: TemplateVa
 /**
  * Copy default primitives into the target harness from defaults/ and then from
  * templates/<name>/defaults/, with template-level files overriding defaults
- * of the same name.
+ * of the same name. `selectedSkills` filters which skills get copied.
  */
-function copyDefaults(targetDir: string, templateName: string, vars: TemplateVars): void {
+function copyDefaults(
+  targetDir: string,
+  templateName: string,
+  vars: TemplateVars,
+  selectedSkills: readonly string[] | 'all',
+): void {
   const root = getPackageRoot();
-  copyPrimitivesFrom(join(root, 'defaults'), targetDir, vars);
-  copyPrimitivesFrom(join(root, 'templates', templateName, 'defaults'), targetDir, vars);
+  copyPrimitivesFrom(join(root, 'defaults'), targetDir, vars, selectedSkills);
+  copyPrimitivesFrom(join(root, 'templates', templateName, 'defaults'), targetDir, vars, selectedSkills);
 }
 
 /**
@@ -155,6 +175,17 @@ export interface ScaffoldOptions {
   coreContent?: string;
   /** Agent purpose description (stored as comment in IDENTITY.md when no LLM generation) */
   purpose?: string;
+  /**
+   * Which shipped skills to scaffold into the new harness.
+   *   - 'all'        : every skill in defaults/skills/ (the v0.16.x behavior)
+   *   - readonly string[] : only those skill ids (must match directory names)
+   * If undefined, the caller has not provided a selection — the scaffold
+   * defaults to 'all' for backward compatibility with existing callers
+   * (test fixtures, programmatic use). The CLI's `init` command resolves
+   * the selection explicitly (default set / interactive prompt / --skills flag)
+   * before calling scaffoldHarness.
+   */
+  selectedSkills?: readonly string[] | 'all';
 }
 
 export function scaffoldHarness(targetDir: string, agentName: string, options?: ScaffoldOptions): void {
@@ -246,7 +277,11 @@ ${new Date().toISOString()}
   // --- memory/scratch.md ---
   writeFileSync(join(targetDir, 'memory', 'scratch.md'), '');
 
-  copyDefaults(targetDir, template, vars);
+  // Default to 'all' when caller didn't specify — preserves prior behavior for
+  // programmatic/test callers. The CLI's init command always resolves
+  // selectedSkills explicitly (interactive prompt / --skills flag / default set).
+  const selectedSkills = options?.selectedSkills ?? 'all';
+  copyDefaults(targetDir, template, vars, selectedSkills);
 
   // --- README.md (the in-scaffold quickstart, the FIRST thing a non-coder reads) ---
   writeFileSync(
