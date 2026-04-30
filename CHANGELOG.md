@@ -4,6 +4,31 @@ All notable changes to `@agntk/agent-harness` are documented here. The format is
 
 > **Migrating from 0.8.x?** See [Upgrading from 0.8.x](#upgrading-from-08x) at the bottom of this file. The 0.9 → 0.17 series brings substantial breaking changes alongside an automated migration path (`harness doctor --migrate`).
 
+## [0.18.0] — 2026-04-30
+
+Resolves all four open follow-ups from the v0.17.0 manual regression first-run findings (F-02, F-07, F-12), plus one new finding surfaced by the Extended-tier sweep against v0.17.0 (F-14).
+
+### Added
+
+- **`harness init` (no name) inside a project auto-detects existing providers** and offers a `.harness/` subdirectory scaffold (F-02 / B7). Walks the cwd looking for `.claude/`, `.codex/`, `.cursor/`, `.gemini/`, `.agents/`, `.github/copilot-instructions.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`. If any are present, the agent gets `agent.name = basename(cwd)` and lives in `<cwd>/.harness/`. TTY shows the detected providers and confirms; non-TTY proceeds silently with a one-line log. The detection helpers existed in `src/cli/scaffold.ts` since v0.13.0 but were never wired into the live action.
+- **`cronSchedule` skill lint** — calls `cron.validate()` from `node-cron` on `metadata.harness-schedule` if present. Catches typo'd or malformed cron expressions at validate time instead of letting them silently fail at scheduler-fire time. Surfaces as `[E] INVALID_CRON_SCHEDULE` with the offending expression and a link to crontab.guru. (F-14)
+
+### Fixed
+
+- **`harness learn --install` now installs real pattern-level instincts from journal candidates** (F-07). The harvest regex used to look for `## Instinct Candidates\n` literally, but small synthesis models (qwen3:1.7b — the default Ollama model) emit markdown line-break trailing whitespace on heading lines: `## Instinct Candidates  \n`. The literal `\n` didn't match, so harvest silently returned 0 candidates and the LLM-fallback path ran instead — that path treats each session as a candidate and uses the session SUMMARY verbatim as the "behavior", producing instincts like `# Instinct: Suggested a name for a coffee shop in three words` (the literal session summary, not a learned pattern). Relaxing the regex to `## Instinct Candidates[ \t]*\n` fixes harvest. The harness-learns-from-itself marquee claim is now functional on small models. Also changed the installed instinct's heading to use the full behavior text (sans trailing punctuation) instead of the truncated kebab id, so headings no longer cut mid-word.
+- **`brainstorming` skill's `start-server.sh` and `stop-server.sh` now support `--help`** (F-12). The vendored superpowers scripts didn't follow the harness's documented script-feedback contract — they crashed `harness skill validate brainstorming` with `[E] HELP_NOT_SUPPORTED` and `[W] HELP_INCOMPLETE`. Added `--help` blocks with `Usage:`, `Options:`, `Exit codes:` per `docs/skill-authoring.md`. All 4 default skills (the picker's pre-checked set) now validate with 0 errors each.
+- **`noInteractive` script lint no longer false-positives on prose mentions** (related to F-12). Comment lines are stripped before pattern-matching, so future scripts with prose like `# Each session gets its own directory ...` won't trip the `\bgets\b` Ruby-interactive-input regex.
+
+### Internal
+
+- New dep usage: `node-cron`'s `cron.validate()` exposed as a lint primitive. (Already in deps for the scheduler.)
+- Test count: 1467 → 1475 (5 harvest-instinct regression tests + 3 cron-schedule lint tests).
+
+### Known limitations carried forward
+
+- **F-06** is fully resolved by the v0.17.0 picker (not "trim defaults"; let user pick at init time).
+- All other v0.17.0 known limitations (none) have been resolved this release.
+
 ## [0.17.0] — 2026-04-30
 
 Hardening release — manual regression suite + four bug fixes surfaced by its first execution, plus interactive skill selection at `harness init`.
