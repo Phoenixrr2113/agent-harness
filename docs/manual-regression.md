@@ -71,7 +71,7 @@ find test-agent -maxdepth 1 -type f -name "*.md" | sort
 
 **Expected:**
 - Exit code 0
-- Top-level files (exact set): `IDENTITY.md`, `README.md`, `config.yaml`, `.env.example` (if implemented)
+- Top-level files (exact set): `IDENTITY.md`, `README.md`, `config.yaml`, `.gitignore`, `.env.example` (if implemented)
 - NO top-level files: `CORE.md`, `SYSTEM.md`, `state.md`
 - Top-level dirs (exact set): `intake/`, `memory/`, `rules/`, `skills/`
 - Inside `memory/`: `sessions/`, `journal/` (and possibly `state.md`, `scratch.md`)
@@ -890,7 +890,7 @@ echo "exit: $?"
 **Notes:**
 
 
-### R-31 — `harness export --prune` removes orphaned generated files
+### R-31 — `harness export --prune` removes orphaned harness-written files
 
 **Lens:** A + B
 **Concern:** export
@@ -898,17 +898,30 @@ echo "exit: $?"
 **Action:**
 ```bash
 cd /tmp/r-01/test-agent
-# Create a fake stale export file
-echo "# stale" > .claude/old-orphan.md
-harness export claude --prune 2>&1 | tee prune.log
-ls .claude/
+# Stale skill with harness provenance pointing at a missing source — should be pruned
+mkdir -p .claude/skills/will-be-orphaned
+cat > .claude/skills/will-be-orphaned/SKILL.md <<'EOF'
+<!-- agent-harness-provenance
+harness-exported-from: nonexistent-skill
+harness-content-hash: sha256:fake
+-->
+# orphaned
+EOF
+# Non-harness file (no provenance) — must NOT be touched by prune
+echo "# user content" > .claude/user-file.md
+harness export claude --prune > /tmp/prune.log 2>&1
+echo "exit: $?"
+ls .claude/skills/will-be-orphaned/ 2>/dev/null && echo "FAIL: orphaned skill not pruned"
+test -f .claude/user-file.md && echo "OK: user-file.md preserved" || echo "FAIL: user file was pruned"
 ```
 
 **Expected:**
 - Exit code 0
-- `.claude/old-orphan.md` no longer exists after prune
+- `.claude/skills/will-be-orphaned/` removed (the canonical orphan: provenance marker points at a missing source skill)
+- `.claude/user-file.md` still exists (no provenance marker — left alone by design)
 - `.claude/CLAUDE.md` (the legitimate export) still exists
-- Output reports "Pruned 1 orphan(s)" or similar
+- Output reports `Pruned N orphan(s)` with N >= 1
+- **NOT testing pruning of arbitrary unmanaged files** — prune correctly only touches files the harness wrote
 
 **Actual (this run):**
 
@@ -964,7 +977,7 @@ harness mcp list 2>&1 | tee mcp-list.log
 **Notes:**
 
 
-### R-34 — `harness mcp test <server>` connects to a stdio MCP
+### R-34 — `harness mcp test <server>` reports correct status (enabled or disabled)
 
 **Lens:** A
 **Concern:** mcp
@@ -972,16 +985,25 @@ harness mcp list 2>&1 | tee mcp-list.log
 **Action:**
 ```bash
 cd /tmp/r-01/test-agent
-# pick the first enabled server, OR fall back to enabling one for the test
-harness mcp test screenpipe 2>&1 | tee mcp-test.log || \
-  harness mcp test sequential-thinking 2>&1 | tee mcp-test.log || \
-  echo "No reachable MCP server in config — KNOWN, requires env-specific setup"
+# Default config has servers disabled (opt-in by design). First test the disabled passthrough:
+harness mcp test screenpipe > /tmp/mcp-disabled.log 2>&1
+echo "exit-disabled: $?"
+grep -E "disabled|0/1" /tmp/mcp-disabled.log
+
+# Then enable a server and retest. Pick one that doesn't need network/credentials:
+harness config set "mcp.servers.sequential-thinking.enabled" true 2>&1 | tail -2
+harness mcp test sequential-thinking > /tmp/mcp-enabled.log 2>&1
+echo "exit-enabled: $?"
+head -20 /tmp/mcp-enabled.log
+# Restore disabled
+harness config set "mcp.servers.sequential-thinking.enabled" false 2>&1 | tail -1
 ```
 
 **Expected:**
-- If a server is reachable: exit 0, output lists the server's tools, and the test exercises one tool's schema
-- Positional argument form (`mcp test <name>`) is accepted (D10 fix)
-- If no reachable server: error is friendly, points at `harness mcp install` or `harness mcp discover`
+- Disabled-server case: exit 0, output reports "disabled" gracefully (no crash, no connection attempt)
+- Enabled-server case: exit 0 if the server is reachable, output lists the server's tools
+- Positional argument form (`mcp test <name>`) is accepted (D10 fix in v0.15.0)
+- For servers requiring network or credentials that aren't available in this test env: error is friendly, points at `harness mcp install` or `harness mcp discover`
 
 **Actual (this run):**
 
@@ -1028,15 +1050,18 @@ ls SYSTEM.md 2>/dev/null && echo "POST: SYSTEM.md exists (BUG — D5)" || echo "
 **Action:**
 ```bash
 cd /tmp/r-01/test-agent
-( harness dev --web > dev-web.log 2>&1 & echo $! > dev-web.pid ) ; sleep 3
-curl -sf http://localhost:8080/api/health > /dev/null && echo "PASS: 8080 reachable"
+( harness dev --web > dev-web.log 2>&1 & echo $! > dev-web.pid ) ; sleep 4
+# Probe the dashboard root (returns the HTML). Avoid /api/health — that endpoint
+# does not exist on the dev dashboard (only `harness serve` exposes /api/*).
+curl -sf -o /dev/null -w "%{http_code}\n" http://localhost:8080/
 kill $(cat dev-web.pid) 2>/dev/null
 ```
 
 **Expected:**
-- Exit 0 from curl (health endpoint reachable on 8080)
+- curl prints `200` (dashboard root reachable on 8080)
 - `dev-web.log` shows `Dashboard: http://localhost:8080`
 - No "port already in use" — 8080 is free in clean test env
+- Note: `/api/health` returns 404 by design on the dev dashboard server (it's a static UI). To test REST API endpoints, run `harness serve` separately and probe those.
 
 **Actual (this run):**
 
