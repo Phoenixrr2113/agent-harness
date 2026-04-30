@@ -55,6 +55,148 @@ The release-gate tier. Run before every minor or major version bump.
 - Anti-pattern (R-43 through R-45)
 - Persona walkthroughs (P-01 through P-03; counted as 5 items because P-01 has multiple sub-checks)
 
+### R-01 — `harness init <name>` writes correct top-level structure
+
+**Lens:** A + B
+**Concern:** boot/scaffold
+
+**Action:**
+```bash
+mkdir -p /tmp/r-01 && cd /tmp/r-01 && rm -rf test-agent
+harness init test-agent
+ls -la test-agent/
+find test-agent -type d | sort
+find test-agent -maxdepth 1 -type f -name "*.md" | sort
+```
+
+**Expected:**
+- Exit code 0
+- Top-level files (exact set): `IDENTITY.md`, `README.md`, `config.yaml`, `.env.example` (if implemented)
+- NO top-level files: `CORE.md`, `SYSTEM.md`, `state.md`
+- Top-level dirs (exact set): `intake/`, `memory/`, `rules/`, `skills/`
+- Inside `memory/`: `sessions/`, `journal/` (and possibly `state.md`, `scratch.md`)
+- NO directories: `agents/`, `instincts/`, `playbooks/`, `tools/`, `workflows/` (collapsed in v0.10.0)
+- Stdout includes "✓ Agent harness created" and a "Next steps" block
+
+**Files to inspect (lens B):**
+- `test-agent/IDENTITY.md` — must contain `# test-agent` heading, `## Purpose`, `## Values`, `## Ethics`. Must NOT contain `<!-- L0:` or `<!-- L1:`.
+- `test-agent/README.md` — must reference `IDENTITY.md` (not `CORE.md`), reference `memory/state.md` (not top-level `state.md`).
+- `test-agent/config.yaml` — `agent.name: test-agent`, `model.provider` set, `model.id` set.
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-02 — `harness init` warns when no API key set
+
+**Lens:** A
+**Concern:** boot/scaffold
+
+**Action:**
+```bash
+unset OPENROUTER_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY CEREBRAS_API_KEY
+mkdir -p /tmp/r-02 && cd /tmp/r-02 && rm -rf no-key-agent
+harness init no-key-agent 2>&1 | tee init.log
+```
+
+**Expected:**
+- Exit code 0 (init still succeeds)
+- stdout/stderr contains `⚠ No API key detected for the default model`
+- The warning includes a hint pointing at Ollama (`harness config set model.provider ollama`)
+- The warning includes the env var name for the default provider (`OPENROUTER_API_KEY`)
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-03 — `harness init` detects existing providers
+
+**Lens:** A + B
+**Concern:** boot/scaffold
+
+**Action:**
+```bash
+mkdir -p /tmp/r-03/my-project && cd /tmp/r-03/my-project
+mkdir -p .claude && echo "# Claude" > .claude/CLAUDE.md
+mkdir -p .cursor/rules && echo "# Cursor rule" > .cursor/rules/test.mdc
+harness init 2>&1 | tee init.log  # no name → interactive or default
+```
+
+**Expected:**
+- If running non-interactively: silently scaffolds into `.harness/` (subdirectory mode) with no prompt
+- If interactive: prompts about detected providers (claude, cursor) and asks whether to scaffold into `.harness/`
+- Project root (`my-project/`) is NOT modified except for new `.harness/` subdirectory
+- Existing `.claude/CLAUDE.md` and `.cursor/rules/test.mdc` content preserved unchanged
+
+**Files to inspect (lens B):**
+- `my-project/.claude/CLAUDE.md` — content unchanged from `# Claude`.
+- `my-project/.cursor/rules/test.mdc` — content unchanged.
+- `my-project/.harness/IDENTITY.md` — exists if subdirectory scaffold occurred.
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-04 — `harness init <name>` succeeds into existing empty directory
+
+**Lens:** A
+**Concern:** boot/scaffold
+
+**Action:**
+```bash
+mkdir -p /tmp/r-04/empty-target
+cd /tmp/r-04/empty-target
+harness init existing-empty
+```
+
+**Expected:**
+- Exit code 0
+- Scaffolds into `existing-empty/` (subdir of empty-target/)
+- No "directory already exists" error (D2 fix from v0.15.0)
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
+### R-05 — `harness init <name>` rejects existing harness-bearing directory
+
+**Lens:** A
+**Concern:** boot/scaffold
+
+**Action:**
+```bash
+mkdir -p /tmp/r-05 && cd /tmp/r-05
+rm -rf existing-harness && harness init existing-harness > /dev/null 2>&1
+# Now try to scaffold again into the same path
+harness init existing-harness 2>&1 | tee retry.log
+echo "exit: $?"
+```
+
+**Expected:**
+- Exit code != 0
+- stderr contains "already contains a harness" or similar
+- The error mentions one of: `IDENTITY.md`, `CORE.md`, `config.yaml` (the harness-signal files)
+- Original `existing-harness/IDENTITY.md` is NOT overwritten
+
+**Actual (this run):**
+
+**Verdict (this run):**
+
+**Notes:**
+
+
 <!-- Required-tier items get inserted here by Tasks 2–11. -->
 
 ## Extended tier (~80 items)
