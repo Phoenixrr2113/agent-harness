@@ -6,6 +6,8 @@
 **Total items:** 48 (R-01..R-45 + P-01..P-03 with sub-items)
 **Counts:** 32 PASS / 7 FAIL / 4 SURPRISE / 2 KNOWN / 3 partial-coverage (personas spot-checked vs full walk)
 
+**Resolution status (after first-run triage):** 4 BUGS fixed inline this branch (F-03, F-05, F-10 — 3 commits; F-04 was a false positive caused by `tee` masking exit code). 1 BUG deferred to a separate branch (F-07 — instinct-learner pattern synthesis is non-trivial). 4 doc errors updated in checklist (F-01, F-08, F-09, F-11). 2 known limitations filed (F-02, F-06).
+
 **Test command for v0.16.0+ dist:** `node /Users/randywilson/Desktop/agent-harness/dist/cli/index.js <args>` (the global `harness` on this machine is v0.8.0). All commands below substitute `harness` → the dist path; the canonical checklist's commands assume a fresh global install of the version under test.
 
 ## Findings
@@ -52,7 +54,7 @@ The validator was never updated to know about this. Every `harness init` user ge
 
 **Triage:** BUG (real, ships in production v0.16.0)
 **Action:** Fix `src/runtime/validator.ts` to check for IDENTITY.md, drop CORE.md/SYSTEM.md/state.md (top-level) checks. Add an integration test asserting fresh-init validates clean.
-**Resolved in:** open (will fix inline in this branch before merge)
+**Resolved in:** commit `084965b` — fix(validator): use IDENTITY.md not legacy CORE.md/SYSTEM.md/state.md. After fix: `harness validate` on fresh init reports `9 passed, 1 warnings, 0 errors` and exits 0.
 
 ---
 
@@ -64,9 +66,9 @@ The validator was never updated to know about this. Every `harness init` user ge
 
 This makes `harness validate` useless as a CI gate — scripts can't detect when validation actually failed. Combined with F-03, every CI pipeline that runs `harness validate` would silently pass with the spurious CORE.md error.
 
-**Triage:** BUG (real)
-**Action:** Fix `src/cli/index.ts` validate command handler to `process.exit(1)` when `result.errors.length > 0`.
-**Resolved in:** open (will fix inline)
+**Triage:** FALSE POSITIVE — caused by `tee` masking the upstream exit code in the test command (same bug as observed in R-05). The validate handler at `src/cli/index.ts:1549-1551` already does `process.exit(1)` when errors > 0; verified by re-running without the pipe: `harness validate` exits 1 on errors, 0 on success.
+**Action:** None on the code. Note in the checklist that pipes (`| tee`) shadow exit codes — tests should redirect to a file (`> log 2>&1`) and check `$?` separately.
+**Resolved in:** N/A (false positive); checklist note added.
 
 ---
 
@@ -90,11 +92,11 @@ Root cause: `defaults/skills/brainstorming/scripts/helper.js` has executable per
 
 This is a pre-existing bug from v0.15.x — I observed it during the v0.15.1 smoke test ("pre-existing v0.15.x bug"). It was NOT fixed in v0.16.0 because the L0/L1 work didn't touch the lint script-detection logic.
 
-**Triage:** BUG (real, pre-existing)
+**Triage:** BUG (real, pre-existing since v0.15.x)
 **Action:** Two-part fix:
-1. Remove `+x` from `defaults/skills/brainstorming/scripts/helper.js`. Verify it's not invoked as a CLI (check `start-server.sh` to confirm it's loaded as a browser asset).
-2. Make `isScriptFile()` in `src/runtime/doctor.ts` more permissive: also exclude `.js` files that lack a shebang (currently only excludes by extension). Add a fallback: catch ENOEXEC errors during `runWithTimeout` and report a friendlier `NOT_RUNNABLE_SCRIPT` lint instead of crashing.
-**Resolved in:** open (will fix inline)
+1. Tighten `shouldBeExecutable()` in `src/cli/scaffold.ts` so it ONLY chmods +x for shell-extension files (.sh/.bash/.zsh/.fish) OR files with a shebang. JavaScript/Python/etc. without shebang stay non-executable. helper.js no longer gets +x at scaffold time.
+2. Tighten `isScriptFile()` in `src/runtime/doctor.ts` with the same rule — non-shebang non-shell files are not "scripts" and don't get linted as such. The `helpSupported` lint never tries to spawn helper.js anymore.
+**Resolved in:** commit `b7e2a48` — fix(scaffold,doctor): require shebang for non-shell-extension scripts. After fix: fresh init has helper.js as `-rw-r--r--` (no +x), `harness doctor` runs cleanly and reports skill lints (DESCRIPTION_TOO_SHORT, MISSING_RECOMMENDED_SECTIONS) without crashing.
 
 ---
 
@@ -197,12 +199,10 @@ Every shipped default rule file gets a `created: <today>` field added on first d
 Root cause: `defaults/rules/*.md` files don't have `created:` fields in their shipped frontmatter. The auto-processor (`src/runtime/auto-processor.ts`) helpfully adds them.
 
 **Triage:** BUG (real, high-visibility)
-**Action:** Two options:
-1. Add `created: '2026-04-30'` (or similar fixed date) to every `defaults/rules/*.md` and `defaults/skills/*/SKILL.md` so the auto-processor doesn't touch them.
-2. Make the auto-processor skip files in `defaults/`-derived paths.
-
-Option 1 is cleaner. Will fix inline.
-**Resolved in:** open (will fix inline)
+**Action:** Combined approach:
+1. Make auto-processor recognize `metadata.harness-created` as equivalent to top-level `created:` (and same for `harness-author`, `harness-status`, `harness-tags`). The shipped default skills use these Agent Skills extension fields and shouldn't get redundant top-level duplicates added.
+2. Add `created: '2026-04-30'` to the 7 default rules in `defaults/rules/` (which use top-level fields, not metadata.harness-*).
+**Resolved in:** commit `45d2d21` — fix(auto-processor): respect existing metadata.harness-* fields. After fix: fresh `harness dev` startup produces no "Auto-processed N file(s)" line for the shipped defaults; `git status` stays clean.
 
 ---
 
@@ -240,7 +240,7 @@ A full persona walkthrough is deferred to a future round; the mechanical finding
 | F-01 | R-01 | minor | Doc error | Update R-01 Expected — add `.gitignore` |
 | F-02 | R-03 | KNOWN | Out-of-scope | Filed as v0.17.0 work (init detection wiring) |
 | F-03 | R-10 | **BUG** | Fix this branch | Update validator to use IDENTITY.md, drop legacy file checks |
-| F-04 | R-10 | **BUG** | Fix this branch | validate exits 1 when errors > 0 |
+| F-04 | R-10 | FALSE POSITIVE | N/A | Was caused by `tee` masking upstream exit code; validate handler is correct |
 | F-05 | R-14/30/39/42 | **BUG** | Fix this branch | Remove +x from helper.js + harden doctor lint |
 | F-06 | R-15 | KNOWN | Out-of-scope | Filed as v0.17.0 defaults-trim |
 | F-07 | R-21 | **BUG** | Defer to follow-up branch | Non-trivial: instinct-learner needs to read journal candidates correctly |
@@ -249,9 +249,11 @@ A full persona walkthrough is deferred to a future round; the mechanical finding
 | F-10 | R-35 | **BUG** | Fix this branch | Add `created:` fields to shipped defaults |
 | F-11 | R-36 | minor | Doc error | Update R-36 Expected — use `/` not `/api/health` |
 
-**Bugs to fix in this branch (5):** F-03, F-04, F-05, F-10 (F-07 is deferred — non-trivial)
-**Doc errors to update (4):** F-01, F-08, F-09, F-11
-**Out-of-scope (2):** F-02, F-06
+**Bugs fixed inline (3):** F-03 (`084965b`), F-05 (`b7e2a48`), F-10 (`45d2d21`).
+**False positive (1):** F-04 (was tee masking exit code).
+**Bug deferred (1):** F-07 (instinct-learner pattern synthesis — non-trivial; separate branch).
+**Doc errors to update (4):** F-01, F-08, F-09, F-11.
+**Out-of-scope (2):** F-02 (init detection wiring), F-06 (defaults bloat — planned v0.17.0).
 
 ## Comparison to prior rounds
 
