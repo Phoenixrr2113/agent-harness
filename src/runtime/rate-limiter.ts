@@ -136,8 +136,9 @@ export function recordEvent(harnessDir: string, key: string, now?: number): void
 
   store.events.push({ key, timestamp: currentTime });
 
-  // Prune events older than 1 hour to keep the store manageable
-  pruneExpired(store, currentTime, 3600000);
+  // Preserve events for the longest supported per-day guardrail window.
+  // Pruning after only one hour silently resets the day count on every write.
+  pruneExpired(store, currentTime, 86_400_000);
 
   saveRateLimits(harnessDir, store);
 }

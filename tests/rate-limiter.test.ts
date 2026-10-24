@@ -99,6 +99,26 @@ describe('rate-limiter', () => {
     expect(telegramResult.allowed).toBe(true);
   });
 
+  it('retains a full day of events even when requests are hours apart', () => {
+    const now = Date.now();
+    recordEvent(testDir, 'llm-calls:day', now - 2 * 60 * 60 * 1000);
+    recordEvent(testDir, 'llm-calls:day', now);
+
+    const limit = checkRateLimit(testDir, {
+      key: 'llm-calls:day', max_requests: 2, window_ms: 86_400_000,
+    }, now);
+    expect(limit.allowed).toBe(false);
+    expect(limit.current).toBe(2);
+  });
+
+  it('recording a minute event does not erase valid day history', () => {
+    const now = Date.now();
+    recordEvent(testDir, 'llm-calls:day', now - 3 * 60 * 60 * 1000);
+    recordEvent(testDir, 'llm-calls:minute', now);
+
+    expect(getUsage(testDir, 'llm-calls:day', 86_400_000, now).count).toBe(1);
+  });
+
   it('tryAcquire should record event when allowed', () => {
     const now = Date.now();
 
