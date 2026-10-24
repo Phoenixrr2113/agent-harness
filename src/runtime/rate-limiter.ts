@@ -29,10 +29,12 @@ export interface RateLimitCheck {
 export interface RateLimitStore {
   events: RateEvent[];
   updated: string;
+  /** Most recently evicted timestamp for each key; checks fail closed while relevant. */
+  truncated?: RateEvent[];
 }
 
 const RATE_FILE = 'rate-limits.json';
-const MAX_EVENTS = 10000;
+const MAX_EVENTS_PER_KEY = 10000;
 
 function getStorePath(harnessDir: string): string {
   return join(harnessDir, 'memory', RATE_FILE);
@@ -66,7 +68,8 @@ export function loadRateLimits(harnessDir: string): RateLimitStore {
 }
 
 /**
- * Save rate limit events to disk. Trims to MAX_EVENTS.
+ * Save rate limit events to disk. Retains up to MAX_EVENTS_PER_KEY for each key.
+ * Persist an overflow marker so losing active events cannot silently allow calls.
  */
 export function saveRateLimits(harnessDir: string, store: RateLimitStore): void {
   const memoryDir = join(harnessDir, 'memory');
@@ -74,8 +77,26 @@ export function saveRateLimits(harnessDir: string, store: RateLimitStore): void 
     mkdirSync(memoryDir, { recursive: true });
   }
 
-  if (store.events.length > MAX_EVENTS) {
-    store.events = store.events.slice(store.events.length - MAX_EVENTS);
+  if (store.events.length > MAX_EVENTS_PER_KEY) {
+    const keptPerKey = new Map<string, number>();
+    const lastTruncated = new Map<string, number>(
+      (store.truncated ?? []).map((event) => [event.key, event.timestamp]),
+    );
+    const retained: RateEvent[] = [];
+
+    for (let i = store.events.length - 1; i >= 0; i--) {
+      const event = store.events[i];
+      const kept = keptPerKey.get(event.key) ?? 0;
+      if (kept < MAX_EVENTS_PER_KEY) {
+        retained.push(event);
+        keptPerKey.set(event.key, kept + 1);
+      } else {
+        lastTruncated.set(event.key, Math.max(lastTruncated.get(event.key) ?? -Infinity, event.timestamp));
+      }
+    }
+
+    store.events = retained.reverse();
+    store.truncated = [...lastTruncated].map(([key, timestamp]) => ({ key, timestamp }));
   }
 
   store.updated = new Date().toISOString();
@@ -88,6 +109,9 @@ export function saveRateLimits(harnessDir: string, store: RateLimitStore): void 
 function pruneExpired(store: RateLimitStore, now: number, maxWindowMs: number): void {
   const cutoff = now - maxWindowMs;
   store.events = store.events.filter((e) => e.timestamp > cutoff);
+  if (store.truncated) {
+    store.truncated = store.truncated.filter((e) => e.timestamp > cutoff);
+  }
 }
 
 /**
@@ -108,13 +132,18 @@ export function checkRateLimit(
   );
 
   const current = eventsInWindow.length;
-  const allowed = current < limit.max_requests;
+  const lastTruncated = store.truncated?.find((e) => e.key === limit.key)?.timestamp;
+  const truncatedInWindow = lastTruncated !== undefined && lastTruncated > windowStart;
+  const allowed = !truncatedInWindow && current < limit.max_requests;
 
   let retryAfterMs = 0;
   if (!allowed && eventsInWindow.length > 0) {
     // Time until the oldest event in the window expires
     const oldest = eventsInWindow.reduce((min, e) => Math.min(min, e.timestamp), Infinity);
     retryAfterMs = Math.max(0, oldest + limit.window_ms - currentTime);
+  }
+  if (truncatedInWindow) {
+    retryAfterMs = Math.max(retryAfterMs, lastTruncated + limit.window_ms - currentTime);
   }
 
   return {
@@ -200,8 +229,10 @@ export function clearRateLimits(harnessDir: string, key?: string): number {
 
   if (key) {
     store.events = store.events.filter((e) => e.key !== key);
+    store.truncated = store.truncated?.filter((e) => e.key !== key);
   } else {
     store.events = [];
+    store.truncated = [];
   }
 
   saveRateLimits(harnessDir, store);

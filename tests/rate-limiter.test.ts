@@ -9,6 +9,7 @@ import {
   getUsage,
   clearRateLimits,
   loadRateLimits,
+  saveRateLimits,
 } from '../src/runtime/rate-limiter.js';
 
 describe('rate-limiter', () => {
@@ -117,6 +118,47 @@ describe('rate-limiter', () => {
     recordEvent(testDir, 'llm-calls:minute', now);
 
     expect(getUsage(testDir, 'llm-calls:day', 86_400_000, now).count).toBe(1);
+  });
+
+  it('does not lose day history when minute and hour events exceed the store cap', () => {
+    const now = Date.now();
+    const events = Array.from({ length: 3500 }, (_, i) => [
+      { key: 'llm-calls:minute', timestamp: now - i },
+      { key: 'llm-calls:hour', timestamp: now - i },
+      { key: 'llm-calls:day', timestamp: now - i },
+    ]).flat();
+
+    saveRateLimits(testDir, { events, updated: '' });
+
+    const day = checkRateLimit(testDir, {
+      key: 'llm-calls:day', max_requests: 3400, window_ms: 86_400_000,
+    }, now);
+    expect(day.current).toBe(3500);
+    expect(day.allowed).toBe(false);
+  });
+
+  it('fails closed if an individual key exceeds the retained event cap', () => {
+    const now = Date.now();
+    const events = Array.from({ length: 10001 }, (_, i) => ({
+      key: 'llm-calls:day', timestamp: now - (10000 - i),
+    }));
+
+    saveRateLimits(testDir, { events, updated: '' });
+
+    const day = checkRateLimit(testDir, {
+      key: 'llm-calls:day', max_requests: 10010, window_ms: 86_400_000,
+    }, now);
+    expect(day.allowed).toBe(false);
+    expect(day.retry_after_ms).toBeGreaterThan(0);
+
+    expect(checkRateLimit(testDir, {
+      key: 'llm-calls:day', max_requests: 10010, window_ms: 86_400_000,
+    }, now + 86_400_001).allowed).toBe(true);
+
+    clearRateLimits(testDir, 'llm-calls:day');
+    expect(checkRateLimit(testDir, {
+      key: 'llm-calls:day', max_requests: 10010, window_ms: 86_400_000,
+    }, now).allowed).toBe(true);
   });
 
   it('tryAcquire should record event when allowed', () => {
